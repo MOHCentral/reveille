@@ -2465,7 +2465,8 @@ mod tests {
         RequestError, Server, Session, TargetGame, answered_for_another_game,
         cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, installed_maps,
         installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
-        prepare_app_log, preview_cache_matches, record_openmohaa_install, shopping_list_will_write,
+        platform, prepare_app_log, preview_cache_matches, record_openmohaa_install,
+        shopping_list_will_write,
     };
 
     #[test]
