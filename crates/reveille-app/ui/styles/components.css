@@ -60,6 +60,20 @@
   background: transparent;
 }
 
+/* Help belongs in the chrome but is not a primary journey action. Keep it quieter than an
+   outlined secondary button until the player points to it or reaches it with the keyboard. */
+.btn--utility {
+  border-color: transparent;
+  background: transparent;
+  color: var(--dim);
+  letter-spacing: 0.03em;
+}
+
+.btn--utility:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
 .btn--sm {
   padding: 5px 10px;
   font-size: var(--text-sm);

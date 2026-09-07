@@ -8,6 +8,7 @@ import { $, el } from "./lib/dom.js";
 import { closeDialog, openDialog } from "./lib/dialog.js";
 import { closeMenu, menuIsOpen } from "./lib/menu.js";
 import {
+  appLogFiles,
   browseFailure,
   browseServers,
   cancelBrowse,
@@ -21,6 +22,7 @@ import {
   onInstallProgress,
   onPreviewProgress,
   onSelfUpdateProgress,
+  openExternalUrl,
   previewJoin,
 } from "./lib/api.js";
 import { favorites, recordLaunch, toggleFavorite } from "./lib/bookmarks.js";
@@ -103,9 +105,14 @@ function render() {
 /* Bug reports -------------------------------------------------------------- */
 
 async function openBugReport() {
-  const issueUrl = issueUrlWithContext();
-  const opened = window.open(issueUrl, "_blank", "noopener,noreferrer");
-  if (opened) return;
+  const logs = await appLogFiles().catch(() => null);
+  const issueUrl = issueUrlWithContext(logs);
+  try {
+    await openExternalUrl(issueUrl);
+    return;
+  } catch {
+    // The URL remains usable even when Windows has no registered browser or opening it is denied.
+  }
   openDialog(
     "Report a bug",
     el("p", null, "Reveille could not open your browser from this window."),
@@ -115,7 +122,7 @@ async function openBugReport() {
       "button",
       {
         type: "button",
-        className: "btn btn--sm",
+        className: "btn btn--sm btn--primary",
         onclick: () => navigator.clipboard?.writeText(issueUrl).catch(() => {}),
       },
       "Copy link",
@@ -123,15 +130,15 @@ async function openBugReport() {
   );
 }
 
-function issueUrlWithContext() {
+function issueUrlWithContext(logs) {
   const params = new URLSearchParams({
     title: "bug: ",
-    body: issueTemplate(),
+    body: issueTemplate(logs),
   });
   return `${ISSUE_TRACKER_URL}?${params.toString()}`;
 }
 
-function issueTemplate() {
+function issueTemplate(logs) {
   const installRoot = state.install?.root ?? "(not selected)";
   const selectedServer = state.selected ?? "(none)";
   const browseError = state.browse.error
@@ -166,7 +173,10 @@ function issueTemplate() {
     "",
     "## Logs",
     "",
-    "If possible, run with `RUST_LOG=reveille=debug` and paste relevant output.",
+    logs
+      ? `Attach \`${logs.current}\`. After a crash and restart, also attach \`${logs.previous}\`.`
+      : "Attach the Reveille log from the app's local log folder.",
+    "Set `RUST_LOG=reveille=debug` before starting Reveille for more detail.",
   ].join("\n");
 }
 

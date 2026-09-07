@@ -23,6 +23,7 @@
 //   check_reveille_update()                    -> { version, current_version } | null
 //   install_reveille_update()                  -> void (the app exits on Windows)
 //   cancel_reveille_update()                   -> void
+//   app_log_files()                            -> { current, previous }
 //
 // A `session` is `{ path, engine, game }`: which game folder, which engine program, and which of
 // the three games — Allied Assault, Spearhead or Breakthrough. Every server-facing command takes
@@ -38,6 +39,7 @@
 const tauri = window.__TAURI__;
 const invoke = tauri.core.invoke;
 const listen = tauri.event.listen;
+const openUrl = tauri.opener.openUrl;
 
 export const detectInstall = (selectedPath = null) => invoke("detect_install", { selectedPath });
 
@@ -58,6 +60,9 @@ export const cancelOpenMohaaInstall = () => invoke("cancel_openmohaa_install");
 export const checkReveilleUpdate = () => invoke("check_reveille_update");
 export const installReveilleUpdate = () => invoke("install_reveille_update");
 export const cancelReveilleUpdate = () => invoke("cancel_reveille_update");
+
+export const appLogFiles = () => invoke("app_log_files");
+export const openExternalUrl = (url) => openUrl(url);
 
 export const pickInstallFolder = () => invoke("pick_install_folder");
 

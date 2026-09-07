@@ -186,7 +186,9 @@ There is **one** primary surface. The three-screen wizard was removed.
   compares it. A session that comes back unchanged keeps its list, because re-sweeping it would
   cost a couple of hundred probes to redraw the same table.
   **Report a bug** appears in setup's footer and in the shell titlebar, in the same relative place,
-  so the help route does not move between views.
+  so the help route does not move between views. It is a quiet utility control rather than an
+  outlined journey action, opens the pre-filled issue through Tauri's system-browser API, and the
+  issue names the current and previous persistent log files.
 - **Game** — a select at the head of the toolbar, labelled **Game**, listing only the games the
   folder can actually run. That is `Installation.playable`, not `products`: an expansion needs the
   base game underneath it, and a folder with `mainta` and no `main` runs nothing (rules **H13**,

@@ -61,7 +61,7 @@ function card(render, onReady, onUpdate, onReportBug) {
     view.error && el("p", { className: "error", role: "alert" }, view.error),
     el("div", { className: "setup__foot" },
       el("button", { type: "button", className: `btn btn--sm btn--primary ${state.selfUpdate.offer ? "" : "hidden"}`, "data-self-update-offer": true, disabled: Boolean(view.installing), onclick: onUpdate }, "Update Reveille"),
-      el("button", { type: "button", className: "btn btn--sm btn--ghost", disabled: Boolean(view.installing), onclick: onReportBug }, "Report a bug")),
+      el("button", { type: "button", className: "btn btn--sm btn--utility", disabled: Boolean(view.installing), onclick: onReportBug }, "Report a bug")),
   ));
 }
 

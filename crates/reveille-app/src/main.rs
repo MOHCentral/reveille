@@ -57,6 +57,8 @@ const PREVIEW_EVENT: &str = "reveille://preview";
 const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
+const APP_LOG_FILENAME: &str = "reveille.log";
+const PREVIOUS_APP_LOG_FILENAME: &str = "reveille.previous.log";
 
 /// Deadline for one per-server UDP probe.
 ///
@@ -1817,23 +1819,131 @@ async fn install_candidate(
     Ok(installed)
 }
 
-fn init_logging() {
+#[derive(Serialize)]
+struct AppLogFiles {
+    current: String,
+    previous: String,
+}
+
+#[derive(Debug, Error)]
+enum AppLoggingError {
+    #[error("could not access the app log at {path}")]
+    Filesystem {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("could not install the app log subscriber: {0}")]
+    Subscriber(String),
+}
+
+#[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri resolves the app handle only for by-value command parameters"
+)]
+fn app_log_files(app: tauri::AppHandle) -> Result<AppLogFiles, String> {
+    let directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
+    let (current, previous) = app_log_paths(&directory);
+    Ok(AppLogFiles {
+        current: current.to_string_lossy().into_owned(),
+        previous: previous.to_string_lossy().into_owned(),
+    })
+}
+
+fn app_log_paths(directory: &Path) -> (PathBuf, PathBuf) {
+    (
+        directory.join(APP_LOG_FILENAME),
+        directory.join(PREVIOUS_APP_LOG_FILENAME),
+    )
+}
+
+fn prepare_app_log(directory: &Path) -> Result<(fs::File, PathBuf), AppLoggingError> {
+    fs::create_dir_all(directory).map_err(|source| AppLoggingError::Filesystem {
+        path: directory.to_path_buf(),
+        source,
+    })?;
+    let (current, previous) = app_log_paths(directory);
+    let current_exists = current
+        .try_exists()
+        .map_err(|source| AppLoggingError::Filesystem {
+            path: current.clone(),
+            source,
+        })?;
+    if current_exists {
+        match fs::remove_file(&previous) {
+            Ok(()) => {}
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(AppLoggingError::Filesystem {
+                    path: previous,
+                    source,
+                });
+            }
+        }
+        fs::rename(&current, &previous).map_err(|source| AppLoggingError::Filesystem {
+            path: current.clone(),
+            source,
+        })?;
+    }
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&current)
+        .map_err(|source| AppLoggingError::Filesystem {
+            path: current.clone(),
+            source,
+        })?;
+    Ok((file, current))
+}
+
+fn logging_filter() -> EnvFilter {
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"))
+}
+
+fn init_logging(directory: &Path) -> Result<PathBuf, AppLoggingError> {
+    let (file, path) = prepare_app_log(directory)?;
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(logging_filter())
+        .with_writer(file)
+        .try_init()
+        .map_err(|error| AppLoggingError::Subscriber(error.to_string()))?;
+    Ok(path)
+}
+
+fn init_stderr_logging() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"));
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
 fn main() {
-    init_logging();
-    info!("starting Reveille app shell");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .pubkey(self_update::PUBLIC_KEY)
                 .build(),
         )
         .setup(|app| {
+            match app.path().app_log_dir() {
+                Ok(directory) => match init_logging(&directory) {
+                    Ok(path) => info!(log_path = %path.display(), "starting Reveille app shell"),
+                    Err(error) => {
+                        init_stderr_logging();
+                        warn!(%error, "persistent app logging is unavailable");
+                    }
+                },
+                Err(error) => {
+                    init_stderr_logging();
+                    warn!(%error, "could not resolve the app log directory");
+                }
+            }
             app.manage(AppState::default());
             self_update::register(app);
             Ok(())
@@ -1855,7 +1965,8 @@ fn main() {
             install_and_launch,
             self_update::check_reveille_update,
             self_update::install_reveille_update,
-            self_update::cancel_reveille_update
+            self_update::cancel_reveille_update,
+            app_log_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running Reveille");
@@ -1864,7 +1975,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::io;
+    use std::io::{self, Write as _};
     use std::path::Path;
 
     use reveille_core::bsp::Checksum;
@@ -1881,13 +1992,37 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError,
-        EngineChoice, MasterEndpoint, OfferRelation, OpenMohaaFailure, OpenMohaaFailureKind,
-        OpenMohaaInstalledBuild, QueryPort, RequestError, Server, Session, TargetGame,
-        answered_for_another_game, cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason,
-        installed_maps, installed_openmohaa_build, launch_refusal, merge_checked_server,
-        openmohaa_client_path, preview_cache_matches, record_openmohaa_install,
+        APP_LOG_FILENAME, AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason,
+        DiscoveryError, EngineChoice, MasterEndpoint, OfferRelation, OpenMohaaFailure,
+        OpenMohaaFailureKind, OpenMohaaInstalledBuild, PREVIOUS_APP_LOG_FILENAME, QueryPort,
+        RequestError, Server, Session, TargetGame, answered_for_another_game,
+        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, installed_maps,
+        installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
+        prepare_app_log, preview_cache_matches, record_openmohaa_install,
     };
+
+    #[test]
+    fn app_logging_retains_the_previous_session() {
+        let directory = TempDir::new().expect("temporary log directory");
+        let current = directory.path().join(APP_LOG_FILENAME);
+        fs::write(&current, "previous session\n").expect("seed current log");
+
+        let (mut file, path) = prepare_app_log(directory.path()).expect("prepare app log");
+        file.write_all(b"current session\n")
+            .expect("write current log");
+        drop(file);
+
+        assert_eq!(path, current);
+        assert_eq!(
+            fs::read_to_string(directory.path().join(PREVIOUS_APP_LOG_FILENAME))
+                .expect("read previous log"),
+            "previous session\n"
+        );
+        assert_eq!(
+            fs::read_to_string(current).expect("read current log"),
+            "current session\n"
+        );
+    }
 
     fn assessment(
         state: CompatibilityState,
@@ -2833,5 +2968,25 @@ mod tests {
         assert!(workflow.contains("createUpdaterArtifacts = $true"));
         assert!(workflow.contains("latest.json"));
         assert!(config.contains(r#""pubkey": """#));
+    }
+
+    #[test]
+    fn bug_reports_use_the_scoped_system_opener_and_name_persistent_logs() {
+        let shell = include_str!("../ui/app.js");
+        let api = include_str!("../ui/lib/api.js");
+        let setup = include_str!("../ui/views/setup.js");
+        let index = include_str!("../ui/index.html");
+        let styles = include_str!("../ui/styles/components.css");
+        let capability = include_str!("../capabilities/default.json");
+
+        assert!(shell.contains("await openExternalUrl(issueUrl)"));
+        assert!(!shell.contains("window.open("));
+        assert!(shell.contains("await appLogFiles()"));
+        assert!(api.contains("tauri.opener.openUrl"));
+        assert!(capability.contains("opener:allow-open-url"));
+        assert!(capability.contains("https://github.com/MOHCentral/reveille/issues/new*"));
+        assert!(setup.contains("btn btn--sm btn--utility"));
+        assert!(index.contains("btn btn--sm btn--utility"));
+        assert!(styles.contains(".btn--utility"));
     }
 }
