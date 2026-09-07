@@ -27,8 +27,8 @@ const view = {
 };
 let loadToken = 0;
 
-export function setupView(root, { onReady, onUpdate }) {
-  const render = () => fill(root, card(render, onReady, onUpdate));
+export function setupView(root, { onReady, onUpdate, onReportBug }) {
+  const render = () => fill(root, card(render, onReady, onUpdate, onReportBug));
   const renderUpdateOffer = () => {
     const button = root.querySelector("[data-self-update-offer]");
     if (button) button.classList.toggle("hidden", !state.selfUpdate.offer);
@@ -45,7 +45,7 @@ function progressFor(engine, progress, render) {
   render();
 }
 
-function card(render, onReady, onUpdate) {
+function card(render, onReady, onUpdate, onReportBug) {
   const available = selectedAvailable();
   return el("div", { className: "setup" }, el("div", { className: "setup__card" },
     el("div", { className: "setup__brand" }, el("span", { className: "wordmark" }, "Reveille"), el("span", { className: "label" }, view.eyebrow)),
@@ -60,7 +60,8 @@ function card(render, onReady, onUpdate) {
       el("button", { className: "btn btn--ghost", disabled: view.busy || Boolean(view.installing), onclick: () => { resetCandidate(); view.message = "Pick your game folder."; render(); } }, "Choose another folder")),
     view.error && el("p", { className: "error", role: "alert" }, view.error),
     el("div", { className: "setup__foot" },
-      el("button", { type: "button", className: `btn btn--sm btn--primary ${state.selfUpdate.offer ? "" : "hidden"}`, "data-self-update-offer": true, disabled: Boolean(view.installing), onclick: onUpdate }, "Update Reveille")),
+      el("button", { type: "button", className: `btn btn--sm btn--primary ${state.selfUpdate.offer ? "" : "hidden"}`, "data-self-update-offer": true, disabled: Boolean(view.installing), onclick: onUpdate }, "Update Reveille"),
+      el("button", { type: "button", className: "btn btn--sm btn--ghost", disabled: Boolean(view.installing), onclick: onReportBug }, "Report a bug")),
   ));
 }
 

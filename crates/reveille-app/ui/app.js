@@ -4,7 +4,7 @@
 // this module is the only place that calls commands and mutates state in
 // response to them.
 
-import { $ } from "./lib/dom.js";
+import { $, el } from "./lib/dom.js";
 import { closeDialog, openDialog } from "./lib/dialog.js";
 import { closeMenu, menuIsOpen } from "./lib/menu.js";
 import {
@@ -46,6 +46,7 @@ import { joinView, shoppingTotals } from "./views/join.js";
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");
+const ISSUE_TRACKER_URL = "https://github.com/MOHCentral/reveille/issues/new";
 
 loadFilters();
 state.rememberedInstall = recallInstall();
@@ -59,7 +60,11 @@ const servers = serversView({
   onGame: selectGame,
 });
 const join = joinView($("#detail-slot"), { onJoin: getAndJoin, onRecheck: recheck });
-const setup = setupView(setupRoot, { onReady: enterServers, onUpdate: openReveilleUpdate });
+const setup = setupView(setupRoot, {
+  onReady: enterServers,
+  onUpdate: openReveilleUpdate,
+  onReportBug: () => void openBugReport(),
+});
 
 $("#toolbar-slot").replaceWith(servers.toolbar);
 $("#list-slot").replaceWith(servers.listPane);
@@ -68,6 +73,7 @@ document.body.append(servers.live);
 
 $("#install-chip").addEventListener("click", leaveServers);
 $("#reveille-update-btn").addEventListener("click", openReveilleUpdate);
+$("#bug-report-btn").addEventListener("click", () => void openBugReport());
 $("#info-dialog-close").addEventListener("click", closeDialog);
 $("#reveille-update-later").addEventListener("click", dismissReveilleUpdate);
 $("#reveille-update-install").addEventListener("click", startReveilleUpdate);
@@ -92,6 +98,76 @@ function render() {
   $("#reveille-update-btn").disabled = state.joining;
   servers.render();
   join.render();
+}
+
+/* Bug reports -------------------------------------------------------------- */
+
+async function openBugReport() {
+  const issueUrl = issueUrlWithContext();
+  const opened = window.open(issueUrl, "_blank", "noopener,noreferrer");
+  if (opened) return;
+  openDialog(
+    "Report a bug",
+    el("p", null, "Reveille could not open your browser from this window."),
+    el("p", null, "Use this link to open a new issue:"),
+    el("p", { className: "quiet data" }, issueUrl),
+    el(
+      "button",
+      {
+        type: "button",
+        className: "btn btn--sm",
+        onclick: () => navigator.clipboard?.writeText(issueUrl).catch(() => {}),
+      },
+      "Copy link",
+    ),
+  );
+}
+
+function issueUrlWithContext() {
+  const params = new URLSearchParams({
+    title: "bug: ",
+    body: issueTemplate(),
+  });
+  return `${ISSUE_TRACKER_URL}?${params.toString()}`;
+}
+
+function issueTemplate() {
+  const installRoot = state.install?.root ?? "(not selected)";
+  const selectedServer = state.selected ?? "(none)";
+  const browseError = state.browse.error
+    ? `${state.browse.error.kind}: ${state.browse.error.detail}`
+    : "(none)";
+  const joinError = state.joinError ?? "(none)";
+  const previewError = state.previewError ?? "(none)";
+  return [
+    "## What happened?",
+    "",
+    "<describe the problem>",
+    "",
+    "## What did you expect?",
+    "",
+    "<describe expected behavior>",
+    "",
+    "## Steps to reproduce",
+    "",
+    "1.",
+    "2.",
+    "3.",
+    "",
+    "## Reveille context",
+    "",
+    `- Game folder: ${installRoot}`,
+    `- Game: ${state.game}`,
+    `- Engine: ${state.engine}`,
+    `- Selected server: ${selectedServer}`,
+    `- Browse error: ${browseError}`,
+    `- Preview error: ${previewError}`,
+    `- Join error: ${joinError}`,
+    "",
+    "## Logs",
+    "",
+    "If possible, run with `RUST_LOG=reveille=debug` and paste relevant output.",
+  ].join("\n");
 }
 
 /* Reveille updates --------------------------------------------------------- */

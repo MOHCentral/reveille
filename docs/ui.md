@@ -185,6 +185,8 @@ There is **one** primary surface. The three-screen wizard was removed.
   toolbar switch: `state.listSession` records what the rows were swept for, and `enterServers`
   compares it. A session that comes back unchanged keeps its list, because re-sweeping it would
   cost a couple of hundred probes to redraw the same table.
+  **Report a bug** appears in setup's footer and in the shell titlebar, in the same relative place,
+  so the help route does not move between views.
 - **Game** — a select at the head of the toolbar, labelled **Game**, listing only the games the
   folder can actually run. That is `Installation.playable`, not `products`: an expansion needs the
   base game underneath it, and a folder with `mainta` and no `main` runs nothing (rules **H13**,

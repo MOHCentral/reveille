@@ -803,8 +803,8 @@
   color: var(--brass);
 }
 
-/* The lexicon sits last in setup's own chrome, as it does last in the shell's titlebar, so the
-   help control keeps one relative position across both views (WCAG 2.2 SC 3.2.6). */
+/* Report a bug sits last in setup's own chrome and in the shell titlebar, so the help control
+   keeps one relative position across both views (WCAG 2.2 SC 3.2.6). */
 .setup__foot {
   display: flex;
   gap: var(--space-2);
