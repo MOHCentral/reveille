@@ -1858,7 +1858,7 @@ mod tests {
         OpenMohaaInstalledBuild, QueryPort, RequestError, Server, Session, TargetGame,
         answered_for_another_game, cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason,
         installed_maps, installed_openmohaa_build, launch_refusal, merge_checked_server,
-        openmohaa_client_path, preview_cache_matches, record_openmohaa_install,
+        openmohaa_client_path, platform, preview_cache_matches, record_openmohaa_install,
     };
 
     fn assessment(
