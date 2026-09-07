@@ -48,6 +48,8 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc, oneshot};
+use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
 
 /// Events the frontend listens for, kept together so the contract reads in one place.
 const BROWSE_EVENT: &str = "reveille://browse";
@@ -965,6 +967,7 @@ fn openmohaa_client_path(root: &Path, target: ReleaseTarget) -> PathBuf {
 /// Open the platform folder picker. `None` means the player dismissed it.
 #[tauri::command]
 async fn pick_install_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    info!("opening install folder picker");
     let (sender, receiver) = oneshot::channel();
     app.dialog()
         .file()
@@ -986,6 +989,7 @@ async fn pick_install_folder(app: tauri::AppHandle) -> Result<Option<String>, St
     reason = "Tauri resolves managed state only for by-value command parameters"
 )]
 fn cancel_browse(state: tauri::State<'_, AppState>) {
+    info!("browse cancellation requested");
     state.cancel_browse.notify_one();
 }
 
@@ -995,6 +999,7 @@ async fn browse_servers(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<BrowserPayload, BrowseFailure> {
+    info!(game = ?session.game, "starting server browse");
     let (_, index) = installed_maps(&session)?;
 
     // A stop pressed just as the previous sweep ended leaves a permit behind, which would cancel
@@ -1029,6 +1034,13 @@ async fn browse_servers(
         .await
         .map_err(|error| BrowseFailure::from(format!("the server sweep did not finish: {error}")))?
         .map_err(BrowseFailure::from)?;
+    info!(
+        registered = report.summary().registered,
+        inspected = report.summary().inspected,
+        non_results = report.summary().non_results,
+        cancelled,
+        "server browse finished"
+    );
     let servers = report
         .outcomes
         .iter()
@@ -1088,9 +1100,13 @@ async fn stream_sweep(
     loop {
         let event = tokio::select! {
             event = events.recv() => event,
-            () = state.cancel_browse.notified() => return Ok(true),
+            () = state.cancel_browse.notified() => {
+                info!("stopped streaming browse events after cancellation");
+                return Ok(true);
+            },
         };
         let Some(event) = event else {
+            info!("finished streaming browse events");
             return Ok(false);
         };
         match event {
@@ -1138,6 +1154,7 @@ async fn check_server(
     query_port: u16,
     state: tauri::State<'_, AppState>,
 ) -> Result<CheckResult, String> {
+    info!(%address, query_port, game = ?session.game, "checking saved server");
     let address = address
         .parse::<SocketAddrV4>()
         .map_err(|error| format!("Reveille could not read the address {address}: {error}"))?;
@@ -1166,6 +1183,7 @@ async fn check_server(
         });
     };
     if let Some(published) = answered_for_another_game(&server, session.game) {
+        info!(published_game = ?published, "checked server answered for another game");
         // It answered, for a game this session's client cannot join. Not a joinable entry either.
         forget_checked_server(&state, address)?;
         return Ok(CheckResult {
@@ -1184,6 +1202,7 @@ async fn check_server(
         .map_err(|_| "server list state is unavailable".to_owned())?;
     merge_checked_server(&mut servers, server);
     drop(servers);
+    info!("checked server answered and was merged into active list");
     Ok(CheckResult {
         row: Some(row),
         non_result: None,
@@ -1368,6 +1387,7 @@ async fn preview_join(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<JoinPreview, String> {
+    info!(%address, game = ?session.game, engine = ?session.engine, "building join preview");
     let server = find_server(&state, &address)?;
     let preview = build_preview(&session, server, Some(&app)).await?;
     if let Ok(mut cache) = state.preview.lock() {
@@ -1390,6 +1410,14 @@ async fn install_and_launch(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<JoinResult, String> {
+    info!(
+        %address,
+        selected_candidates = selected_candidate_ids.len(),
+        accept_incomplete,
+        game = ?session.game,
+        engine = ?session.engine,
+        "starting install-and-launch flow"
+    );
     let server = find_server(&state, &address)?;
     let preview = match take_cached_preview(&state, &session, &address) {
         Some(preview) => preview,
@@ -1424,6 +1452,7 @@ async fn install_and_launch(
     } else {
         launch(&session, preview.address)?
     };
+    info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
     Ok(JoinResult {
         assessment,
         installed,
@@ -1458,6 +1487,7 @@ async fn install_shopping_list(
         .iter()
         .filter(|resolution| candidate_for_resolution(&resolution.outcome, selected).is_some())
         .count();
+    info!(planned, "installing catalogue shopping list");
     let mut position = 0;
     for resolution in &catalogue.resolutions {
         let Some(candidate) = candidate_for_resolution(&resolution.outcome, selected) else {
@@ -1494,6 +1524,7 @@ async fn install_shopping_list(
                 installed.push(path);
             }
             Err(reason) => {
+                warn!(map = %resolution.wanted.name, %reason, "failed to install map candidate");
                 emit_install(
                     app,
                     &progress,
@@ -1538,6 +1569,7 @@ fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
 
 /// Start the client the detected install actually provides, connected to `address`.
 fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, String> {
+    info!(%address, game = ?session.game, engine = ?session.engine, "launching client");
     let installation = install::identify(&session.path).map_err(|error| error.to_string())?;
     platform::engine::resolve_choice(&installation.root, Some(session.engine))
         .map_err(|error| error.to_string())?;
@@ -1642,10 +1674,12 @@ async fn build_preview(
     server: Server,
     app: Option<&tauri::AppHandle>,
 ) -> Result<JoinPreview, String> {
+    let address = SocketAddrV4::new(server.endpoint.address, server.game_port.get());
+    info!(%address, game = ?session.game, engine = ?session.engine, "starting preview build");
     let (install_target, index) = installed_maps(session)?;
     let first = reveille_core::join::classify_server(&index, &server, None);
     let wanted = first.preflight.as_ref().map_or_else(Vec::new, wanted_maps);
-    let address = SocketAddrV4::new(server.endpoint.address, server.game_port.get());
+    info!(%address, wanted_maps = wanted.len(), "computed preview map requirements");
     let catalogue = if wanted.is_empty() {
         None
     } else {
@@ -1742,6 +1776,11 @@ async fn install_candidate(
     app: tauri::AppHandle,
     progress: &InstallProgress,
 ) -> Result<PathBuf, String> {
+    info!(
+        map = %wanted.name,
+        candidate = %candidate.filename,
+        "installing map candidate"
+    );
     let mut announced = 0_u64;
     let archive = content::download_mohdb_archive_reporting(
         client,
@@ -1772,10 +1811,21 @@ async fn install_candidate(
         .filter(|current| MapKey::new(current) == Some(wanted.key.clone()))
         .and(server.map_checksum);
     content::confirm_map(&inspection, &wanted.name, checksum).map_err(|error| error.to_string())?;
-    content::install_archive(&archive, game_directory).map_err(|error| error.to_string())
+    let installed =
+        content::install_archive(&archive, game_directory).map_err(|error| error.to_string())?;
+    info!(installed_path = %installed.display(), map = %wanted.name, "installed map candidate");
+    Ok(installed)
+}
+
+fn init_logging() {
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
 fn main() {
+    init_logging();
+    info!("starting Reveille app shell");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(

@@ -16,6 +16,8 @@ use reveille_core::join::{
 use reveille_core::mapindex::MapIndex;
 use reveille_platform as platform;
 use serde::Serialize;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
 #[command(name = "reveille", version, about = "Headless MOHAA launcher pipeline")]
@@ -263,6 +265,7 @@ struct JoinRequest<'a> {
 
 #[tokio::main]
 async fn main() {
+    init_logging();
     if let Err(error) = run().await {
         eprintln!("error: {error}");
         let mut source = error.source();
@@ -274,8 +277,16 @@ async fn main() {
     }
 }
 
+fn init_logging() {
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+}
+
 async fn run() -> Result<(), Box<dyn Error>> {
-    match Arguments::parse().command {
+    let command = Arguments::parse().command;
+    info!(?command, "starting cli command");
+    match command {
         Command::Discover { format } => discover_windows(format),
         Command::Journey {
             server,
@@ -418,6 +429,7 @@ async fn run_journey(
     client_override: Option<String>,
     execute: bool,
 ) -> Result<(), Box<dyn Error>> {
+    info!(%address, ?target, execute, "running journey flow");
     let installation = detect_install(selected_path)?;
     let client_kind = client_kind.unwrap_or_else(|| platform::detect_client(&installation.root));
     println!("Install: {}", installation.root.display());
@@ -572,6 +584,7 @@ async fn join_server(request: JoinRequest<'_>) -> Result<(), Box<dyn Error>> {
         catalogue_timeout,
         format,
     } = request;
+    info!(%server, execute, ?format, "running join flow");
     let game_port = discovery::GamePort::new(server.port());
     let status = discovery::query_getstatus(*server.ip(), game_port, server_timeout).await?;
     let target = status
@@ -863,6 +876,7 @@ async fn resolve_server(
     catalogue_timeout: Duration,
     format: Format,
 ) -> Result<(), Box<dyn Error>> {
+    info!(%server, ?fallback_target, ?format, "running resolve flow");
     let game_port = discovery::GamePort::new(server.port());
     let status = discovery::query_getstatus(*server.ip(), game_port, server_timeout).await?;
     // The server names the family it belongs to, so the search path is known before the index is
@@ -1020,11 +1034,22 @@ fn render_content_sources(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the browse report renderer keeps text and JSON output in one routine"
+)]
 async fn browse_servers(
     config: BrowseConfig,
     install_root: Option<&Path>,
     format: Format,
 ) -> Result<(), Box<dyn Error>> {
+    info!(
+        target = %config.target.label(),
+        limit = ?config.limit,
+        concurrency = config.concurrency,
+        ?format,
+        "running browse flow"
+    );
     let target = config.target;
     let report = discovery::browse(config).await?;
     let summary = report.summary();
@@ -1173,6 +1198,7 @@ fn render_occupancy(
 }
 
 fn scan(path: &Path, target: TargetGame, format: Format) -> Result<(), Box<dyn Error>> {
+    info!(install_root = %path.display(), ?target, ?format, "running scan flow");
     let installation = playable_install(path, target)?;
     let search_path = platform::content_search_path(
         &installation.root,
