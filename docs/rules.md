@@ -93,10 +93,12 @@ limit.
 computed. No test.
 
 ### H8 · Say where files actually went
-**Because** When an install falls back to `%APPDATA%\openmohaa\main`, a player who later wants
-to delete a map must be able to find it.
+**Because** When an install falls back to `%APPDATA%\openmohaa\main` on Windows or
+`~/Library/Application Support/openmohaa/main` on macOS, a player who later wants to delete a
+map must be able to find it.
 **Enforced at** `used_home_fallback` is plumbed to the shell (`main.rs:138,163,691,901`) and the
-real path is printed, not a euphemism.
+real path is printed, not a euphemism. `reveille-platform::openmohaa_home_root` selects the host's
+documented root, and tests pin both platform-specific paths.
 **Resolve the destination once per join** `resolve_install_target` *probes*, so it can answer
 differently a second time — a folder locked when the preview ran may be writable when the install
 finishes. `install_and_launch` therefore reports the preview's destination, the one the files were
@@ -213,7 +215,7 @@ question setup already asked them.
 **Not symmetrical** Breakthrough reads `maintt` and `main`, never `mainta`: `fs_basegame` holds
 one directory. Do not "tidy" the three chains into a cumulative one.
 
-### H14 · Never offer a game the installation has no files for
+### H14 · Never offer a game or engine that cannot run
 **Because** The three products are sold and installed separately. Browsing Spearhead against an
 install with no `mainta` is not a degraded session, it is a false one: every server's rotation
 would read as unavailable and no client executable exists to launch.
@@ -231,6 +233,12 @@ Tests: `reveille-app::a_game_the_folder_has_no_files_for_is_refused_before_anyth
 `Path::is_file` does not, so a pre-spawn existence check refuses a client that is installed — the
 CLI's default join client is the bare name `openmohaa`. Classify *after* the spawn attempt. Test:
 `reveille-platform::a_bare_program_name_is_resolved_rather_than_treated_as_a_path`.
+**Nor offer an engine the host cannot run** Windows supports Original, OpenMoHAA and Reborn;
+macOS supports OpenMoHAA only. Setup may hide unsupported cards, but that is presentation rather
+than enforcement: every saved or command-supplied engine choice is checked again in Rust before
+selection, indexing, installation or launch. Tests:
+`reveille-platform::host_capabilities_are_explicit_and_platform_specific` and
+`reveille-platform::an_unsupported_saved_or_requested_engine_is_rejected`.
 
 ### H15 · Never fold a remembered entry away without stating how many are folded
 **Because** Favorites and History are collapsed by default down to what the current check
@@ -309,11 +317,12 @@ someone else's server. That is a join, not a probe.
 **Because** Replacing files used by a live game, dedicated server or launcher corrupts an
 installation, and on Windows fails part-way through.
 **Enforced at** package installation and engine activation require a conservative process query
-to confirm that every affected program is stopped. The query is run **after** a download and
-before the transactional apply, so a program started mid-transfer is still seen. An unavailable
-or malformed process result is unknown and blocks the change. Tests cover the OpenMoHAA release
-programs and `MOHAA.exe`, `moh_spearhead.exe`, and `moh_breakthrough.exe`, including case and
-malformed output.
+to confirm that every affected program is stopped. Windows reads `tasklist`; macOS reads
+`/bin/ps -axo comm=` and matches the executable basename. The query is run **after** a download
+and before the transactional apply, so a program started mid-transfer is still seen. A command
+failure, invalid UTF-8, or malformed non-empty output is unknown and blocks the change. Tests
+cover the five OpenMoHAA release programs and `MOHAA.exe`, `moh_spearhead.exe`, and
+`moh_breakthrough.exe`, including case, full macOS paths and malformed output.
 **Scope** The probe covers every executable a package replaces, not only the selected client — a
 running dedicated server or expansion client can hold another file in the same transaction. The
 platform result records which kind was observed so interface copy states only what was known.

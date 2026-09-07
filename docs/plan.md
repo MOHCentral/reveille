@@ -260,9 +260,10 @@ the effect size (`registered` moved 169 → 210 within this session).
 
 ## Cross-platform posture
 
-The PRD's deferred list says *"macOS and Linux builds — Windows first; the core crate stays
-portable so this is deferred, not precluded."* That remains the decision, and the code has kept
-faith with it: M1–M4 carry **no** Windows dependency, no `cfg(target_os)` anywhere, and
+The PRD's deferred list said *"macOS and Linux builds — Windows first; the core crate stays
+portable so this is deferred, not precluded."* Linux remains deferred. The macOS decision was
+superseded on 7 Sep 2026 by the support plan recorded at the end of this document. The code has
+kept faith with portability: M1–M4 carry **no** Windows dependency, no `cfg(target_os)` anywhere, and
 `LaunchCommand` takes `program` from the caller rather than baking in an `.exe` name. All of it
 runs on aarch64 Linux today.
 
@@ -1048,3 +1049,49 @@ pages, failures, malformed responses and a final empty page.
 
 The PRD's BSP-checksum bullet describes that work as heavier than it proved to be. Worth
 softening once milestone 1 lands — a wording fix.
+
+## macOS support (7 Sep 2026)
+
+**Status: implemented; shipping gates remain open.** The host policy, native journey, packaging,
+preview/release workflows and CI gates are in the tree. The physical-Mac security journey and
+signed updater exercise below require Apple hardware and release credentials before publication.
+
+**Decision: macOS 11+ is supported through native OpenMoHAA only.** Reveille ships one universal
+Apple Silicon/Intel Tauri application. Original and Reborn remain Windows-only; a hidden card is
+not the safety boundary, so `reveille-platform` exposes the host's engine capabilities and Rust
+rejects unsupported saved or command-supplied choices before indexing, installation or launch.
+
+OpenMoHAA's documented contract was rechecked before implementation: the universal archive uses
+the bare `openmohaa` executable, all three games use the existing `com_target_game` values, and the
+home root is `~/Library/Application Support/openmohaa`. The archive remains an overlay in the game
+folder that already contains the player's legal `main`/`mainta`/`maintt` data. Reveille neither
+acquires EA assets nor adds Wine, CrossOver, or automatic GOG extraction.
+
+The write policy remains deliberately game-directory-first (H8/S3). Only an unwritable directory
+falls back to the host-specific OpenMoHAA home root, and the exact destination used by the preview
+is the one reported after installation. The replacement gate (S2) reads `tasklist` on Windows and
+`/bin/ps -axo comm=` on macOS, matches all five release-owned executable basenames, and treats a
+failed or malformed result as unknown. The check remains after download and before the
+transactional overlay.
+
+Packaging uses `tauri.macos.conf.json`, an `.icns` icon, `app` and `dmg` targets, and a minimum
+system version of 11.0. Native updater targets use Tauri's detected value; the universal build uses
+the explicit `darwin-universal` manifest key. CI runs the full workspace, clippy and JavaScript
+checks on Apple Silicon, compiles and tests it on Intel, and smoke-builds a universal bundle whose
+main executable is checked with `lipo` for both architectures.
+
+**Release staging is intentionally asymmetric.** `macos-preview-v*` tags create an explicitly
+unsigned GitHub prerelease with no updater artifact, so GitHub's normal latest release and installed
+applications never see it. Regular `v*` releases gain the universal DMG and `darwin-universal`
+updater entry only through the Developer ID path. General availability is blocked until the DMG
+passes `codesign --verify`, notarization and stapling validation, launches after a fresh download,
+and self-updates between two signed test builds.
+
+**Physical-Mac acceptance remains a shipping gate, not an offline test.** Use a scratch copy of
+real assets to remember the folder; install and update OpenMoHAA; prove replacement defers while a
+client is running; browse, fetch, rescan and launch Allied Assault; repeat search-path and launch
+checks for installed Spearhead and Breakthrough data; and verify fallback content under the macOS
+home root. The public preview is blocked if OpenMoHAA's loose files require repeated per-file
+Privacy & Security overrides. One ordinary override for opening the unsigned Reveille preview and
+normal local-network consent are acceptable. Reveille must never clear quarantine attributes or
+weaken Gatekeeper.

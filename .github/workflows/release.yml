@@ -2,9 +2,9 @@
 
 name: Release
 
-# A tag builds the Windows installer and attaches it to a *draft* release. Publishing stays a
-# deliberate act by the owner. Manual runs build the same installer and leave it as a workflow
-# artifact, so the packaging can be exercised without minting a release.
+# A tag builds the Windows installer and the signed/notarized universal Mac artifacts, then
+# attaches them to a *draft* release. Publishing stays a deliberate act by the owner. Manual runs
+# build the Windows installer as a workflow artifact without requiring Apple release credentials.
 on:
   push:
     tags:
@@ -126,7 +126,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INSTALLER: ${{ steps.installer.outputs.path }}
-          SIGNATURE: ${{ steps.installer.outputs.signature }}
         shell: bash
         run: |
           set -euo pipefail
@@ -140,20 +139,144 @@ jobs:
           else
             printf '%s\n\n%s\n' \
               "$notes" \
-              'This build is **not code-signed**. Windows names no publisher for it, and SmartScreen may hold the download. The SHA-256 is in the build log for this tag.' \
+              'The Windows installer is **not code-signed**. Windows names no publisher for it, and SmartScreen may hold the download. The SHA-256 is in the build log for this tag.' \
               > "$RUNNER_TEMP/release-notes.md"
             gh release create "$tag" --draft --title "$tag" \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
-          filename=$(basename "$INSTALLER")
+          gh release upload "$tag" "$INSTALLER" --clobber
+
+  macos-universal:
+    needs: windows-installer
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    permissions:
+      contents: write
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      REVEILLE_UPDATER_PUBKEY: ${{ vars.REVEILLE_UPDATER_PUBKEY }}
+      REVEILLE_UPDATER_TARGET: darwin-universal
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/reveille-app/package-lock.json
+      - name: Install the Tauri CLI
+        working-directory: crates/reveille-app
+        run: npm ci
+
+      - name: Require the signing, notarization and updater identities
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY REVEILLE_UPDATER_PUBKEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "$name must be configured before a regular macOS release" >&2
+              exit 1
+            fi
+          done
+          certificate="$RUNNER_TEMP/reveille-developer-id.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import "$certificate" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+          identity=$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)
+          if [ -z "$identity" ]; then
+            echo 'no Developer ID Application identity was imported' >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarize and staple the universal DMG
+        working-directory: crates/reveille-app
+        run: |
+          set -euo pipefail
+          updater_config=$(jq -cn --arg key "$REVEILLE_UPDATER_PUBKEY" '{bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey:$key}}}')
+          npx -- tauri build --target universal-apple-darwin --config "$updater_config" -- --locked
+
+      - name: Validate architectures, signature, notarization and stapling
+        id: macos
+        run: |
+          set -euo pipefail
+          app=target/universal-apple-darwin/release/bundle/macos/Reveille.app
+          binary="$app/Contents/MacOS/Reveille"
+          archs=$(lipo -archs "$binary")
+          [[ " $archs " == *" arm64 "* ]]
+          [[ " $archs " == *" x86_64 "* ]]
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          shopt -s nullglob
+          dmgs=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          archives=(target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz)
+          if [ "${#dmgs[@]}" -ne 1 ] || [ "${#archives[@]}" -ne 1 ] || [ ! -f "${archives[0]}.sig" ]; then
+            echo 'expected one DMG and one signed macOS updater archive' >&2
+            exit 1
+          fi
+          codesign --verify --verbose=2 "${dmgs[0]}"
+          xcrun stapler validate "${dmgs[0]}"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "${dmgs[0]}"
+          echo "dmg=${dmgs[0]}" >> "$GITHUB_OUTPUT"
+          echo "archive=${archives[0]}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: reveille-windows-installer
+          path: ${{ runner.temp }}/windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reveille-macos-signed
+          path: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
+
+      - name: Attach macOS and publish the complete updater manifest to the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DMG: ${{ steps.macos.outputs.dmg }}
+          MACOS_ARCHIVE: ${{ steps.macos.outputs.archive }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          installers=("$RUNNER_TEMP"/windows/*-setup.exe)
+          if [ "${#installers[@]}" -ne 1 ] || [ ! -f "${installers[0]}.sig" ]; then
+            echo 'the Windows updater artifact is incomplete' >&2
+            exit 1
+          fi
+          tag="$GITHUB_REF_NAME"
           version="${tag#v}"
-          signature=$(<"$SIGNATURE")
-          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$filename"
+          windows_name=$(basename "${installers[0]}")
+          macos_name=$(basename "$MACOS_ARCHIVE")
+          windows_signature=$(<"${installers[0]}.sig")
+          macos_signature=$(<"$MACOS_ARCHIVE.sig")
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          notes='Windows and signed/notarized universal macOS release, built by GitHub Actions from this tag.'
           jq -n \
             --arg version "$version" \
             --arg notes "$notes" \
-            --arg url "$url" \
-            --arg signature "$signature" \
-            '{version: $version, notes: $notes, platforms: {"windows-x86_64": {url: $url, signature: $signature}}}' \
+            --arg windows_url "$base/$windows_name" \
+            --arg windows_signature "$windows_signature" \
+            --arg macos_url "$base/$macos_name" \
+            --arg macos_signature "$macos_signature" \
+            '{version:$version,notes:$notes,platforms:{"windows-x86_64":{url:$windows_url,signature:$windows_signature},"darwin-universal":{url:$macos_url,signature:$macos_signature}}}' \
             > "$RUNNER_TEMP/latest.json"
-          gh release upload "$tag" "$INSTALLER" "$RUNNER_TEMP/latest.json" --clobber
+          gh release upload "$tag" "$DMG" "$MACOS_ARCHIVE" "$RUNNER_TEMP/latest.json" --clobber

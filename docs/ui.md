@@ -173,6 +173,9 @@ There is **one** primary surface. The three-screen wizard was removed.
   because a program was running says exactly that instead of reporting success. Reborn installation selects and activates it,
   while switching keeps both managed engines installed. The titlebar chip names the selected game
   and the active engine beside the canonical game folder.
+  On macOS the host-capability result leaves only the OpenMoHAA card, selects it automatically,
+  and retains its Stable/Preview actions. Original and Reborn are not rendered. Rust rejects an
+  unsupported saved or forged choice independently of this presentation rule (H14).
   **When the folder can run more than one game it also asks "Which game do you want to play?"**,
   as a plain radio row above the engine cards — no cards, because there is nothing to say about
   each option but its name. It is asked here rather than left to the toolbar because Continue
@@ -313,15 +316,15 @@ Change a rule in the register first, then update the right-hand column here.
 | **H5** · Never imply the release digest proves publisher authenticity | Visible setup copy promises only that Reveille checks whether the download arrived intact; it never calls the file safe or the publisher verified. The release page's exact file check is optional tooltip detail, not newcomer-facing copy. |
 | **H6** · Never state a cause that was not observed | Engine failures are classified in Rust (`OpenMohaaFailureKind`), and since 27 Aug 2026 so are sweep failures (`BrowseFailureKind`: `NoNetwork`, `MasterUnreachable`, `MasterUnreadable`, `Internal`) — never by matching message text in the shell. `NoNetwork` is reserved for local routing, address, or permission failures; a TCP refusal or reset by the remote master is `MasterUnreachable`, never evidence that the player's PC is offline. A per-map catalogue non-result renders as a sentence rather than through `{:?}`. A release that publishes no file check was never downloaded and says so; only a size or digest mismatch may say the download did not arrive intact. An unclassified failure shows its own text rather than borrowing a cause. The original message stays as tooltip detail. |
 | **C3** · Never auto-apply an ambiguous match | Choice radios start with **nothing selected**. The total excludes unresolved maps and the pane says how many still need a choice. |
-| **H8** · Say where files went | `used_home_fallback` prints the real `%APPDATA%\openmohaa\<game directory>` path, not a euphemism. |
+| **H8** · Say where files went | `used_home_fallback` prints the real `%APPDATA%\openmohaa\<game directory>` path on Windows or `~/Library/Application Support/openmohaa/<game directory>` on macOS, not a euphemism. |
 | **H13** · Index the whole search path | An expansion session indexes `main` underneath `mainta` or `maintt`, so a base-game map is never reported as missing on a Spearhead or Breakthrough server. |
-| **H14** · Never offer a game the folder has no files for | The **Game** switch lists only the products detected in the folder, and is hidden entirely when there is one. |
+| **H14** · Never offer a game or engine that cannot run | The **Game** switch lists only the products detected in the folder and is hidden entirely when there is one. Engine cards come from Rust host capabilities: Windows shows all three and macOS only OpenMoHAA. Rust rechecks every submitted choice. |
 | **H9** · A failure is a recorded non-result | Per-map install failures list individually; the pass is never abandoned. Unanswered endpoints are counted and broken down by reason in a dialog. |
 | **H10** · Never recommend replacing an installed engine without version evidence | A validated Reveille receipt may say **Up to date** or name another known build. Presence without a valid receipt says **Version unknown**. A current build has no primary engine action; **Reinstall this version** is secondary. Every other build keeps a primary action, named from the `OfferRelation` Rust computed — **Update to**, **Go back to**, **Reinstall**, **Install** — because withholding it left the card stating a version with no way to reach it. |
 | **H11** · Never call the measured round trip the in-game ping | The column is **Ping** because that is the word players look for, but every explanation is the honest one: the tooltip says "Time for one status request to this server and back, measured once during this check. Not the in-game ping." The figure carries no colour, no bars and no bands — it is a measurement to sort by, not a verdict, for the same reason the list carries no traffic light. The toolbar's **Ping under** gate names itself after the column, so the control and the figure make the same claim. |
 | **H12** · Never present a remembered server's facts as current, and never call a launch a join | A bookmark stores an address, a query port and a name — no figures exist to go stale. An absent favorite says **not in this list** (never "offline": a server missing from the master's list was never asked) and only a check that actually failed says **did not answer**. A live row says when it was measured (**Checked at 14:32**) and is dropped outright when a later check finds the server gone. History says **Launched**, is written only from a launched outcome, and its tooltip says "Whether the server let you in is not something Reveille can see." |
 | **H16** · Never offer the installed or an older Reveille release as an update | The titlebar and first-run card show **Update Reveille** only after the updater has compared semantic versions from the latest published manifest. The dialog names both versions and never constructs an offer from release text or a filename. Signature verification is the install gate in S6; it does not sign the manifest's version label. |
-| **S2** · Never change engine files while an affected program is running | Installation and Original/Reborn activation are blocked unless the relevant process query confirms stopped. Unknown is blocking, not permission. |
+| **S2** · Never change engine files while an affected program is running | Installation and Original/Reborn activation are blocked unless the relevant process query confirms stopped. Windows uses `tasklist`; macOS uses `/bin/ps` and the five release-owned basenames. Unknown is blocking, not permission. |
 | **S5** · Preserve original executables before installing Reborn | Reborn installation retains first-seen originals. Switching changes the active canonical copies and never describes either managed engine as uninstalled. |
 | **S6** · Never replace Reveille from an unsigned release or without the player's choice | A background check can only reveal **Update Reveille**. **Update and restart** is the sole path to installation; **Later** dismisses it. Download progress and **Stop download** stay in the dialog until Tauri has verified the signed payload, after which Windows closes Reveille before replacement. |
 
@@ -445,9 +448,10 @@ platform v1 supports.
 - **Keyboard**: `↑`/`↓`/`Home`/`End` move between rows — *every* row, so the absent block's
   disclosure and its **Check** buttons are reachable at all. `→` steps into the row's controls and
   along them; `←` steps back and, from the first control, returns to the row; `Escape` does the same
-  from anywhere inside a row. `Enter` and `Space` activate. `/` and `Ctrl+F` focus search, `Escape`
-  clears it, `F6` cycles toolbar → list → detail pane, `F5` or `Ctrl+R` refreshes the whole list,
-  `R` checks the selected server on its own, `F` stars or unstars it. The modifier is the
+  from anywhere inside a row. `Enter` and `Space` activate. `/`, `Ctrl+F`, or `Command+F` focus
+  search, `Escape` clears it, `F6` cycles toolbar → list → detail pane, and `F5`, `Ctrl+R`, or
+  `Command+R` refreshes the whole list. `R` checks the selected server on its own, `F` stars or
+  unstars it. The modifier is the
   difference between one probe and a couple of hundred — which is why `R` must never fire from
   inside a control that has its own use for the letter.
 - **Right-clicking a row opens Reveille's own menu**, not WebView2's Back/Reload/Inspect — the

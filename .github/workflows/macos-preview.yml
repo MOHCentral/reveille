@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+name: macOS preview
+
+# This is deliberately separate from regular v* releases. GitHub excludes prereleases from
+# releases/latest, and no updater artifact or latest.json is produced here.
+on:
+  push:
+    tags:
+      - "macos-preview-v*"
+  workflow_dispatch:
+
+jobs:
+  unsigned-universal-dmg:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    env:
+      REVEILLE_UPDATER_TARGET: darwin-universal
+      # Ad-hoc signing is the macOS meaning of an unsigned distribution build: it has no Apple
+      # identity and cannot be notarized, but the universal arm64 slice remains launchable.
+      APPLE_SIGNING_IDENTITY: "-"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/reveille-app/package-lock.json
+      - name: Install the Tauri CLI
+        working-directory: crates/reveille-app
+        run: npm ci
+
+      - name: Check preview identity
+        if: startsWith(github.ref, 'refs/tags/macos-preview-v')
+        run: |
+          set -euo pipefail
+          cargo_version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "reveille-app") | .version')
+          tauri_version=$(jq -r .version crates/reveille-app/tauri.conf.json)
+          npm_version=$(jq -r .version crates/reveille-app/package.json)
+          tag_version=${GITHUB_REF_NAME#macos-preview-v}
+          if [ "$cargo_version" != "$tauri_version" ] || [ "$cargo_version" != "$npm_version" ] || [ "$cargo_version" != "$tag_version" ]; then
+            echo "preview versions disagree: tag=$tag_version Cargo=$cargo_version Tauri=$tauri_version npm=$npm_version" >&2
+            exit 1
+          fi
+
+      - name: Build the unsigned universal DMG
+        working-directory: crates/reveille-app
+        run: npx -- tauri build --target universal-apple-darwin -- --locked
+
+      - name: Verify the universal bundle and unsigned-preview boundary
+        id: bundle
+        run: |
+          set -euo pipefail
+          app=target/universal-apple-darwin/release/bundle/macos/Reveille.app
+          binary="$app/Contents/MacOS/Reveille"
+          archs=$(lipo -archs "$binary")
+          [[ " $archs " == *" arm64 "* ]]
+          [[ " $archs " == *" x86_64 "* ]]
+          if codesign -dv --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application'; then
+            echo 'preview unexpectedly carries a Developer ID signature' >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          dmgs=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          if [ "${#dmgs[@]}" -ne 1 ]; then
+            echo "expected one DMG, found ${#dmgs[@]}" >&2
+            exit 1
+          fi
+          echo "dmg=${dmgs[0]}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reveille-macos-unsigned-preview
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      - name: Publish the explicitly unsigned prerelease
+        if: startsWith(github.ref, 'refs/tags/macos-preview-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DMG: ${{ steps.bundle.outputs.dmg }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/macos-preview-notes.md"
+          printf '%s\n\n%s\n\n%s\n' \
+            'Universal macOS 11+ preview for Apple Silicon and Intel.' \
+            '**This preview is not signed with an Apple Developer ID or notarized.** macOS will require an ordinary Privacy & Security override to open Reveille. It is not offered through automatic updates.' \
+            'Reveille does not clear quarantine attributes or weaken Gatekeeper. OpenMoHAA engine files must not require repeated per-file overrides; report that if it occurs.' \
+            > "$notes"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --prerelease --notes-file "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" --prerelease --title "$GITHUB_REF_NAME" --notes-file "$notes"
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber

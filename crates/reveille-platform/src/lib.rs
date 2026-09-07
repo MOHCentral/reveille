@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-//! Shared launcher and content-path policy for Reveille's executable front ends.
-//!
-//! The policy encoded here targets Windows, which is v1's only supported platform, but the code
-//! is portable so the composed pipeline stays exercisable — and testable in CI — on Linux.
+//! Shared launcher, host-capability, process, and content-path policy for Reveille's front ends.
 
+use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Child;
@@ -16,10 +14,108 @@ use std::process::Command;
 use reveille_core::discovery::TargetGame;
 use reveille_core::engine::EngineChoice;
 use reveille_core::join::{LaunchCommand, LaunchDialect, LaunchProfile};
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 use reveille_core::platform::openmohaa;
 use reveille_core::platform::openmohaa::ClientActivity;
+use serde::Serialize;
 use thiserror::Error;
+
+/// Desktop host whose engine and path policy Reveille understands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HostPlatform {
+    /// Native Windows application.
+    Windows,
+    /// Native macOS application.
+    Macos,
+    /// A buildable but unsupported desktop host.
+    Unsupported,
+}
+
+impl HostPlatform {
+    /// Resolve one Rust operating-system name without guessing a nearby platform.
+    #[must_use]
+    pub const fn for_os(os: &str) -> Self {
+        match os.as_bytes() {
+            b"windows" => Self::Windows,
+            b"macos" => Self::Macos,
+            _ => Self::Unsupported,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Windows => "Windows",
+            Self::Macos => "macOS",
+            Self::Unsupported => "this operating system",
+        }
+    }
+}
+
+/// Engine choices the current host can actually run.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HostCapabilities {
+    /// Host policy selected at compile time.
+    pub platform: HostPlatform,
+    /// Supported choices, in setup display order.
+    pub engines: Vec<EngineChoice>,
+}
+
+impl HostCapabilities {
+    /// Capabilities for the running binary.
+    #[must_use]
+    pub fn current() -> Self {
+        Self::for_platform(HostPlatform::for_os(std::env::consts::OS))
+    }
+
+    /// Capabilities for one explicit platform, used by policy tests and cross-target callers.
+    #[must_use]
+    pub fn for_platform(platform: HostPlatform) -> Self {
+        let engines = match platform {
+            HostPlatform::Windows => vec![
+                EngineChoice::Openmohaa,
+                EngineChoice::Reborn,
+                EngineChoice::Original,
+            ],
+            HostPlatform::Macos => vec![EngineChoice::Openmohaa],
+            HostPlatform::Unsupported => Vec::new(),
+        };
+        Self { platform, engines }
+    }
+
+    /// Whether one submitted engine is supported on this host.
+    #[must_use]
+    pub fn supports(&self, engine: EngineChoice) -> bool {
+        self.engines.contains(&engine)
+    }
+
+    /// Refuse an unsupported saved or command-supplied choice in Rust (H14).
+    ///
+    /// # Errors
+    ///
+    /// Returns the exact engine and host when the combination is unsupported.
+    pub fn require(&self, engine: EngineChoice) -> Result<(), HostCapabilityError> {
+        self.supports(engine)
+            .then_some(())
+            .ok_or(HostCapabilityError::UnsupportedEngine {
+                engine,
+                platform: self.platform,
+            })
+    }
+}
+
+/// A submitted engine choice cannot run on this host.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum HostCapabilityError {
+    /// Original and Reborn are intentionally Windows-only.
+    #[error("{engine:?} is not supported on {}", platform.label())]
+    UnsupportedEngine {
+        /// Rejected saved or submitted choice.
+        engine: EngineChoice,
+        /// Host that cannot run it.
+        platform: HostPlatform,
+    },
+}
 
 /// One kind of `OpenMoHAA` program whose files a release replaces.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,7 +163,7 @@ impl OpenMohaaActivity {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "macos", test))]
     const fn checked() -> Self {
         Self {
             checked: true,
@@ -75,7 +171,7 @@ impl OpenMohaaActivity {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "macos", test))]
     fn observe(&mut self, program: OpenMohaaProgram) {
         if !self.running.contains(&program) {
             self.running.push(program);
@@ -108,11 +204,26 @@ impl ClientKind {
 /// Select `OpenMoHAA` when its executable exists, otherwise retain retail behavior.
 #[must_use]
 pub fn detect_client(install_root: &Path) -> ClientKind {
-    if install_root.join("openmohaa.exe").is_file() {
+    if openmohaa_client_path(install_root).is_file() {
         ClientKind::OpenMohaa
     } else {
         ClientKind::Retail
     }
+}
+
+pub(crate) fn openmohaa_filename(platform: HostPlatform) -> &'static str {
+    match platform {
+        HostPlatform::Windows => "openmohaa.exe",
+        HostPlatform::Macos | HostPlatform::Unsupported => "openmohaa",
+    }
+}
+
+fn openmohaa_client_path_for(install_root: &Path, platform: HostPlatform) -> PathBuf {
+    install_root.join(openmohaa_filename(platform))
+}
+
+fn openmohaa_client_path(install_root: &Path) -> PathBuf {
+    openmohaa_client_path_for(install_root, HostPlatform::for_os(std::env::consts::OS))
 }
 
 /// Build the process-listing command, suppressing the console window it would otherwise flash.
@@ -133,7 +244,15 @@ fn tasklist_command() -> Command {
     command
 }
 
-/// Conservatively report whether a Windows `OpenMoHAA` installation can be replaced.
+/// Ask macOS for executable paths only, without a heading.
+#[cfg(target_os = "macos")]
+fn ps_command() -> Command {
+    let mut command = Command::new("/bin/ps");
+    command.args(["-axo", "comm="]);
+    command
+}
+
+/// Conservatively report whether an `OpenMoHAA` installation can be replaced.
 ///
 /// A failed or unavailable process query is `Unknown`, never evidence that the client stopped.
 #[must_use]
@@ -151,9 +270,28 @@ pub fn openmohaa_activity() -> OpenMohaaActivity {
         if !output.status.success() {
             return OpenMohaaActivity::unknown();
         }
-        tasklist_release_activity(&String::from_utf8_lossy(&output.stdout))
+        let Ok(stdout) = std::str::from_utf8(&output.stdout) else {
+            return OpenMohaaActivity::unknown();
+        };
+        tasklist_release_activity(stdout)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        // `comm` is the executable pathname on macOS. Matching only its basename is deliberate:
+        // `ps` cannot prove which game folder owns the process, so any release-owned program is
+        // enough to defer replacement (S2).
+        let Ok(output) = ps_command().output() else {
+            return OpenMohaaActivity::unknown();
+        };
+        if !output.status.success() {
+            return OpenMohaaActivity::unknown();
+        }
+        let Ok(stdout) = std::str::from_utf8(&output.stdout) else {
+            return OpenMohaaActivity::unknown();
+        };
+        ps_release_activity(stdout)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         OpenMohaaActivity::unknown()
     }
@@ -204,11 +342,61 @@ fn tasklist_image_name(line: &str) -> Option<String> {
     after.starts_with(',').then(|| image.to_ascii_lowercase())
 }
 
+/// Parse macOS `ps -axo comm=` output conservatively.
+#[cfg(any(target_os = "macos", test))]
+fn ps_release_activity(output: &str) -> OpenMohaaActivity {
+    let mut activity = OpenMohaaActivity::checked();
+    for line in output.lines() {
+        let command = line.trim();
+        if command.is_empty() {
+            continue;
+        }
+        if command.chars().any(char::is_control) {
+            return OpenMohaaActivity::unknown();
+        }
+        let Some(basename) = Path::new(command).file_name().and_then(OsStr::to_str) else {
+            return OpenMohaaActivity::unknown();
+        };
+        let stem = basename.to_ascii_lowercase();
+        observe_release_program(&mut activity, &stem);
+    }
+    activity
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn observe_release_program(activity: &mut OpenMohaaActivity, stem: &str) {
+    if !openmohaa::RELEASE_EXECUTABLE_STEMS.contains(&stem) {
+        return;
+    }
+    match stem {
+        "openmohaa" => activity.observe(OpenMohaaProgram::Game),
+        "omohaaded" => activity.observe(OpenMohaaProgram::DedicatedServer),
+        "launch_openmohaa_base"
+        | "launch_openmohaa_spearhead"
+        | "launch_openmohaa_breakthrough" => activity.observe(OpenMohaaProgram::Launcher),
+        _ => {}
+    }
+}
+
 /// Derive the product-specific executable within one identified installation.
 #[must_use]
 pub fn default_client(install_root: &Path, target: TargetGame, client: ClientKind) -> PathBuf {
+    default_client_for_platform(
+        install_root,
+        target,
+        client,
+        HostPlatform::for_os(std::env::consts::OS),
+    )
+}
+
+fn default_client_for_platform(
+    install_root: &Path,
+    target: TargetGame,
+    client: ClientKind,
+    platform: HostPlatform,
+) -> PathBuf {
     let filename = match (client, target) {
-        (ClientKind::OpenMohaa, _) => "openmohaa.exe",
+        (ClientKind::OpenMohaa, _) => openmohaa_filename(platform),
         (ClientKind::Retail | ClientKind::Reborn, TargetGame::AlliedAssault) => "MOHAA.exe",
         (ClientKind::Retail | ClientKind::Reborn, TargetGame::Spearhead) => "moh_spearhead.exe",
         (ClientKind::Retail | ClientKind::Reborn, TargetGame::Breakthrough) => {
@@ -218,7 +406,7 @@ pub fn default_client(install_root: &Path, target: TargetGame, client: ClientKin
     install_root.join(filename)
 }
 
-/// Directory name `OpenMoHAA` appends to `%APPDATA%` for its home path.
+/// Directory name `OpenMoHAA` appends to its platform data root.
 ///
 /// `Sys_DefaultHomePath` (`sys_win32.c:97-120`) appends `com_homepath`, which is empty for a
 /// non-demo build (`common.c:1771`), and otherwise `HOMEPATH_NAME` — `"openmohaa"`
@@ -233,7 +421,32 @@ const OPENMOHAA_HOME_DIRECTORY: &str = "openmohaa";
 /// there, and it wins over the installation for any file present in both.
 #[must_use]
 pub fn openmohaa_home_root() -> Option<PathBuf> {
-    env::var_os("APPDATA").map(|app_data| PathBuf::from(app_data).join(OPENMOHAA_HOME_DIRECTORY))
+    openmohaa_home_root_for(
+        HostPlatform::for_os(std::env::consts::OS),
+        env::var_os("APPDATA").as_deref(),
+        env::var_os("HOME").as_deref(),
+    )
+}
+
+fn openmohaa_home_root_for(
+    platform: HostPlatform,
+    app_data: Option<&OsStr>,
+    home: Option<&OsStr>,
+) -> Option<PathBuf> {
+    match platform {
+        HostPlatform::Windows => {
+            app_data.map(|root| PathBuf::from(root).join(OPENMOHAA_HOME_DIRECTORY))
+        }
+        HostPlatform::Macos => home.map(|root| {
+            // OpenMoHAA running guide, "Locations": macOS home path.
+            // https://github.com/openmoh/openmohaa/blob/main/docs/markdown/02-running/01-running.md
+            PathBuf::from(root)
+                .join("Library")
+                .join("Application Support")
+                .join(OPENMOHAA_HOME_DIRECTORY)
+        }),
+        HostPlatform::Unsupported => None,
+    }
 }
 
 /// The directories one target game reads **from the selected installation**, lowest precedence
@@ -307,6 +520,15 @@ pub fn resolve_install_target(
     data_directory: &str,
     client: ClientKind,
 ) -> Result<InstallTarget, PlatformError> {
+    resolve_install_target_with_home(install_root, data_directory, client, openmohaa_home_root())
+}
+
+fn resolve_install_target_with_home(
+    install_root: &Path,
+    data_directory: &str,
+    client: ClientKind,
+    openmohaa_home: Option<PathBuf>,
+) -> Result<InstallTarget, PlatformError> {
     let preferred = install_root.join(data_directory);
     match probe_writable(&preferred) {
         Ok(()) => Ok(InstallTarget {
@@ -318,8 +540,8 @@ pub fn resolve_install_target(
             source,
         }),
         Err(_) => {
-            let fallback = openmohaa_home_root()
-                .ok_or(PlatformError::MissingAppData)?
+            let fallback = openmohaa_home
+                .ok_or(PlatformError::MissingOpenMohaaHome)?
                 .join(data_directory);
             fs::create_dir_all(&fallback).map_err(|source| PlatformError::HomeFallback {
                 path: fallback.clone(),
@@ -419,8 +641,8 @@ pub enum PlatformError {
         source: io::Error,
     },
     /// `OpenMoHAA` fallback root is unavailable.
-    #[error("APPDATA is unavailable for the OpenMoHAA fallback")]
-    MissingAppData,
+    #[error("this operating system's OpenMoHAA home directory is unavailable")]
+    MissingOpenMohaaHome,
     /// `OpenMoHAA` home directory could not be prepared.
     #[error("could not prepare OpenMoHAA home target {path}")]
     HomeFallback {
@@ -458,12 +680,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn detects_openmohaa_only_when_its_client_is_present() {
+    fn detects_the_platform_specific_openmohaa_client() {
         let temporary = TempDir::new().expect("temporary directory");
         assert_eq!(detect_client(temporary.path()), ClientKind::Retail);
 
-        fs::write(temporary.path().join("openmohaa.exe"), []).expect("client marker");
+        fs::write(openmohaa_client_path(temporary.path()), []).expect("client marker");
         assert_eq!(detect_client(temporary.path()), ClientKind::OpenMohaa);
+
+        assert_eq!(
+            openmohaa_client_path_for(temporary.path(), HostPlatform::Windows),
+            temporary.path().join("openmohaa.exe")
+        );
+        assert_eq!(
+            openmohaa_client_path_for(temporary.path(), HostPlatform::Macos),
+            temporary.path().join("openmohaa")
+        );
+    }
+
+    #[test]
+    fn host_capabilities_are_explicit_and_platform_specific() {
+        assert_eq!(
+            HostCapabilities::for_platform(HostPlatform::Windows).engines,
+            [
+                EngineChoice::Openmohaa,
+                EngineChoice::Reborn,
+                EngineChoice::Original
+            ]
+        );
+        assert_eq!(
+            HostCapabilities::for_platform(HostPlatform::Macos).engines,
+            [EngineChoice::Openmohaa]
+        );
+        assert!(
+            HostCapabilities::for_platform(HostPlatform::Macos)
+                .require(EngineChoice::Original)
+                .is_err()
+        );
     }
 
     #[test]
@@ -522,6 +774,43 @@ mod tests {
     }
 
     #[test]
+    fn macos_ps_parser_matches_release_basenames_and_rejects_malformed_output() {
+        let activity = ps_release_activity(
+            "/Applications/OpenMoHAA/openmohaa\n\
+             /Users/player/Games/MOHAA/omohaaded\n\
+             /Users/player/Games/MOHAA/launch_openmohaa_spearhead\n\
+             /System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
+        );
+        assert_eq!(
+            activity.running_programs(),
+            &[
+                OpenMohaaProgram::Game,
+                OpenMohaaProgram::DedicatedServer,
+                OpenMohaaProgram::Launcher
+            ]
+        );
+        assert_eq!(activity.client_activity(), ClientActivity::Running);
+        for executable in openmohaa::RELEASE_EXECUTABLE_STEMS {
+            let output = format!("/Users/player/Games/MOHAA/{executable}");
+            assert_eq!(
+                ps_release_activity(&output).client_activity(),
+                ClientActivity::Running,
+                "{executable} must defer replacement"
+            );
+        }
+        assert_eq!(
+            ps_release_activity("/usr/bin/login\n/Applications/Other Game/game").client_activity(),
+            ClientActivity::ConfirmedStopped
+        );
+        for malformed in ["/", "/usr/bin/login\n/", "openmohaa\0"] {
+            assert_eq!(
+                ps_release_activity(malformed).client_activity(),
+                ClientActivity::Unknown
+            );
+        }
+    }
+
+    #[test]
     fn selects_product_specific_retail_executable() {
         let root = Path::new(r"C:\Games\MOHAA");
 
@@ -538,8 +827,22 @@ mod tests {
             root.join("moh_breakthrough.exe")
         );
         assert_eq!(
-            default_client(root, TargetGame::AlliedAssault, ClientKind::OpenMohaa),
+            default_client_for_platform(
+                root,
+                TargetGame::AlliedAssault,
+                ClientKind::OpenMohaa,
+                HostPlatform::Windows
+            ),
             root.join("openmohaa.exe")
+        );
+        assert_eq!(
+            default_client_for_platform(
+                root,
+                TargetGame::Breakthrough,
+                ClientKind::OpenMohaa,
+                HostPlatform::Macos
+            ),
+            root.join("openmohaa")
         );
         assert_eq!(
             default_client(root, TargetGame::AlliedAssault, ClientKind::Reborn),
@@ -594,6 +897,29 @@ mod tests {
                 home.join("main"),
                 root.join("mainta"),
                 home.join("mainta"),
+            ]
+        );
+    }
+
+    #[test]
+    fn macos_home_root_and_search_order_are_exact() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let root = temporary.path().join("install");
+        let user = temporary.path().join("player");
+        let home = openmohaa_home_root_for(HostPlatform::Macos, None, Some(user.as_os_str()))
+            .expect("macOS home root");
+        assert_eq!(home, user.join("Library/Application Support/openmohaa"));
+        for directory in [&root, &home] {
+            fs::create_dir_all(directory.join("main")).expect("main directory");
+            fs::create_dir_all(directory.join("maintt")).expect("maintt directory");
+        }
+        assert_eq!(
+            search_path_with_home(&root, TargetGame::Breakthrough, Some(&home)),
+            [
+                root.join("main"),
+                home.join("main"),
+                root.join("maintt"),
+                home.join("maintt")
             ]
         );
     }
@@ -672,5 +998,26 @@ mod tests {
             assert_eq!(target.game_directory, main);
             assert!(!target.used_home_fallback);
         }
+    }
+
+    #[test]
+    fn macos_home_is_the_fallback_when_the_game_directory_cannot_be_written() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let install = temporary.path().join("install");
+        let home = temporary
+            .path()
+            .join("player/Library/Application Support/openmohaa");
+        fs::create_dir(&install).expect("install root");
+        fs::write(install.join("main"), b"not a directory").expect("blocked game directory");
+
+        let target = resolve_install_target_with_home(
+            &install,
+            "main",
+            ClientKind::OpenMohaa,
+            Some(home.clone()),
+        )
+        .expect("macOS home fallback");
+        assert_eq!(target.game_directory, home.join("main"));
+        assert!(target.used_home_fallback);
     }
 }

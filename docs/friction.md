@@ -35,6 +35,26 @@ changes too often to encode in a heading.
 
 ## Stage 1 — Getting a working client
 
+### F13 · A Mac player has legal game data but no supported native journey
+
+**Where** Setup, before a server can be browsed.
+**Who it stops** Every macOS player. Original and Reborn are Windows programs, while manually
+assembling OpenMoHAA means finding the universal archive, placing it beside the player's existing
+`main`/`mainta`/`maintt` data, and navigating Gatekeeper without weakening it.
+**Evidence** *Observed, 7 Sep 2026.* OpenMoHAA documents a universal Apple Silicon/Intel archive,
+the macOS home root and all three `com_target_game` values. Its packaging issue #508 records that
+loose engine files can require repeated Privacy & Security approvals. The frequency and current
+severity still require the physical-Mac spike; they have not been measured by Reveille.
+**What Reveille does** On macOS, setup offers only OpenMoHAA, selects it automatically, installs
+stable or preview beside player-owned game data, browses and fetches maps through the same honest
+gate, and launches the bare native executable for all three games. An unwritable game directory
+falls back to `~/Library/Application Support/openmohaa/<game>`. Reveille never acquires EA assets,
+clears quarantine attributes, or changes Gatekeeper policy.
+**Status** Preview path implemented; publication is gated. The first universal DMG will be an
+explicitly unsigned GitHub prerelease and excluded from self-update. General availability remains
+blocked on Developer ID signing, notarization, stapling, a signed-update test, and the
+physical-Mac security journey.
+
 ### F11 · Windows warns about Reveille before it ever runs
 
 **Where** The download, and the first run of the installer. Before setup — this is the step ahead

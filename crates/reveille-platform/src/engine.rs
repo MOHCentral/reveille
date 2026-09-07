@@ -17,6 +17,8 @@ use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
+use crate::{HostCapabilities, HostCapabilityError, HostPlatform, openmohaa_filename};
+
 const MANAGED_DIRECTORY: &str = ".reveille-engines";
 const STATE_FORMAT: u8 = 1;
 const RETAIL_EXECUTABLES: [&str; 3] = ["MOHAA.exe", "moh_spearhead.exe", "moh_breakthrough.exe"];
@@ -133,6 +135,10 @@ fn parse_tasklist(output: &str) -> EngineActivity {
 /// Inspect available engines and validate receipts against managed files.
 #[must_use]
 pub fn inventory(root: &Path) -> EngineInventory {
+    inventory_for_platform(root, HostPlatform::for_os(std::env::consts::OS))
+}
+
+fn inventory_for_platform(root: &Path, platform: HostPlatform) -> EngineInventory {
     let state = read_state(root).ok().flatten();
     let original_installed = RETAIL_EXECUTABLES.iter().any(|name| {
         root.join(MANAGED_DIRECTORY)
@@ -142,7 +148,7 @@ pub fn inventory(root: &Path) -> EngineInventory {
             || (root.join(name).is_file()
                 && hash_file(&root.join(name)).ok().as_deref() != expected_executable_sha256(name))
     });
-    let openmohaa_installed = root.join("openmohaa.exe").is_file();
+    let openmohaa_installed = root.join(openmohaa_filename(platform)).is_file();
     let receipt_valid = state
         .as_ref()
         .and_then(|state| state.reborn.as_ref())
@@ -198,21 +204,34 @@ pub fn inventory(root: &Path) -> EngineInventory {
 pub fn resolve_choice(
     root: &Path,
     requested: Option<EngineChoice>,
+    capabilities: &HostCapabilities,
 ) -> Result<EngineChoice, EngineError> {
-    let inventory = inventory(root);
+    let inventory = inventory_for_platform(root, capabilities.platform);
     if let Some(choice) = requested {
+        capabilities.require(choice)?;
         ensure_available(choice, &inventory)?;
         return Ok(choice);
     }
     if let Some(saved) = inventory.selected {
+        capabilities.require(saved)?;
         ensure_available(saved, &inventory)
             .map_err(|_| EngineError::SavedChoiceUnavailable(saved))?;
         return Ok(saved);
     }
-    match (inventory.openmohaa_installed, inventory.reborn_installed) {
+    let openmohaa_installed =
+        capabilities.supports(EngineChoice::Openmohaa) && inventory.openmohaa_installed;
+    let reborn_installed =
+        capabilities.supports(EngineChoice::Reborn) && inventory.reborn_installed;
+    match (openmohaa_installed, reborn_installed) {
         (true, false) => Ok(EngineChoice::Openmohaa),
         (false, true) => Ok(EngineChoice::Reborn),
-        (false, false) => Ok(EngineChoice::Original),
+        (false, false) if capabilities.supports(EngineChoice::Original) => {
+            Ok(EngineChoice::Original)
+        }
+        (false, false) if capabilities.supports(EngineChoice::Openmohaa) => {
+            Err(EngineError::Unavailable(EngineChoice::Openmohaa))
+        }
+        (false, false) => Err(EngineError::NoSupportedEngine),
         (true, true) => Err(EngineError::ChoiceRequired),
     }
 }
@@ -226,8 +245,10 @@ pub fn activate(
     root: &Path,
     choice: EngineChoice,
     activity: EngineActivity,
+    capabilities: &HostCapabilities,
 ) -> Result<(), EngineError> {
-    let inventory = inventory(root);
+    capabilities.require(choice)?;
+    let inventory = inventory_for_platform(root, capabilities.platform);
     ensure_available(choice, &inventory)?;
     if matches!(choice, EngineChoice::Original | EngineChoice::Reborn) {
         require_stopped(activity)?;
@@ -266,7 +287,9 @@ pub fn install_reborn(
     package: &RebornPackage,
     executables: &[RebornExecutable],
     activity: EngineActivity,
+    capabilities: &HostCapabilities,
 ) -> Result<(), EngineError> {
+    capabilities.require(EngineChoice::Reborn)?;
     require_stopped(activity)?;
     let managed = root.join(MANAGED_DIRECTORY);
     let original = managed.join("original");
@@ -505,6 +528,10 @@ pub enum EngineError {
     SavedChoiceUnavailable(EngineChoice),
     #[error("selected engine {0:?} is not available")]
     Unavailable(EngineChoice),
+    #[error("this host supports no Reveille engine")]
+    NoSupportedEngine,
+    #[error(transparent)]
+    Host(#[from] HostCapabilityError),
     #[error("close these game programs before changing engines: {0:?}")]
     ProgramsRunning(Vec<String>),
     #[error("the running-game check did not complete; engine files were not changed")]
@@ -557,22 +584,77 @@ mod tests {
     fn choice_defaults_and_never_falls_back_from_an_unavailable_saved_choice() {
         let temporary = TempDir::new().expect("temporary directory");
         let root = temporary.path();
+        let capabilities = HostCapabilities::for_platform(crate::HostPlatform::Windows);
         fs::write(root.join("MOHAA.exe"), b"retail").expect("retail");
         assert_eq!(
-            resolve_choice(root, None).expect("original default"),
+            resolve_choice(root, None, &capabilities).expect("original default"),
             EngineChoice::Original
         );
         fs::write(root.join("openmohaa.exe"), b"open").expect("openmohaa");
         assert_eq!(
-            resolve_choice(root, None).expect("sole community engine"),
+            resolve_choice(root, None, &capabilities).expect("sole community engine"),
             EngineChoice::Openmohaa
         );
-        activate(root, EngineChoice::Openmohaa, EngineActivity::Unknown).expect("select openmohaa");
+        activate(
+            root,
+            EngineChoice::Openmohaa,
+            EngineActivity::Unknown,
+            &capabilities,
+        )
+        .expect("select openmohaa");
         fs::remove_file(root.join("openmohaa.exe")).expect("remove selected engine");
         assert!(matches!(
-            resolve_choice(root, None),
+            resolve_choice(root, None, &capabilities),
             Err(EngineError::SavedChoiceUnavailable(EngineChoice::Openmohaa))
         ));
+    }
+
+    #[test]
+    fn an_unsupported_saved_or_requested_engine_is_rejected() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let root = temporary.path();
+        let windows = HostCapabilities::for_platform(crate::HostPlatform::Windows);
+        let macos = HostCapabilities::for_platform(crate::HostPlatform::Macos);
+        fs::write(root.join("MOHAA.exe"), b"retail").expect("retail");
+
+        for engine in [EngineChoice::Original, EngineChoice::Reborn] {
+            assert!(matches!(
+                resolve_choice(root, Some(engine), &macos),
+                Err(EngineError::Host(HostCapabilityError::UnsupportedEngine {
+                    engine: rejected,
+                    ..
+                })) if rejected == engine
+            ));
+        }
+        activate(
+            root,
+            EngineChoice::Original,
+            EngineActivity::ConfirmedStopped,
+            &windows,
+        )
+        .expect("save Windows original choice");
+        assert!(matches!(
+            resolve_choice(root, None, &macos),
+            Err(EngineError::Host(HostCapabilityError::UnsupportedEngine {
+                engine: EngineChoice::Original,
+                ..
+            }))
+        ));
+    }
+
+    #[test]
+    fn macos_inventory_and_selection_recognize_the_bare_client() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let root = temporary.path();
+        let macos = HostCapabilities::for_platform(crate::HostPlatform::Macos);
+        fs::write(root.join("openmohaa"), b"universal client").expect("bare client");
+
+        assert!(inventory_for_platform(root, HostPlatform::Macos).openmohaa_installed);
+        assert!(!inventory_for_platform(root, HostPlatform::Windows).openmohaa_installed);
+        assert_eq!(
+            resolve_choice(root, None, &macos).expect("sole macOS engine"),
+            EngineChoice::Openmohaa
+        );
     }
 
     #[test]
@@ -589,8 +671,15 @@ mod tests {
             sha256: format!("{:x}", Sha256::digest(b"reborn")),
         }];
 
-        install_reborn(root, &package, &files, EngineActivity::ConfirmedStopped)
-            .expect("first install");
+        let capabilities = HostCapabilities::for_platform(crate::HostPlatform::Windows);
+        install_reborn(
+            root,
+            &package,
+            &files,
+            EngineActivity::ConfirmedStopped,
+            &capabilities,
+        )
+        .expect("first install");
         assert_eq!(fs::read(root.join("MOHAA.exe")).expect("active"), b"reborn");
         assert_eq!(
             fs::read(root.join(MANAGED_DIRECTORY).join("original/MOHAA.exe"))
@@ -599,8 +688,14 @@ mod tests {
         );
 
         fs::write(root.join("MOHAA.exe"), b"external change").expect("external change");
-        install_reborn(root, &package, &files, EngineActivity::ConfirmedStopped)
-            .expect("reinstall");
+        install_reborn(
+            root,
+            &package,
+            &files,
+            EngineActivity::ConfirmedStopped,
+            &capabilities,
+        )
+        .expect("reinstall");
         assert_eq!(
             fs::read(root.join(MANAGED_DIRECTORY).join("original/MOHAA.exe"))
                 .expect("unchanged original"),
@@ -610,14 +705,20 @@ mod tests {
             root,
             EngineChoice::Original,
             EngineActivity::ConfirmedStopped,
+            &capabilities,
         )
         .expect("activate original");
         assert_eq!(
             fs::read(root.join("MOHAA.exe")).expect("original active"),
             b"original"
         );
-        activate(root, EngineChoice::Reborn, EngineActivity::ConfirmedStopped)
-            .expect("activate Reborn");
+        activate(
+            root,
+            EngineChoice::Reborn,
+            EngineActivity::ConfirmedStopped,
+            &capabilities,
+        )
+        .expect("activate Reborn");
         assert_eq!(
             fs::read(root.join("MOHAA.exe")).expect("Reborn active"),
             b"reborn"
@@ -656,11 +757,12 @@ mod tests {
             bytes: b"reborn".to_vec(),
             sha256: "fixture".to_owned(),
         }];
+        let capabilities = HostCapabilities::for_platform(crate::HostPlatform::Windows);
         for activity in [
             EngineActivity::Running(vec!["MOHAA.exe".to_owned()]),
             EngineActivity::Unknown,
         ] {
-            assert!(install_reborn(root, &package, &files, activity).is_err());
+            assert!(install_reborn(root, &package, &files, activity, &capabilities).is_err());
             assert_eq!(
                 fs::read(root.join("MOHAA.exe")).expect("unchanged"),
                 b"original"
@@ -698,6 +800,7 @@ mod tests {
                 &package,
                 &executables,
                 EngineActivity::ConfirmedStopped,
+                &HostCapabilities::for_platform(crate::HostPlatform::Windows),
             )
             .expect("install pinned package");
             for executable in &executables {

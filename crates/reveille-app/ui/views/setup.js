@@ -94,10 +94,11 @@ function gameChoice(install, render) {
 
 function engineChoices(install, render) {
   if (!view.overview) return el("div", { className: "meter meter--indeterminate", role: "status" }, el("span", { className: "meter__fill" }));
+  const engines = view.overview.capabilities?.engines ?? [];
   return el("fieldset", { className: "engine-cards", disabled: Boolean(view.installing) },
     el("legend", { className: "sr-only" }, "Choose how to run the game"),
-    engineCard("openmohaa", install, render), engineCard("reborn", install, render), engineCard("original", install, render),
-    view.overview.selection_error && !view.selected && el("p", { className: "note" }, "Both community engines are installed. Choose the one you want to use."));
+    engines.map((engine) => engineCard(engine, install, render)),
+    view.overview.selection_error && !view.selected && engines.length > 1 && el("p", { className: "note" }, "Choose the game program you want to use."));
 }
 
 function engineCard(engine, install, render) {
@@ -278,7 +279,9 @@ async function loadOverview(install, render) {
   try {
     const overview = await engineOverview(install.root, recallEngine(install.root));
     if (token !== loadToken) return;
+    const supported = overview.capabilities?.engines ?? [];
     view.overview = overview; view.selected = overview.resolved;
+    if (!supported.includes(view.selected) && supported.length === 1) view.selected = supported[0];
     if (view.selected === "openmohaa" || overview.inventory.openmohaa_installed) void loadOpenStatus(install, render);
   } catch (error) { if (token === loadToken) view.error = errorText(error); }
   render();
@@ -374,7 +377,7 @@ function prerequisite() {
 
 function manualBlock(render) {
   return el("div", { className: "stack" }, prerequisite(), el("div", { className: "setup__row" },
-    el("label", { className: "field", for: "install-path" }, el("input", { id: "install-path", type: "text", autocomplete: "off", spellcheck: false, placeholder: "D:\\Games\\MOHAA", value: view.manualPath, oninput: (event) => { view.manualPath = event.target.value; }, onkeydown: (event) => { if (event.key === "Enter") void check(view.manualPath, render); } })),
+    el("label", { className: "field", for: "install-path" }, el("input", { id: "install-path", type: "text", autocomplete: "off", spellcheck: false, placeholder: "Folder containing main", value: view.manualPath, oninput: (event) => { view.manualPath = event.target.value; }, onkeydown: (event) => { if (event.key === "Enter") void check(view.manualPath, render); } })),
     el("button", { className: "btn", onclick: () => void browse(render) }, "Browse…")),
     el("button", { className: "btn btn--primary btn--block", onclick: () => void check(view.manualPath, render), disabled: view.manualPath.trim() === "" }, "Use this folder"));
 }

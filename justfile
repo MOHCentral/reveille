@@ -108,9 +108,14 @@ app:
 app-release:
     cargo run -p reveille-app --release
 
-# Produce the installer. Needs the npm dev dependency: `cd crates/reveille-app && npm install`.
+# Produce the host's configured bundle. Needs the npm dev dependency:
+# `cd crates/reveille-app && npm install`.
 bundle:
     cd crates/reveille-app && npm run tauri build
+
+# Build the universal macOS 11+ app and DMG. Run on macOS after `npm install`.
+bundle-macos:
+    cd crates/reveille-app && REVEILLE_UPDATER_TARGET=darwin-universal npm run tauri build -- --target universal-apple-darwin
 
 # Generate the updater key once; an empty password is valid, and the private key needs backup.
 updater-key-generate KEY:

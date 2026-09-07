@@ -739,12 +739,13 @@ document.addEventListener("keydown", (event) => {
     event.target.isContentEditable === true ||
     Boolean(event.target.closest?.("dialog[open]"));
   const plain = !event.ctrlKey && !event.altKey && !event.metaKey;
+  const findOrRefreshModifier = (event.ctrlKey || event.metaKey) && !event.altKey;
   if (event.key === "F6") {
     event.preventDefault();
     cycleRegion(event.shiftKey);
-  } else if (event.ctrlKey && (event.key === "f" || event.key === "F")) {
-    // Ctrl+F is what every Windows application binds for "find in this thing". `/` stays, for the
-    // players who learned it here.
+  } else if (findOrRefreshModifier && (event.key === "f" || event.key === "F")) {
+    // Ctrl+F on Windows and Command+F on macOS are the native "find in this thing" chords. `/`
+    // stays for the players who learned it here.
     event.preventDefault();
     servers.focusSearch();
   } else if (event.key === "/" && !typing) {
@@ -755,7 +756,7 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape" && typing) {
     update((next) => (next.filters.query = ""));
     servers.focusFirstRow();
-  } else if (event.key === "F5" || (event.ctrlKey && event.key === "r")) {
+  } else if (event.key === "F5" || (findOrRefreshModifier && event.key.toLowerCase() === "r")) {
     event.preventDefault();
     if (!state.browse.running) refresh();
   } else if ((event.key === "f" || event.key === "F") && !typing && plain) {
@@ -765,8 +766,8 @@ document.addEventListener("keydown", (event) => {
     toggleFavorite(row);
     notify();
   } else if ((event.key === "r" || event.key === "R") && !typing && plain) {
-    // Plain R re-asks the selected server; Ctrl+R, handled above, re-asks the whole list. The
-    // modifier is the difference between one probe and a couple of hundred.
+    // Plain R re-asks the selected server; Ctrl+R or Command+R, handled above, re-asks the whole
+    // list. The modifier is the difference between one probe and a couple of hundred.
     const row = selectedRow();
     if (!row) return;
     event.preventDefault();

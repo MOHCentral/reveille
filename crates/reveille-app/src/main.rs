@@ -221,6 +221,7 @@ struct JoinResult {
 
 #[derive(Serialize)]
 struct EngineOverview {
+    capabilities: platform::HostCapabilities,
     inventory: platform::engine::EngineInventory,
     resolved: Option<EngineChoice>,
     selection_error: Option<String>,
@@ -571,12 +572,15 @@ fn engine_overview(
     let package = reborn::package(reborn::RebornProductSet::from_products(
         &installation.products,
     ));
-    let resolved = platform::engine::resolve_choice(&installation.root, saved_engine);
+    let capabilities = platform::HostCapabilities::current();
+    let resolved =
+        platform::engine::resolve_choice(&installation.root, saved_engine, &capabilities);
     let (resolved, selection_error) = match resolved {
         Ok(choice) => (Some(choice), None),
         Err(error) => (None, Some(error.to_string())),
     };
     Ok(EngineOverview {
+        capabilities: capabilities.clone(),
         inventory: platform::engine::inventory(&installation.root),
         resolved,
         selection_error,
@@ -585,7 +589,7 @@ fn engine_overview(
             filename: package.filename,
             size: package.size,
             sha256: package.sha256,
-            supported: cfg!(windows),
+            supported: capabilities.supports(EngineChoice::Reborn),
         },
     })
 }
@@ -593,14 +597,16 @@ fn engine_overview(
 #[tauri::command]
 fn select_engine(path: String, engine: EngineChoice) -> Result<EngineOverview, String> {
     let installation = install::identify(path).map_err(|error| error.to_string())?;
+    let capabilities = platform::HostCapabilities::current();
     if engine == EngineChoice::Openmohaa {
-        platform::engine::resolve_choice(&installation.root, Some(engine))
+        platform::engine::resolve_choice(&installation.root, Some(engine), &capabilities)
             .map_err(|error| error.to_string())?;
     } else {
         platform::engine::activate(
             &installation.root,
             engine,
             platform::engine::retail_activity(),
+            &capabilities,
         )
         .map_err(|error| error.to_string())?;
     }
@@ -616,9 +622,10 @@ async fn install_reborn(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<RebornInstallResult, String> {
-    if !cfg!(windows) {
-        return Err("The pinned Reborn legacy player package supports Windows only.".to_owned());
-    }
+    let capabilities = platform::HostCapabilities::current();
+    capabilities
+        .require(EngineChoice::Reborn)
+        .map_err(|error| error.to_string())?;
     let _guard = state
         .openmohaa_install
         .try_lock()
@@ -650,6 +657,7 @@ async fn install_reborn(
         &package,
         &executables,
         platform::engine::retail_activity(),
+        &capabilities,
     )
     .map_err(|error| error.to_string())?;
     Ok(RebornInstallResult {
@@ -673,6 +681,9 @@ async fn openmohaa_status(
     channel: ReleaseChannel,
     state: tauri::State<'_, AppState>,
 ) -> Result<OpenMohaaStatus, OpenMohaaFailure> {
+    platform::HostCapabilities::current()
+        .require(EngineChoice::Openmohaa)
+        .map_err(|error| OpenMohaaFailure::other(&error))?;
     let installation = install::identify(&path).map_err(|error| OpenMohaaFailure::other(&error))?;
     let target = match ReleaseTarget::for_host() {
         Ok(target) => target,
@@ -701,6 +712,9 @@ async fn install_openmohaa(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<OpenMohaaInstallResult, OpenMohaaFailure> {
+    platform::HostCapabilities::current()
+        .require(EngineChoice::Openmohaa)
+        .map_err(|error| OpenMohaaFailure::other(&error))?;
     let _install_guard = state
         .openmohaa_install
         .try_lock()
@@ -1275,8 +1289,12 @@ fn install_destination(session: &Session) -> Result<platform::InstallTarget, Str
             session.game.label()
         ));
     }
-    platform::engine::resolve_choice(&installation.root, Some(session.engine))
-        .map_err(|error| error.to_string())?;
+    platform::engine::resolve_choice(
+        &installation.root,
+        Some(session.engine),
+        &platform::HostCapabilities::current(),
+    )
+    .map_err(|error| error.to_string())?;
     platform::resolve_install_target(
         &installation.root,
         LaunchProfile::new(session.game).data_directory(),
@@ -1539,8 +1557,12 @@ fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
 /// Start the client the detected install actually provides, connected to `address`.
 fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, String> {
     let installation = install::identify(&session.path).map_err(|error| error.to_string())?;
-    platform::engine::resolve_choice(&installation.root, Some(session.engine))
-        .map_err(|error| error.to_string())?;
+    platform::engine::resolve_choice(
+        &installation.root,
+        Some(session.engine),
+        &platform::HostCapabilities::current(),
+    )
+    .map_err(|error| error.to_string())?;
     let kind = platform::ClientKind::from(session.engine);
     let profile = LaunchProfile::new(session.game);
     let program = platform::default_client(&installation.root, profile.target, kind)
@@ -1878,7 +1900,15 @@ mod tests {
     fn a_game_the_folder_has_no_files_for_is_refused_before_anything_is_probed() {
         let temporary = TempDir::new().expect("temporary directory");
         fs::create_dir(temporary.path().join("main")).expect("main directory");
-        fs::write(temporary.path().join("openmohaa.exe"), []).expect("client marker");
+        fs::write(
+            platform::default_client(
+                temporary.path(),
+                TargetGame::AlliedAssault,
+                platform::ClientKind::OpenMohaa,
+            ),
+            [],
+        )
+        .expect("client marker");
         let path = temporary.path().to_string_lossy().into_owned();
 
         // Allied Assault is what this folder has, and it indexes.

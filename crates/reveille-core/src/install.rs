@@ -338,6 +338,21 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_the_extensionless_openmohaa_client() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir(temporary.path().join("main")).expect("main directory");
+        fs::write(temporary.path().join("openmohaa"), b"macOS client").expect("client");
+
+        let install = identify(temporary.path()).expect("identify install");
+        assert_eq!(
+            install.identification,
+            IdentificationMethod::RecognizedBinaryUnknownHashes
+        );
+        assert_eq!(install.binaries.len(), 1);
+        assert_eq!(install.binaries[0].path, install.root.join("openmohaa"));
+    }
+
+    #[test]
     fn rejects_unrelated_directories() {
         let temporary = TempDir::new().expect("temporary directory");
         assert!(matches!(

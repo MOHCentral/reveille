@@ -227,7 +227,7 @@ installation is therefore loadable by the engine and reported missing by Reveill
 recorded limit, not an oversight: modelling the other roots means deciding which of several
 installations the player meant, and setup already asked them that.
 
-### 3b. The home path is `%APPDATA%\openmohaa`, not `%APPDATA%\moh`
+### 3b. OpenMoHAA has one platform-specific home root
 
 **Correction, 26 Aug 2026.** `plan.md` cited `q_shared.h:47` for `%APPDATA%\moh`. That define is
 `HOMEPATH_NAME_WIN_MOH`, and it — with `HOMEPATH_NAME_WIN_MOHTA` (`mohta`) and
@@ -237,8 +237,11 @@ installations the player meant, and setup already asked them that.
 (`q_shared.h:81`, `sys_win32.c:114-117`).
 
 So there is **one** home path for all three games, with `main`, `mainta` and `maintt` inside it —
-not one per product. Content written to `%APPDATA%\moh\main` is in a directory the engine never
-searches. Retail 1.11/1.12 predates the home path entirely and reads only the installation.
+not one per product. It is `%APPDATA%\openmohaa` on Windows and
+`~/Library/Application Support/openmohaa` on macOS, as documented by OpenMoHAA's running guide.
+Content written to `%APPDATA%\moh\main` is in a directory the engine never searches. Retail
+1.11/1.12 predates the home path entirely and reads only the installation; retail and Reborn are
+not offered on macOS.
 
 ---
 

@@ -7,9 +7,8 @@ on:
   pull_request:
 
 jobs:
-  # The portable half. `reveille-core` and `reveille-cli` must keep building and
-  # passing on a non-Windows target, which is what makes the deferred Linux and
-  # macOS builds deferred rather than precluded.
+  # The portable crates must keep building and passing on a non-desktop target. Linux remains
+  # unsupported by the app, but it exercises the shared policy without host-only dependencies.
   portable:
     runs-on: ubuntu-latest
     steps:
@@ -18,14 +17,12 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p reveille-core -p reveille-cli --locked
-      - run: cargo clippy -p reveille-core -p reveille-cli --all-targets --locked -- -D warnings
+      - run: cargo test -p reveille-core -p reveille-platform -p reveille-cli --locked
+      - run: cargo clippy -p reveille-core -p reveille-platform -p reveille-cli --all-targets --locked -- -D warnings
       - run: cargo fmt --all --check
 
-  # The whole workspace, including the Tauri shell. `reveille-app` is a
-  # Windows-targeted crate for v1; building it on Linux would need the GTK and
-  # WebKit development packages, which buys nothing until a Linux build is in
-  # scope.
+  # The whole workspace, including the Tauri shell. Building it on Linux would need the GTK and
+  # WebKit development packages even though Linux remains outside the supported desktop hosts.
   windows:
     runs-on: windows-latest
     steps:
@@ -41,3 +38,61 @@ jobs:
       - name: Check the shell's JavaScript parses
         shell: bash
         run: find crates/reveille-app/ui -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  # The supported Mac host. GitHub's standard macos-14 image is an Apple Silicon M1 runner.
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo fmt --all --check
+      - name: Check the shell's JavaScript parses
+        run: find crates/reveille-app/ui -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  # Compile and run the same workspace on the other half of the universal binary.
+  macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  macos-universal-bundle:
+    runs-on: macos-14
+    env:
+      # The bundle contains both slices, so both must ask for the same signed updater artifact.
+      REVEILLE_UPDATER_TARGET: darwin-universal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/reveille-app/package-lock.json
+      - name: Install the Tauri CLI
+        working-directory: crates/reveille-app
+        run: npm ci
+      - name: Build the universal app bundle
+        working-directory: crates/reveille-app
+        run: npx -- tauri build --target universal-apple-darwin --bundles app -- --locked
+      - name: Verify both architectures are present
+        run: |
+          set -euo pipefail
+          binary=target/universal-apple-darwin/release/bundle/macos/Reveille.app/Contents/MacOS/Reveille
+          test -f "$binary"
+          archs=$(lipo -archs "$binary")
+          [[ " $archs " == *" arm64 "* ]]
+          [[ " $archs " == *" x86_64 "* ]]
