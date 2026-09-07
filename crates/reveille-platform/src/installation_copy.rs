@@ -817,11 +817,13 @@ mod tests {
                 bytes: reborn_bytes.clone(),
             })
             .collect::<Vec<_>>();
+        let capabilities = crate::HostCapabilities::for_platform(crate::HostPlatform::Windows);
         engine::install_reborn(
             &destination,
             &reborn_package,
             &executables,
             EngineActivity::ConfirmedStopped,
+            &capabilities,
         )
         .expect("Reborn installs into copy");
         for filename in ["MOHAA.exe", "moh_spearhead.exe", "moh_breakthrough.exe"] {
