@@ -654,7 +654,7 @@ pub enum InstallationCopyError {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::io::{Cursor, Write as _};
+    use std::io::{Cursor};
 
     use reveille_core::content::{DownloadedArchive, MohDbIntegrity};
     use reveille_core::engine::EngineChoice;

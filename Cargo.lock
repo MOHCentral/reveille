@@ -3125,7 +3125,7 @@ dependencies = [
 
 [[package]]
 name = "reveille-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "reveille-core",
  "reveille-platform",
@@ -3146,7 +3146,7 @@ dependencies = [
 
 [[package]]
 name = "reveille-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "reveille-core",
@@ -3162,7 +3162,7 @@ dependencies = [
 
 [[package]]
 name = "reveille-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "md-5",
  "reqwest 0.12.28",
@@ -3180,7 +3180,7 @@ dependencies = [
 
 [[package]]
 name = "reveille-platform"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fs2",
  "reveille-core",
