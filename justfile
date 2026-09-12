@@ -49,7 +49,7 @@ test:
 
 # Check SPDX headers and that the shell's JavaScript parses.
 sources:
-    node tools/check-sources.mjs
+    node --disable-warning=ExperimentalWarning tools/check-sources.mjs
 
 # ---------------------------------------------------------------------------
 # Portability. `reveille-core` and `reveille-cli` must keep building and passing off Windows —

@@ -229,8 +229,11 @@ pub fn activate(
 ) -> Result<(), EngineError> {
     let inventory = inventory(root);
     ensure_available(choice, &inventory)?;
+    if choice == EngineChoice::Openmohaa {
+        // OpenMoHAA is side-by-side. The caller's preferences are its complete selection state.
+        return Ok(());
+    }
     if matches!(choice, EngineChoice::Original | EngineChoice::Reborn) {
-        require_stopped(activity)?;
         let source = root.join(MANAGED_DIRECTORY).join(match choice {
             EngineChoice::Original => "original",
             EngineChoice::Reborn => "reborn",
@@ -239,20 +242,35 @@ pub fn activate(
         let files = RETAIL_EXECUTABLES
             .iter()
             .filter(|name| source.join(name).is_file())
+            .filter(|name| !files_match(&source.join(name), &root.join(name)))
             .map(|name| (source.join(name), root.join(name)))
             .collect::<Vec<_>>();
-        if files.is_empty() && choice == EngineChoice::Original {
-            // A never-switched retail install is already active.
-        } else {
-            transactional_copy(&files)?;
+        if files.is_empty() {
+            // Nothing to copy, so nothing changes: a never-switched retail install is already
+            // active, and so is a Reborn executable that reached the canonical filename outside
+            // Reveille — `inventory` recognises that one by its pinned hash, with no managed copy
+            // behind it.
+            return Ok(());
         }
+        require_stopped(activity)?;
+        transactional_copy(&files)?;
     }
-    let mut state = read_state(root)?.unwrap_or_else(|| StateFile {
+    let existing = read_state(root)?;
+    // A real overlay switch is evidence worth recording beside the managed files. A selection that
+    // changes no files returned above and lives only in the caller's per-install preferences.
+    let mut state = existing.unwrap_or_else(|| StateFile {
         format: STATE_FORMAT,
         ..StateFile::default()
     });
     state.selected = Some(choice);
     write_state(root, &state)
+}
+
+fn files_match(left: &Path, right: &Path) -> bool {
+    match (hash_file(left), hash_file(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// Preserve first-seen originals, retain verified Reborn copies, activate them, and record hashes.
@@ -271,14 +289,10 @@ pub fn install_reborn(
     let managed = root.join(MANAGED_DIRECTORY);
     let original = managed.join("original");
     let reborn = managed.join("reborn");
-    fs::create_dir_all(&original).map_err(|source| EngineError::Filesystem {
-        path: original.clone(),
-        source,
-    })?;
-    fs::create_dir_all(&reborn).map_err(|source| EngineError::Filesystem {
-        path: reborn.clone(),
-        source,
-    })?;
+    fs::create_dir_all(&original)
+        .map_err(|source| EngineError::write_failure(original.clone(), source))?;
+    fs::create_dir_all(&reborn)
+        .map_err(|source| EngineError::write_failure(reborn.clone(), source))?;
 
     let mut state = read_state(root)?.unwrap_or_else(|| StateFile {
         format: STATE_FORMAT,
@@ -382,7 +396,7 @@ fn read_state(root: &Path) -> Result<Option<StateFile>, EngineError> {
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => return Err(EngineError::Filesystem { path, source }),
+        Err(source) => return Err(EngineError::read_failure(path, source)),
     };
     let state: StateFile = serde_json::from_slice(&bytes)?;
     if state.format != STATE_FORMAT {
@@ -396,70 +410,43 @@ fn write_state(root: &Path, state: &StateFile) -> Result<(), EngineError> {
     let parent = path
         .parent()
         .ok_or_else(|| EngineError::NoParent(path.clone()))?;
-    fs::create_dir_all(parent).map_err(|source| EngineError::Filesystem {
-        path: parent.to_path_buf(),
-        source,
-    })?;
-    let mut temporary =
-        NamedTempFile::new_in(parent).map_err(|source| EngineError::Filesystem {
-            path: parent.to_path_buf(),
-            source,
-        })?;
+    fs::create_dir_all(parent)
+        .map_err(|source| EngineError::write_failure(parent.to_path_buf(), source))?;
+    let mut temporary = NamedTempFile::new_in(parent)
+        .map_err(|source| EngineError::write_failure(parent.to_path_buf(), source))?;
     serde_json::to_writer_pretty(&mut temporary, state)?;
     temporary
         .flush()
-        .map_err(|source| EngineError::Filesystem {
-            path: path.clone(),
-            source,
-        })?;
+        .map_err(|source| EngineError::write_failure(path.clone(), source))?;
     temporary
         .persist(&path)
-        .map_err(|error| EngineError::Filesystem {
-            path,
-            source: error.error,
-        })?;
+        .map_err(|error| EngineError::write_failure(path, error.error))?;
     Ok(())
 }
 
 fn copy_noclobber(source: &Path, target: &Path) -> Result<(), EngineError> {
-    let mut input = File::open(source).map_err(|source_error| EngineError::Filesystem {
-        path: source.to_path_buf(),
-        source: source_error,
-    })?;
+    let mut input = File::open(source)
+        .map_err(|source_error| EngineError::read_failure(source.to_path_buf(), source_error))?;
     let mut output = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(target)
-        .map_err(|source_error| EngineError::Filesystem {
-            path: target.to_path_buf(),
-            source: source_error,
-        })?;
-    io::copy(&mut input, &mut output).map_err(|source_error| EngineError::Filesystem {
-        path: target.to_path_buf(),
-        source: source_error,
-    })?;
+        .map_err(|source_error| EngineError::write_failure(target.to_path_buf(), source_error))?;
+    io::copy(&mut input, &mut output)
+        .map_err(|source_error| EngineError::write_failure(target.to_path_buf(), source_error))?;
     output
         .flush()
-        .map_err(|source_error| EngineError::Filesystem {
-            path: target.to_path_buf(),
-            source: source_error,
-        })
+        .map_err(|source_error| EngineError::write_failure(target.to_path_buf(), source_error))
 }
 
 fn write_staging(directory: &Path, bytes: &[u8]) -> Result<PathBuf, EngineError> {
-    let mut file = NamedTempFile::new_in(directory).map_err(|source| EngineError::Filesystem {
-        path: directory.to_path_buf(),
-        source,
-    })?;
+    let mut file = NamedTempFile::new_in(directory)
+        .map_err(|source| EngineError::write_failure(directory.to_path_buf(), source))?;
     file.write_all(bytes)
-        .map_err(|source| EngineError::Filesystem {
-            path: directory.to_path_buf(),
-            source,
-        })?;
-    let (_handle, path) = file.keep().map_err(|error| EngineError::Filesystem {
-        path: directory.to_path_buf(),
-        source: error.error,
-    })?;
+        .map_err(|source| EngineError::write_failure(directory.to_path_buf(), source))?;
+    let (_handle, path) = file
+        .keep()
+        .map_err(|error| EngineError::write_failure(directory.to_path_buf(), error.error))?;
     Ok(path)
 }
 
@@ -472,23 +459,18 @@ fn transactional_copy(files: &[(PathBuf, PathBuf)]) -> Result<(), EngineError> {
             executable: false,
         })
         .collect::<Vec<_>>();
-    package_io::transactional_overlay(&overlays).map_err(EngineError::PackageApply)
+    package_io::transactional_overlay(&overlays).map_err(EngineError::from_apply)
 }
 
 fn hash_file(path: &Path) -> Result<String, EngineError> {
-    let mut file = File::open(path).map_err(|source| EngineError::Filesystem {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let mut file =
+        File::open(path).map_err(|source| EngineError::read_failure(path.to_path_buf(), source))?;
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 16 * 1024];
     loop {
         let read = file
             .read(&mut buffer)
-            .map_err(|source| EngineError::Filesystem {
-                path: path.to_path_buf(),
-                source,
-            })?;
+            .map_err(|source| EngineError::read_failure(path.to_path_buf(), source))?;
         if read == 0 {
             break;
         }
@@ -517,6 +499,14 @@ pub enum EngineError {
     NoParent(PathBuf),
     #[error("engine overlay failed")]
     PackageApply(#[source] package_io::ApplyError),
+    #[error(
+        "Windows protects {path}, so Reveille cannot change files there. Make a writable copy of the game folder first."
+    )]
+    NotWritable {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("filesystem operation failed at {path}")]
     Filesystem {
         path: PathBuf,
@@ -525,10 +515,98 @@ pub enum EngineError {
     },
 }
 
+impl EngineError {
+    /// A failure to *write*. Separate a refused permission from every other I/O failure, so the
+    /// one case a player can act on reads as itself (docs/friction.md F3) rather than as a bare
+    /// path.
+    fn write_failure(path: impl Into<PathBuf>, source: io::Error) -> Self {
+        let path = path.into();
+        if source.kind() == io::ErrorKind::PermissionDenied {
+            Self::NotWritable { path, source }
+        } else {
+            Self::Filesystem { path, source }
+        }
+    }
+
+    /// A failure to *read*. A refused read is a different fact from a refused write, and telling
+    /// players their folder is not writable when Reveille could not open a file for reading would
+    /// send them to fix the wrong thing.
+    fn read_failure(path: impl Into<PathBuf>, source: io::Error) -> Self {
+        Self::Filesystem {
+            path: path.into(),
+            source,
+        }
+    }
+
+    /// Carry a refused overlay write out at the same grain as every other one. Without this, the
+    /// only thing a protected installation sees for the engine switch itself is "engine overlay
+    /// failed" (docs/rules.md S3).
+    fn from_apply(error: package_io::ApplyError) -> Self {
+        match error {
+            package_io::ApplyError::Filesystem { path, source }
+                if source.kind() == io::ErrorKind::PermissionDenied =>
+            {
+                Self::NotWritable { path, source }
+            }
+            other => Self::PackageApply(other),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn refused_permission_is_its_own_error() {
+        let denied = || io::Error::from(io::ErrorKind::PermissionDenied);
+        let path = PathBuf::from("C:/Program Files/MOHAA/.reveille-engines");
+        assert!(matches!(
+            EngineError::write_failure(path.clone(), denied()),
+            EngineError::NotWritable { .. }
+        ));
+        assert!(matches!(
+            EngineError::write_failure(path.clone(), io::Error::from(io::ErrorKind::NotFound)),
+            EngineError::Filesystem { .. }
+        ));
+        // A refused read is not a statement about writing.
+        assert!(matches!(
+            EngineError::read_failure(path.clone(), denied()),
+            EngineError::Filesystem { .. }
+        ));
+        // The switch itself fails inside the overlay, and must say the same thing.
+        assert!(matches!(
+            EngineError::from_apply(package_io::ApplyError::Filesystem {
+                path: path.clone(),
+                source: denied(),
+            }),
+            EngineError::NotWritable { .. }
+        ));
+        assert!(matches!(
+            EngineError::from_apply(package_io::ApplyError::Incomplete),
+            EngineError::PackageApply(_)
+        ));
+
+        assert!(matches!(
+            EngineError::write_failure(path, io::Error::from(io::ErrorKind::StorageFull)),
+            EngineError::Filesystem { .. }
+        ));
+    }
+
+    #[test]
+    fn selecting_an_engine_that_switches_nothing_writes_nothing() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let root = temporary.path();
+        fs::write(root.join("MOHAA.exe"), b"retail").expect("retail client");
+        activate(root, EngineChoice::Original, EngineActivity::Unknown).expect("activate original");
+        assert!(!state_path(root).exists());
+        assert_eq!(
+            fs::read(root.join("MOHAA.exe")).expect("untouched client"),
+            b"retail"
+        );
+        assert!(read_state(root).expect("read state").is_none());
+    }
 
     #[test]
     fn tasklist_is_case_insensitive_and_conservative_about_malformed_rows() {
@@ -567,7 +645,15 @@ mod tests {
             resolve_choice(root, None).expect("sole community engine"),
             EngineChoice::Openmohaa
         );
-        activate(root, EngineChoice::Openmohaa, EngineActivity::Unknown).expect("select openmohaa");
+        write_state(
+            root,
+            &StateFile {
+                format: STATE_FORMAT,
+                selected: Some(EngineChoice::Openmohaa),
+                ..StateFile::default()
+            },
+        )
+        .expect("saved OpenMoHAA choice");
         fs::remove_file(root.join("openmohaa.exe")).expect("remove selected engine");
         assert!(matches!(
             resolve_choice(root, None),

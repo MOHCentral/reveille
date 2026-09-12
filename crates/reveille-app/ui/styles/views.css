@@ -784,6 +784,19 @@
   user-select: text;
 }
 
+.setup__copy {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  background: var(--void);
+}
+
+.setup__copy .actions__row {
+  padding-top: 0;
+}
+
 /* What Reveille needs on disk, stated before the player goes looking for it. This is the first
    thing read on a cold start with no install, so it carries body weight rather than note weight. */
 .setup__needs {

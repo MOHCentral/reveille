@@ -5,6 +5,7 @@
 //! The policy encoded here targets Windows, which is v1's only supported platform, but the code
 //! is portable so the composed pipeline stays exercisable — and testable in CI — on Linux.
 
+use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Child;
@@ -20,6 +21,8 @@ use reveille_core::join::{LaunchCommand, LaunchDialect, LaunchProfile};
 use reveille_core::platform::openmohaa;
 use reveille_core::platform::openmohaa::ClientActivity;
 use thiserror::Error;
+
+pub mod installation_copy;
 
 /// One kind of `OpenMoHAA` program whose files a release replaces.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -102,6 +105,16 @@ impl ClientKind {
             Self::OpenMohaa => LaunchDialect::OpenMohaa,
             Self::Retail | Self::Reborn => LaunchDialect::Retail,
         }
+    }
+}
+
+impl fmt::Display for ClientKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::OpenMohaa => "OpenMoHAA",
+            Self::Retail => "Original game",
+            Self::Reborn => "Reborn",
+        })
     }
 }
 
@@ -313,8 +326,9 @@ pub fn resolve_install_target(
             game_directory: preferred,
             used_home_fallback: false,
         }),
-        Err(source) if client != ClientKind::OpenMohaa => Err(PlatformError::RetailUnwritable {
+        Err(source) if client != ClientKind::OpenMohaa => Err(PlatformError::ContentUnwritable {
             path: preferred,
+            client,
             source,
         }),
         Err(_) => {
@@ -349,7 +363,7 @@ impl From<EngineChoice> for ClientKind {
 
 pub mod engine;
 
-fn probe_writable(directory: &Path) -> io::Result<()> {
+pub(crate) fn probe_writable(directory: &Path) -> io::Result<()> {
     for suffix in 0..16 {
         let path = directory.join(format!(
             ".reveille-write-probe-{}-{suffix}",
@@ -409,11 +423,15 @@ pub fn launch_client(command: &LaunchCommand, client: ClientKind) -> Result<Chil
 /// Windows launcher policy failure.
 #[derive(Debug, Error)]
 pub enum PlatformError {
-    /// Retail has no engine home directory to use instead.
-    #[error("retail has no writable fallback for {path}")]
-    RetailUnwritable {
-        /// Preferred retail data directory.
+    /// Original and Reborn have no engine home directory to use instead.
+    #[error(
+        "{client} cannot install maps because Windows protects {path}. Make a writable copy of the game folder first."
+    )]
+    ContentUnwritable {
+        /// Preferred game data directory.
         path: PathBuf,
+        /// Engine the player chose.
+        client: ClientKind,
         /// Writability probe failure.
         #[source]
         source: io::Error,
@@ -671,6 +689,26 @@ mod tests {
                 resolve_install_target(temporary.path(), "main", client).expect("writable target");
             assert_eq!(target.game_directory, main);
             assert!(!target.used_home_fallback);
+        }
+    }
+
+    #[test]
+    fn content_write_refusal_names_the_selected_engine_folder_and_remedy() {
+        let path = PathBuf::from(r"C:\Program Files\MOHAA\main");
+        for (client, label) in [
+            (ClientKind::Retail, "Original game"),
+            (ClientKind::Reborn, "Reborn"),
+        ] {
+            let error = PlatformError::ContentUnwritable {
+                path: path.clone(),
+                client,
+                source: io::Error::from(io::ErrorKind::PermissionDenied),
+            }
+            .to_string();
+            assert!(error.contains(label), "{error}");
+            assert!(error.contains(path.to_string_lossy().as_ref()), "{error}");
+            assert!(error.contains("Make a writable copy"), "{error}");
+            assert!(!error.contains("operation failed"), "{error}");
         }
     }
 }

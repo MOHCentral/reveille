@@ -379,6 +379,17 @@ clippy and fmt clean.
   This keeps `install_archive`'s existing `game_directory` parameter meaningful — Part B supplies
   the resolved target, and the choice of target is the caller's.
 
+  **Correction, 12 Sep 2026 — this policy answers map destinations only.** Installing OpenMoHAA
+  extracts into the installation root, and installing Reborn preserves and replaces retail
+  executables there; neither operation can use the content home path. A protected installation now
+  gets a setup-time offer to copy the complete game once to a user-owned folder. The copy is
+  measured before its free-space check, cancellable, staged behind an incomplete marker, validated
+  with `install::identify`, and moved into place before preferences migrate. The original is never
+  changed. Browsing and joining content already on disk were also separated from writable-target
+  resolution: they perform no probe and cannot be blocked by a folder they do not need to change.
+  No setup, join, engine install, content install, launch, or self-update path initiates elevation
+  (rule S3).
+
 - **Caveat, and it is the untested one:** the search-path facts above are OpenMoHAA. Retail
   1.11/1.12 predates the home-path split and has no home path at all, so the game directory is
   its only install target. Test retail launch first on the Windows machine.
@@ -747,8 +758,10 @@ identity, content installation, and launch. OpenMoHAA keeps its argument dialect
 fallback; Original and Reborn use the retail dialect and game directory. The CLI's existing
 automatic fallback remains compatible and accepts Reborn as an explicit client kind.
 
-Selection is stored in app preferences keyed by the canonical installation root, so choosing
-OpenMoHAA does not require writing into a Program Files installation. A valid saved choice wins;
+Selection is stored in app preferences keyed by the canonical installation root, so **recording
+the choice** of OpenMoHAA does not require writing into a Program Files installation. Installing or
+updating OpenMoHAA still writes engine files into that root; the writable-copy flow above is what
+makes that operation possible without elevation. A valid saved choice wins;
 an unavailable saved choice blocks rather than falling back. With no saved choice, the sole
 installed community engine wins, Original wins when neither is installed, and two installed
 community engines require an explicit choice. `.reveille-engines/state.json` remains beside the
@@ -918,10 +931,10 @@ scripting and install-UI control; Reveille installs one executable and a webview
 
 Two installer decisions worth stating so they are not re-opened by accident:
 
-- **`installMode: currentUser`.** The app does not need Administrator to run, so the install should
-  not ask for it. Writing content into a game directory under `Program Files` or `C:\GOG Games` is a
-  separate question, and the probe-then-fall-back write-target policy already answers it at runtime
-  rather than by elevating the whole application.
+- **`installMode: currentUser`.** The app does not need Administrator to install or run. Reveille
+  never initiates elevation later either: a protected game folder is copied once to a user-owned
+  location, while OpenMoHAA's content-only home fallback remains available. `just check` rejects
+  elevation verbs, helpers, and administrator manifest levels mechanically (rule S3).
 - **No licence page in the installer.** GPL-2.0 does not require acceptance in order to *use* the
   program, and a page that must be clicked past is a step charged to every newcomer. The licence
   ships in the repository and in the bundle metadata.

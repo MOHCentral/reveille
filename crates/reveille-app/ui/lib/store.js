@@ -228,6 +228,29 @@ export function recallGame(root) {
 }
 
 /**
+ * Move the setup choices to a copy only after Rust has returned a re-identified installation.
+ *
+ * The old keys are removed so the remembered root and its engine/game choices move together. If
+ * browser storage is unavailable, the validated copy still becomes the in-memory candidate and
+ * setup remains usable for this run.
+ */
+export function migrateInstallationPreferences(oldRoot, newRoot, engine, game) {
+  try {
+    const engines = JSON.parse(localStorage.getItem(ENGINES_KEY) ?? "{}");
+    const games = JSON.parse(localStorage.getItem(GAMES_KEY) ?? "{}");
+    delete engines[oldRoot];
+    delete games[oldRoot];
+    if (engine) engines[newRoot] = engine;
+    if (game) games[newRoot] = game;
+    localStorage.setItem(ENGINES_KEY, JSON.stringify(engines));
+    localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+    localStorage.setItem(INSTALL_KEY, newRoot);
+  } catch {
+    // The explicit in-memory choices still work for this session.
+  }
+}
+
+/**
  * The games an install can actually run, which is not the same as the products detected in it:
  * an expansion needs the base game underneath it, and the Rust side decides that (rules H13/H14).
  */

@@ -14,8 +14,8 @@ use std::io::{self, Read as _};
 use std::net::SocketAddrV4;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reveille_core::content::{
@@ -57,6 +57,7 @@ const PREVIEW_EVENT: &str = "reveille://preview";
 const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
+const INSTALLATION_COPY_EVENT: &str = "reveille://installation-copy";
 const APP_LOG_FILENAME: &str = "reveille.log";
 const PREVIOUS_APP_LOG_FILENAME: &str = "reveille.previous.log";
 
@@ -90,6 +91,10 @@ struct AppState {
     openmohaa_next_offer: AtomicU64,
     /// Cancellation for the pinned Reborn archive transfer.
     reborn_cancel: AtomicBool,
+    /// Only one game-folder copy may run at a time.
+    installation_copy: tokio::sync::Mutex<()>,
+    /// Read between copied chunks; cancellation never exposes the final destination early.
+    installation_copy_cancel: Arc<AtomicBool>,
 }
 
 const OPENMOHAA_OFFER_CACHE_CAPACITY: usize = 8;
@@ -189,8 +194,6 @@ struct JoinPreview {
     server: Server,
     assessment: CompatibilityAssessment,
     catalogue: Option<CatalogueResolutionPass>,
-    game_directory: PathBuf,
-    used_home_fallback: bool,
     engine: EngineChoice,
     game: TargetGame,
 }
@@ -216,7 +219,7 @@ struct JoinResult {
     assessment: CompatibilityAssessment,
     installed: Vec<PathBuf>,
     failures: Vec<InstallFailure>,
-    game_directory: PathBuf,
+    game_directory: Option<PathBuf>,
     used_home_fallback: bool,
     engine: EngineChoice,
     game: TargetGame,
@@ -244,6 +247,36 @@ struct RebornSummary {
 struct RebornInstallResult {
     engine: EngineChoice,
     inventory: platform::engine::EngineInventory,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum InstallationStorageStatus {
+    Writable,
+    Protected {
+        folders: Vec<PathBuf>,
+        source_bytes: u64,
+        suggested_destination: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Serialize)]
+struct InstallationCopyProgress {
+    copied_bytes: u64,
+    total_bytes: u64,
+    copied_files: u64,
+    total_files: u64,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+enum InstallationCopyResult {
+    Copied {
+        installation: Installation,
+        source_bytes: u64,
+        source_files: u64,
+    },
+    Cancelled,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -406,6 +439,17 @@ impl From<OpenMohaaError> for OpenMohaaFailure {
     fn from(error: OpenMohaaError) -> Self {
         use OpenMohaaFailureKind as Kind;
 
+        let detail = match &error {
+            OpenMohaaError::Filesystem { path, source }
+                if source.kind() == io::ErrorKind::PermissionDenied =>
+            {
+                format!(
+                    "Windows protects {}, so Reveille cannot change files there. Make a writable copy of the game folder first.",
+                    path.display()
+                )
+            }
+            _ => error.to_string(),
+        };
         let kind = match error {
             OpenMohaaError::Client(_)
             | OpenMohaaError::Network(_)
@@ -432,10 +476,7 @@ impl From<OpenMohaaError> for OpenMohaaFailure {
             | OpenMohaaError::IncompleteTransaction
             | OpenMohaaError::Filesystem { .. } => Kind::Filesystem,
         };
-        Self {
-            kind,
-            detail: error.to_string(),
-        }
+        Self { kind, detail }
     }
 }
 
@@ -966,6 +1007,125 @@ fn openmohaa_client_path(root: &Path, target: ReleaseTarget) -> PathBuf {
     root.join(filename)
 }
 
+/// Probe setup-time write access and measure the source only when a writable copy may be needed.
+#[tauri::command]
+async fn installation_storage(path: String) -> Result<InstallationStorageStatus, String> {
+    tokio::task::spawn_blocking(move || {
+        let installation = install::identify(&path).map_err(|error| error.to_string())?;
+        let probe = platform::installation_copy::probe_installation_write_access(&installation)
+            .map_err(|error| error.to_string())?;
+        if probe.is_writable() {
+            return Ok(InstallationStorageStatus::Writable);
+        }
+        let plan = platform::installation_copy::measure_installation(&installation.root)
+            .map_err(|error| error.to_string())?;
+        Ok(InstallationStorageStatus::Protected {
+            folders: probe.blocked,
+            source_bytes: plan.bytes,
+            suggested_destination: platform::installation_copy::suggested_destination(
+                &installation.root,
+            ),
+        })
+    })
+    .await
+    .map_err(|error| format!("the game-folder check did not finish: {error}"))?
+}
+
+/// Let the player choose a parent and derive a new, non-existing installation folder beneath it.
+#[tauri::command]
+async fn pick_copy_destination(
+    source_path: String,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    let source = PathBuf::from(source_path);
+    let (sender, receiver) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose where to put the writable game copy")
+        .pick_folder(move |folder| {
+            drop(sender.send(folder));
+        });
+    let folder = receiver
+        .await
+        .map_err(|_| "the folder picker closed unexpectedly".to_owned())?;
+    Ok(folder.map(|folder| {
+        platform::installation_copy::destination_in_parent(&source, Path::new(&folder.to_string()))
+            .to_string_lossy()
+            .into_owned()
+    }))
+}
+
+/// Copy a protected game folder to a user-owned destination and re-identify it before returning.
+#[tauri::command]
+async fn copy_game_installation(
+    source_path: String,
+    destination_path: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<InstallationCopyResult, String> {
+    let _guard = state
+        .installation_copy
+        .try_lock()
+        .map_err(|_| "a game-folder copy is already running".to_owned())?;
+    state
+        .installation_copy_cancel
+        .store(false, Ordering::Release);
+    let cancel = Arc::clone(&state.installation_copy_cancel);
+    let source = PathBuf::from(source_path);
+    let destination = PathBuf::from(destination_path);
+    let copy_app = app.clone();
+    tokio::task::spawn_blocking(move || {
+        platform::installation_copy::copy_installation_reporting(
+            &source,
+            &destination,
+            || cancel.load(Ordering::Acquire),
+            |progress| {
+                drop(copy_app.emit(
+                    INSTALLATION_COPY_EVENT,
+                    InstallationCopyProgress {
+                        copied_bytes: progress.copied_bytes,
+                        total_bytes: progress.total_bytes,
+                        copied_files: progress.copied_files,
+                        total_files: progress.total_files,
+                    },
+                ));
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("the game-folder copy did not finish: {error}"))?
+    .map_or_else(
+        |error| {
+            if matches!(
+                error,
+                platform::installation_copy::InstallationCopyError::Cancelled
+            ) {
+                Ok(InstallationCopyResult::Cancelled)
+            } else {
+                Err(error.to_string())
+            }
+        },
+        |copied| {
+            Ok(InstallationCopyResult::Copied {
+                installation: copied.installation,
+                source_bytes: copied.source_bytes,
+                source_files: copied.source_files,
+            })
+        },
+    )
+}
+
+#[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri resolves managed state only for by-value command parameters"
+)]
+fn cancel_game_installation_copy(state: tauri::State<'_, AppState>) {
+    state
+        .installation_copy_cancel
+        .store(true, Ordering::Release);
+}
+
 /// Open the platform folder picker. `None` means the player dismissed it.
 #[tauri::command]
 async fn pick_install_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -1002,7 +1162,7 @@ async fn browse_servers(
     state: tauri::State<'_, AppState>,
 ) -> Result<BrowserPayload, BrowseFailure> {
     info!(game = ?session.game, "starting server browse");
-    let (_, index) = installed_maps(&session)?;
+    let index = installed_maps(&session)?;
 
     // A stop pressed just as the previous sweep ended leaves a permit behind, which would cancel
     // this one before it probed anything. Consume it: polling `notified` once resolves immediately
@@ -1160,7 +1320,7 @@ async fn check_server(
     let address = address
         .parse::<SocketAddrV4>()
         .map_err(|error| format!("Reveille could not read the address {address}: {error}"))?;
-    let (_, index) = installed_maps(&session)?;
+    let index = installed_maps(&session)?;
     let endpoint = MasterEndpoint {
         address: *address.ip(),
         query_port: QueryPort::new(query_port),
@@ -1270,23 +1430,34 @@ struct Session {
 
 /// Resolve the installation, confirm the engine it will run, and index the maps on disk.
 ///
-/// Every command that classifies a server needs these in this order: a game the install has no
-/// assets for and an unresolvable engine choice must both fail before a directory is probed for
-/// writability, and the index has to come from every directory that engine actually reads —
-/// which for an expansion is `main` underneath `mainta` or `maintt`, not the expansion alone.
-fn installed_maps(session: &Session) -> Result<(platform::InstallTarget, MapIndex), String> {
-    let install = install_destination(session)?;
-    let index = reindex(session, &install)?;
-    Ok((install, index))
+/// This path is deliberately read-only. Browsing and joining a server whose map is already on disk
+/// need no writable destination, so a Program Files installation must reach them without a probe.
+/// The index still covers every directory the engine reads, including `main` beneath an expansion.
+fn installed_maps(session: &Session) -> Result<MapIndex, String> {
+    let installation = session_installation(session)?;
+    let search = platform::content_search_path(
+        &installation.root,
+        session.game,
+        platform::ClientKind::from(session.engine),
+    );
+    MapIndex::scan_chain(&search).map_err(|error| error.to_string())
 }
 
 /// Resolve where downloaded content goes for this session, and nothing else.
 ///
-/// Split out because a join must resolve it **once**: the probe can legitimately answer
-/// differently a second time — a folder that was locked when the preview ran may be writable when
-/// the install finishes — and reporting the second answer would name a directory the files were
-/// never written to (rule H8).
+/// Called exactly once, and only after a shopping list proves this join will write a file. The
+/// returned destination is retained through installation and reporting (rules H8 and S3).
 fn install_destination(session: &Session) -> Result<platform::InstallTarget, String> {
+    let installation = session_installation(session)?;
+    platform::resolve_install_target(
+        &installation.root,
+        LaunchProfile::new(session.game).data_directory(),
+        platform::ClientKind::from(session.engine),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn session_installation(session: &Session) -> Result<Installation, String> {
     let installation = install::identify(&session.path).map_err(|error| error.to_string())?;
     if !installation.provides(session.game) {
         // The directory name is what the check actually looked at, and it is exactly the detail a
@@ -1298,46 +1469,7 @@ fn install_destination(session: &Session) -> Result<platform::InstallTarget, Str
     }
     platform::engine::resolve_choice(&installation.root, Some(session.engine))
         .map_err(|error| error.to_string())?;
-    platform::resolve_install_target(
-        &installation.root,
-        LaunchProfile::new(session.game).data_directory(),
-        platform::ClientKind::from(session.engine),
-    )
-    .map_err(|error| error.to_string())
-}
-
-/// Index every directory this session's engine reads, around an already-resolved destination.
-///
-/// # Errors
-///
-/// Returns an error when the installation cannot be identified or a directory cannot be read.
-fn reindex(session: &Session, install: &platform::InstallTarget) -> Result<MapIndex, String> {
-    let installation = install::identify(&session.path).map_err(|error| error.to_string())?;
-    let search = search_path(
-        &installation.root,
-        session.game,
-        platform::ClientKind::from(session.engine),
-        install,
-    );
-    MapIndex::scan_chain(&search).map_err(|error| error.to_string())
-}
-
-/// The engine's search path, with the directory Reveille writes to guaranteed to be in it.
-///
-/// `content_search_path` lists only directories that exist, and the home fallback is created the
-/// moment it is chosen — so on the first fallback install the destination would otherwise be
-/// absent from the index that decides whether the download worked.
-fn search_path(
-    install_root: &Path,
-    game: TargetGame,
-    client: platform::ClientKind,
-    install: &platform::InstallTarget,
-) -> Vec<PathBuf> {
-    let mut search = platform::content_search_path(install_root, game, client);
-    if !search.contains(&install.game_directory) {
-        search.push(install.game_directory.clone());
-    }
-    search
+    Ok(installation)
 }
 
 fn classified(server: &Server, index: &MapIndex) -> BrowserServer {
@@ -1425,28 +1557,25 @@ async fn install_and_launch(
         Some(preview) => preview,
         None => build_preview(&session, server.clone(), Some(&app)).await?,
     };
-    let (installed, failures) = match &preview.catalogue {
-        None => (Vec::new(), Vec::new()),
-        Some(catalogue) => {
-            install_shopping_list(
-                catalogue,
-                &selected_candidate_ids.into_iter().collect::<HashSet<_>>(),
-                &server,
-                &preview.game_directory,
-                &app,
-            )
-            .await?
+    let selected = selected_candidate_ids.into_iter().collect::<HashSet<_>>();
+    let install_target = preview
+        .catalogue
+        .as_ref()
+        .filter(|catalogue| shopping_list_will_write(catalogue, &selected))
+        .map(|_| install_destination(&session))
+        .transpose()?;
+    let (installed, failures) = match (&preview.catalogue, &install_target) {
+        (Some(catalogue), Some(target)) => {
+            install_shopping_list(catalogue, &selected, &server, &target.game_directory, &app)
+                .await?
         }
+        _ => (Vec::new(), Vec::new()),
     };
     // Re-index the whole search path, not just the directory written to: the gate below asks
     // whether the engine can now find the map, and the engine reads all of it. The destination is
     // the preview's, not a fresh probe — the files went where the download put them, and that is
     // what gets reported (H8).
-    let install_target = platform::InstallTarget {
-        game_directory: preview.game_directory.clone(),
-        used_home_fallback: preview.used_home_fallback,
-    };
-    let index = reindex(&session, &install_target)?;
+    let index = installed_maps(&session)?;
     let assessment =
         reveille_core::join::classify_server(&index, &server, preview.catalogue.as_ref());
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
@@ -1459,8 +1588,12 @@ async fn install_and_launch(
         assessment,
         installed,
         failures,
-        game_directory: install_target.game_directory,
-        used_home_fallback: install_target.used_home_fallback,
+        game_directory: install_target
+            .as_ref()
+            .map(|target| target.game_directory.clone()),
+        used_home_fallback: install_target
+            .as_ref()
+            .is_some_and(|target| target.used_home_fallback),
         engine: session.engine,
         game: session.game,
         outcome,
@@ -1678,7 +1811,7 @@ async fn build_preview(
 ) -> Result<JoinPreview, String> {
     let address = SocketAddrV4::new(server.endpoint.address, server.game_port.get());
     info!(%address, game = ?session.game, engine = ?session.engine, "starting preview build");
-    let (install_target, index) = installed_maps(session)?;
+    let index = installed_maps(session)?;
     let first = reveille_core::join::classify_server(&index, &server, None);
     let wanted = first.preflight.as_ref().map_or_else(Vec::new, wanted_maps);
     info!(%address, wanted_maps = wanted.len(), "computed preview map requirements");
@@ -1716,8 +1849,6 @@ async fn build_preview(
         server,
         assessment,
         catalogue,
-        game_directory: install_target.game_directory,
-        used_home_fallback: install_target.used_home_fallback,
         engine: session.engine,
         game: session.game,
     })
@@ -1736,6 +1867,13 @@ fn wanted_maps(preflight: &reveille_core::preflight::Report) -> Vec<WantedMap> {
         })
         .filter_map(|map| WantedMap::new(map.map.clone()))
         .collect()
+}
+
+fn shopping_list_will_write(catalogue: &CatalogueResolutionPass, selected: &HashSet<u64>) -> bool {
+    catalogue
+        .resolutions
+        .iter()
+        .any(|resolution| candidate_for_resolution(&resolution.outcome, selected).is_some())
 }
 
 fn candidate_for_resolution<'a>(
@@ -1957,6 +2095,10 @@ fn main() {
             openmohaa_status,
             install_openmohaa,
             cancel_openmohaa_install,
+            installation_storage,
+            pick_copy_destination,
+            copy_game_installation,
+            cancel_game_installation_copy,
             pick_install_folder,
             cancel_browse,
             browse_servers,
@@ -1979,11 +2121,16 @@ mod tests {
     use std::path::Path;
 
     use reveille_core::bsp::Checksum;
+    use reveille_core::content::{
+        CatalogueCandidate, CatalogueResolution, CatalogueResolutionPass, FileSize,
+        ResolutionOutcome, WantedMap,
+    };
     use reveille_core::discovery::ParseError;
     use reveille_core::install::{IdentificationMethod, Product};
     use reveille_core::join::{
         CompatibilityAssessment, CompatibilityState, CurrentMapReadiness, MapsNeeded,
     };
+    use reveille_core::mapindex::MapKey;
     use reveille_core::platform::openmohaa::{
         OpenMohaaError, PublishedSha256, ReleaseChannel, ReleasePackage, ReleaseSelector,
         ReleaseTarget, ReleaseVersion,
@@ -1998,7 +2145,7 @@ mod tests {
         RequestError, Server, Session, TargetGame, answered_for_another_game,
         cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, installed_maps,
         installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
-        prepare_app_log, preview_cache_matches, record_openmohaa_install,
+        prepare_app_log, preview_cache_matches, record_openmohaa_install, shopping_list_will_write,
     };
 
     #[test]
@@ -2097,6 +2244,105 @@ mod tests {
         })
         .expect_err("an absent expansion is refused whatever the engine");
         assert!(refusal.contains("Spearhead"), "{refusal}");
+    }
+
+    #[test]
+    fn read_only_indexing_does_not_resolve_or_create_a_write_target() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let root = temporary.path();
+        fs::create_dir_all(root.join("main/maps/dm")).expect("map directory");
+        fs::write(root.join("MOHAA.exe"), b"retail").expect("retail client");
+        let bsp = [
+            b"2015".as_slice(),
+            &19_i32.to_le_bytes(),
+            &42_i32.to_le_bytes(),
+        ]
+        .concat();
+        fs::write(root.join("main/maps/dm/stock.bsp"), bsp).expect("stock map");
+        let mut before = fs::read_dir(root)
+            .expect("installation entries")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<Vec<_>>();
+        before.sort();
+
+        let index = installed_maps(&Session {
+            path: root.to_string_lossy().into_owned(),
+            engine: EngineChoice::Original,
+            game: TargetGame::AlliedAssault,
+        })
+        .expect("read-only index");
+
+        assert!(index.get("dm/stock").is_some());
+        let mut after = fs::read_dir(root)
+            .expect("installation entries")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<Vec<_>>();
+        after.sort();
+        assert_eq!(after, before);
+        assert!(!root.join(".reveille-engines").exists());
+        assert!(
+            fs::read_dir(root.join("main"))
+                .expect("main entries")
+                .all(|entry| !entry
+                    .expect("main entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".reveille-write-probe"))
+        );
+    }
+
+    fn catalogue_candidate(id: u64) -> CatalogueCandidate {
+        CatalogueCandidate {
+            id,
+            map_name: "dm/missing".to_owned(),
+            map_key: MapKey::new("dm/missing").expect("map key"),
+            filename: "missing.pk3".to_owned(),
+            file_size: FileSize::new(1),
+            map_file_tested: true,
+            downloads: 1,
+            download_url: "https://example.invalid/missing.pk3".to_owned(),
+        }
+    }
+
+    fn catalogue_with(outcome: ResolutionOutcome) -> CatalogueResolutionPass {
+        CatalogueResolutionPass {
+            resolutions: vec![CatalogueResolution {
+                wanted: WantedMap::new("dm/missing").expect("wanted map"),
+                hits: 1,
+                outcome,
+            }],
+            non_results: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_writable_target_is_needed_only_for_a_candidate_that_will_be_installed() {
+        let selected = std::collections::HashSet::new();
+        assert!(!shopping_list_will_write(
+            &catalogue_with(ResolutionOutcome::NoSource),
+            &selected,
+        ));
+        assert!(!shopping_list_will_write(
+            &catalogue_with(ResolutionOutcome::ChoiceRequired {
+                choices: vec![catalogue_candidate(7)],
+            }),
+            &selected,
+        ));
+
+        let selected = [7].into_iter().collect();
+        assert!(shopping_list_will_write(
+            &catalogue_with(ResolutionOutcome::ChoiceRequired {
+                choices: vec![catalogue_candidate(7)],
+            }),
+            &selected,
+        ));
+        assert!(shopping_list_will_write(
+            &catalogue_with(ResolutionOutcome::Exact {
+                name_match: catalogue_candidate(8),
+                alternatives: Vec::new(),
+            }),
+            &std::collections::HashSet::new(),
+        ));
     }
 
     #[test]
@@ -2640,6 +2886,40 @@ mod tests {
             setup.contains("if (result.outcome?.outcome === \"deferred\")"),
             "ui/views/setup.js: a deferred install must be reported as having changed nothing"
         );
+    }
+
+    #[test]
+    fn protected_setup_offers_a_cancellable_copy_and_migrates_only_the_validated_result() {
+        let setup = include_str!("../ui/views/setup.js");
+        let store = include_str!("../ui/lib/store.js");
+        let api = include_str!("../ui/lib/api.js");
+
+        for wording in [
+            "Windows protects this game folder.",
+            "Make a writable copy",
+            "Continue without copying",
+            "Choose another location",
+            "of free space",
+            "The original stays unchanged.",
+            "Cancel copy",
+        ] {
+            assert!(setup.contains(wording), "setup is missing {wording}");
+        }
+        let copy = setup
+            .split("async function runCopy")
+            .nth(1)
+            .and_then(|source| source.split("async function stopCopy").next())
+            .expect("copy function");
+        let validated = copy
+            .find("const copied = result.installation")
+            .expect("validated copy");
+        let migrated = copy
+            .find("migrateInstallationPreferences")
+            .expect("preference migration");
+        assert!(migrated > validated, "preferences moved before validation");
+        assert!(store.contains("delete engines[oldRoot]"));
+        assert!(store.contains("localStorage.setItem(INSTALL_KEY, newRoot)"));
+        assert!(api.contains(r#"text.replace(/\\\\\?\\/g, "")"#));
     }
 
     #[test]

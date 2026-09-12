@@ -12,6 +12,9 @@ use thiserror::Error;
 
 use crate::discovery::TargetGame;
 
+/// A staging marker left until an installation copy is complete and validated.
+pub const INCOMPLETE_COPY_MARKER: &str = ".reveille-copy-incomplete";
+
 /// A game whose asset directory is present.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,6 +130,9 @@ pub enum Error {
     /// None of the MOHAA asset directories are present.
     #[error("no main, mainta, or maintt data directory found in {0}")]
     NoDataDirectories(PathBuf),
+    /// A one-time writable copy did not reach its validated final state.
+    #[error("installation copy is incomplete: {0}")]
+    IncompleteCopy(PathBuf),
     /// Filesystem metadata could not be read.
     #[error("could not inspect {path}")]
     Io {
@@ -187,6 +193,9 @@ pub fn identify(path: impl AsRef<Path>) -> Result<Installation, Error> {
         path: path.to_path_buf(),
         source,
     })?;
+    if root.join(INCOMPLETE_COPY_MARKER).is_file() {
+        return Err(Error::IncompleteCopy(root));
+    }
     let products = PRODUCTS
         .iter()
         .filter_map(|product| {

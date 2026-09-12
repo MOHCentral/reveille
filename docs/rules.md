@@ -98,10 +98,9 @@ to delete a map must be able to find it.
 **Enforced at** `used_home_fallback` is plumbed to the shell (`main.rs:138,163,691,901`) and the
 real path is printed, not a euphemism.
 **Resolve the destination once per join** `resolve_install_target` *probes*, so it can answer
-differently a second time — a folder locked when the preview ran may be writable when the install
-finishes. `install_and_launch` therefore reports the preview's destination, the one the files were
-actually written to, and re-indexes around it (`install_destination` / `reindex`) rather than
-resolving it again.
+differently a second time. Browsing and preview are read-only and do not resolve one at all;
+`install_and_launch` resolves it exactly once, only after the shopping list proves the join will
+write a file, then reports that same destination after the install.
 
 ### H9 · A failure is a recorded non-result, never an aborted pass
 **Because** An unreachable server or a failed catalogue lookup is information about that item,
@@ -318,10 +317,28 @@ malformed output.
 running dedicated server or expansion client can hold another file in the same transaction. The
 platform result records which kind was observed so interface copy states only what was known.
 
-### S3 · Never raise a UAC prompt mid-journey
-**Because** The ten-minute criterion cannot absorb one, and a player who declines is stranded.
-**Enforced at** Writability is *probed*, never inferred from the path string; an unwritable
-folder falls back (OpenMoHAA) or is reported as a real blocker (retail, which has no home path).
+### S3 · Never initiate elevation
+**Because** Reveille writes executable programs and downloaded content beside a game. Granting a
+normal account write access beneath `Program Files` turns that game folder into a persistence and
+local privilege-escalation surface, while an elevated helper at join time puts a UAC prompt at the
+highest-intent point in the journey and strands anyone who declines. Installing Reveille per user
+does not weaken this rule: it governs every action Reveille takes after installation too.
+**Enforced at** Reveille has no `runas` verb, elevated helper, administrator manifest, `sudo`, or
+`pkexec` path. `tools/check-sources.mjs`, run by `just check`, rejects those mechanisms in executable
+source and configuration. Writability is *probed*, never inferred from the path string. Setup shows
+the result before the player commits and offers a validated one-time copy into a user-owned folder;
+continuing without it remains possible. OpenMoHAA content retains its home-path fallback, while a
+retail/Reborn write has no fallback and is refused only when an operation really needs to write.
+Choosing an already-active engine and read-only server browsing do not resolve a writable target.
+A refused write names the folder and remedy; a refused *read* is never reported as one. Tests:
+`setup_storage_probe_names_every_protected_game_directory`,
+`copy_cancellation_removes_the_partial_installation`,
+`copy_failure_removes_the_partial_installation`, and
+`read_only_indexing_does_not_resolve_or_create_a_write_target`. `tools/check-sources.mjs`, run by
+`just check`, is the mechanical no-elevation guard.
+**Rejected alternative** An explicit setup-time ACL change is still elevation and is still unsafe;
+an elevated helper per engine or map install repeats the interruption. Reveille copies the game
+once and leaves the protected source untouched instead.
 
 ### S4 · Never let a network call into a default test
 **Because** A test that needs a third party is not a test of this code.

@@ -185,6 +185,15 @@ There is **one** primary surface. The three-screen wizard was removed.
   toolbar switch: `state.listSession` records what the rows were swept for, and `enterServers`
   compares it. A session that comes back unchanged keeps its list, because re-sweeping it would
   cost a couple of hundred probes to redraw the same table.
+  **Folder access is answered here, before Continue.** Once a folder is identified, setup probes
+  its root and every present game-data directory. A success says **Reveille can write to this
+  folder.** A permission refusal names the folder and says **Windows protects this game folder**,
+  then offers **Make a writable copy** beside **Continue without copying**. The suggested copy is
+  beneath the player's own Games directory; **Choose another location** selects another parent.
+  Setup states the measured source size before copying, shows determinate byte progress, and keeps
+  **Cancel copy** available. A successful result replaces the candidate only after Rust has
+  re-identified the final folder; the remembered root, engine, and game migrate at that point and
+  never before. Cancellation says the incomplete copy was removed. The original is untouched.
   **Report a bug** appears in setup's footer and in the shell titlebar, in the same relative place,
   so the help route does not move between views. It is a quiet utility control rather than an
   outlined journey action, opens the pre-filled issue through Tauri's system-browser API, and the
@@ -317,7 +326,7 @@ Change a rule in the register first, then update the right-hand column here.
 | **H5** · Never imply the release digest proves publisher authenticity | Visible setup copy promises only that Reveille checks whether the download arrived intact; it never calls the file safe or the publisher verified. The release page's exact file check is optional tooltip detail, not newcomer-facing copy. |
 | **H6** · Never state a cause that was not observed | Engine failures are classified in Rust (`OpenMohaaFailureKind`), and since 27 Aug 2026 so are sweep failures (`BrowseFailureKind`: `NoNetwork`, `MasterUnreachable`, `MasterUnreadable`, `Internal`) — never by matching message text in the shell. `NoNetwork` is reserved for local routing, address, or permission failures; a TCP refusal or reset by the remote master is `MasterUnreachable`, never evidence that the player's PC is offline. A per-map catalogue non-result renders as a sentence rather than through `{:?}`. A release that publishes no file check was never downloaded and says so; only a size or digest mismatch may say the download did not arrive intact. An unclassified failure shows its own text rather than borrowing a cause. The original message stays as tooltip detail. |
 | **C3** · Never auto-apply an ambiguous match | Choice radios start with **nothing selected**. The total excludes unresolved maps and the pane says how many still need a choice. |
-| **H8** · Say where files went | `used_home_fallback` prints the real `%APPDATA%\openmohaa\<game directory>` path, not a euphemism. |
+| **H8** · Say where files went | A join resolves its destination once, only when it has a file to install, and the result prints that same directory. `used_home_fallback` prints the real `%APPDATA%\openmohaa\<game directory>` path, not a euphemism. |
 | **H13** · Index the whole search path | An expansion session indexes `main` underneath `mainta` or `maintt`, so a base-game map is never reported as missing on a Spearhead or Breakthrough server. |
 | **H14** · Never offer a game the folder has no files for | The **Game** switch lists only the products detected in the folder, and is hidden entirely when there is one. |
 | **H9** · A failure is a recorded non-result | Per-map install failures list individually; the pass is never abandoned. Unanswered endpoints are counted and broken down by reason in a dialog. |
@@ -326,6 +335,7 @@ Change a rule in the register first, then update the right-hand column here.
 | **H12** · Never present a remembered server's facts as current, and never call a launch a join | A bookmark stores an address, a query port and a name — no figures exist to go stale. An absent favorite says **not in this list** (never "offline": a server missing from the master's list was never asked) and only a check that actually failed says **did not answer**. A live row says when it was measured (**Checked at 14:32**) and is dropped outright when a later check finds the server gone. History says **Launched**, is written only from a launched outcome, and its tooltip says "Whether the server let you in is not something Reveille can see." |
 | **H16** · Never offer the installed or an older Reveille release as an update | The titlebar and first-run card show **Update Reveille** only after the updater has compared semantic versions from the latest published manifest. The dialog names both versions and never constructs an offer from release text or a filename. Signature verification is the install gate in S6; it does not sign the manifest's version label. |
 | **S2** · Never change engine files while an affected program is running | Installation and Original/Reborn activation are blocked unless the relevant process query confirms stopped. Unknown is blocking, not permission. |
+| **S3** · Never initiate elevation | Setup offers a one-time writable copy and an explicit read-only continuation. It never offers administrator access, a UAC helper, or a permissions change. |
 | **S5** · Preserve original executables before installing Reborn | Reborn installation retains first-seen originals. Switching changes the active canonical copies and never describes either managed engine as uninstalled. |
 | **S6** · Never replace Reveille from an unsigned release or without the player's choice | A background check can only reveal **Update Reveille**. **Update and restart** is the sole path to installation; **Later** dismisses it. Download progress and **Stop download** stay in the dialog until Tauri has verified the signed payload, after which Windows closes Reveille before replacement. |
 
@@ -494,7 +504,8 @@ platform v1 supports.
 - All motion respects `prefers-reduced-motion`.
 - Progress is determinate wherever a total is known (`78/190`, byte counts) and indeterminate only
   during the master handshake, where nothing is known yet.
-- Every long operation is cancellable: the sweep has a **Stop**, selecting another server
+- Every long operation is cancellable: the sweep has a **Stop**, the game-folder copy has
+  **Cancel copy**, selecting another server
   abandons the in-flight catalogue lookup, and the OpenMoHAA download has **Stop download**. Engine
   cancellation is checked between response chunks and never interrupts the atomic apply phase.
 - Whether a release-owned program is running is probed **after** the archive has downloaded, not

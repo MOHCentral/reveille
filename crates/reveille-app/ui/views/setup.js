@@ -2,14 +2,15 @@
 
 import { el, fill } from "../lib/dom.js";
 import {
-  cancelOpenMohaaInstall, cancelRebornInstall, detectInstall, engineOverview, errorText,
-  installOpenMohaa, installReborn, onOpenMohaaInstallProgress, onRebornInstallProgress,
-  openMohaaStatus, pickInstallFolder, selectEngine,
+  cancelGameInstallationCopy, cancelOpenMohaaInstall, cancelRebornInstall, copyGameInstallation,
+  detectInstall, engineOverview, errorText, installOpenMohaa, installReborn,
+  installationStorage, onInstallationCopyProgress, onOpenMohaaInstallProgress,
+  onRebornInstallProgress, openMohaaStatus, pickCopyDestination, pickInstallFolder, selectEngine,
 } from "../lib/api.js";
 import { bytes, displayPath } from "../lib/format.js";
 import {
-  GAME_LABELS, defaultGame, notify, playableGames, recallEngine, rememberEngine, rememberGame,
-  rememberInstall, state,
+  GAME_LABELS, defaultGame, migrateInstallationPreferences, notify, playableGames, recallEngine,
+  rememberEngine, rememberGame, rememberInstall, state,
 } from "../lib/store.js";
 
 const PRODUCT_NAMES = { allied_assault: "Allied Assault", spearhead: "Spearhead", breakthrough: "Breakthrough" };
@@ -24,6 +25,7 @@ const view = {
   candidate: null, eyebrow: "First run", message: "Checking the usual locations.", busy: true,
   error: null, manualPath: "", overview: null, selected: null, channel: "stable", game: null,
   openStatus: null, openError: null, installing: null, stopping: false, progress: null, result: null,
+  storage: null, copyDestination: null, copying: false, copyStopping: false, copyProgress: null,
 };
 let loadToken = 0;
 
@@ -35,6 +37,11 @@ export function setupView(root, { onReady, onUpdate, onReportBug }) {
   };
   void onOpenMohaaInstallProgress((progress) => progressFor("openmohaa", progress, render));
   void onRebornInstallProgress((progress) => progressFor("reborn", progress, render));
+  void onInstallationCopyProgress((progress) => {
+    if (!view.copying) return;
+    view.copyProgress = progress;
+    render();
+  });
   render();
   return { render, renderUpdateOffer };
 }
@@ -47,22 +54,58 @@ function progressFor(engine, progress, render) {
 
 function card(render, onReady, onUpdate, onReportBug) {
   const available = selectedAvailable();
+  const busy = view.busy || Boolean(view.installing) || view.copying;
+  const protectedFolder = view.storage?.status === "protected";
   return el("div", { className: "setup" }, el("div", { className: "setup__card" },
     el("div", { className: "setup__brand" }, el("span", { className: "wordmark" }, "Reveille"), el("span", { className: "label" }, view.eyebrow)),
     el("h1", { className: "setup__title" }, view.busy ? "Looking for Allied Assault" : view.candidate ? "How do you want to run the game?" : "Show Reveille your game"),
     el("p", { className: "setup__lede" }, view.message),
     view.candidate && foundBlock(view.candidate),
+    view.candidate && storageBlock(view.candidate, render),
     view.candidate && gameChoice(view.candidate, render),
     view.candidate && engineChoices(view.candidate, render),
     !view.busy && !view.candidate && manualBlock(render),
     view.candidate && el("div", { className: "actions__row" },
-      el("button", { className: "btn btn--primary btn--block", disabled: view.busy || Boolean(view.installing) || !available, onclick: () => void accept(view.candidate, onReady, render) }, available ? "Continue to servers" : "Choose an available engine"),
-      el("button", { className: "btn btn--ghost", disabled: view.busy || Boolean(view.installing), onclick: () => { resetCandidate(); view.message = "Pick your game folder."; render(); } }, "Choose another folder")),
+      el("button", { className: "btn btn--primary btn--block", disabled: busy || !available, onclick: () => void accept(view.candidate, onReady, render) }, available ? protectedFolder ? "Continue without copying" : "Continue to servers" : "Choose an available engine"),
+      el("button", { className: "btn btn--ghost", disabled: busy, onclick: () => { resetCandidate(); view.message = "Pick your game folder."; render(); } }, "Choose another folder")),
     view.error && el("p", { className: "error", role: "alert" }, view.error),
     el("div", { className: "setup__foot" },
-      el("button", { type: "button", className: `btn btn--sm btn--primary ${state.selfUpdate.offer ? "" : "hidden"}`, "data-self-update-offer": true, disabled: Boolean(view.installing), onclick: onUpdate }, "Update Reveille"),
-      el("button", { type: "button", className: "btn btn--sm btn--utility", disabled: Boolean(view.installing), onclick: onReportBug }, "Report a bug")),
+      el("button", { type: "button", className: `btn btn--sm btn--primary ${state.selfUpdate.offer ? "" : "hidden"}`, "data-self-update-offer": true, disabled: busy, onclick: onUpdate }, "Update Reveille"),
+      el("button", { type: "button", className: "btn btn--sm btn--utility", disabled: busy, onclick: onReportBug }, "Report a bug")),
   ));
+}
+
+function storageBlock(install, render) {
+  if (!view.storage) {
+    return el("div", { className: "meter meter--indeterminate", role: "status", "aria-label": "Checking folder access" }, el("span", { className: "meter__fill" }));
+  }
+  if (view.storage.status === "unavailable") {
+    return el("p", { className: "note note--bad" }, "Folder access could not be checked. Choose the folder again or report the problem.");
+  }
+  if (view.storage.status === "writable") {
+    return el("p", { className: "quiet" }, "Reveille can write to this folder.");
+  }
+  const destination = view.copyDestination ?? view.storage.suggested_destination;
+  const progress = view.copyProgress;
+  const percent = progress?.total_bytes
+    ? Math.min(100, (progress.copied_bytes / progress.total_bytes) * 100)
+    : 0;
+  return el(
+    "div",
+    { className: "setup__copy" },
+    el("p", { className: "note note--bad" }, el("strong", null, "Windows protects this game folder. "), "Reveille can browse servers and use maps already there, but it cannot install or update files in this location."),
+    el("p", { className: "data selectable" }, displayPath(view.storage.folders[0] ?? install.root)),
+    el("p", { className: "quiet" }, `A writable copy needs about ${bytes(view.storage.source_bytes)} of free space. The original stays unchanged.`),
+    destination && el("p", { className: "quiet" }, "Copy to ", el("span", { className: "data selectable" }, displayPath(destination))),
+    view.copying
+      ? el("span", { className: "stack--tight" },
+          el("span", { className: "meter", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(percent)) }, el("span", { className: "meter__fill", style: `width: ${percent}%` })),
+          el("span", { className: "quiet data" }, `${bytes(progress?.copied_bytes ?? 0)} of ${bytes(progress?.total_bytes ?? view.storage.source_bytes)}`),
+          el("button", { type: "button", className: "btn btn--ghost", disabled: view.copyStopping, onclick: () => void stopCopy(render) }, view.copyStopping ? "Stoppingâ€¦" : "Cancel copy"))
+      : el("span", { className: "actions__row" },
+          el("button", { type: "button", className: "btn btn--primary", disabled: !destination, onclick: () => void runCopy(install, destination, render) }, "Make a writable copy"),
+          el("button", { type: "button", className: "btn btn--ghost", onclick: () => void chooseCopyDestination(install, render) }, "Choose another location")),
+  );
 }
 
 function foundBlock(install) {
@@ -82,7 +125,7 @@ function foundBlock(install) {
 function gameChoice(install, render) {
   const games = playableGames(install);
   if (games.length < 2) return false;
-  return el("fieldset", { className: "game-choice", disabled: Boolean(view.installing) },
+  return el("fieldset", { className: "game-choice", disabled: Boolean(view.installing) || view.copying },
     el("legend", { className: "label" }, "Which game do you want to play?"),
     games.map((game) => {
       const id = `game-${game}`;
@@ -95,7 +138,7 @@ function gameChoice(install, render) {
 
 function engineChoices(install, render) {
   if (!view.overview) return el("div", { className: "meter meter--indeterminate", role: "status" }, el("span", { className: "meter__fill" }));
-  return el("fieldset", { className: "engine-cards", disabled: Boolean(view.installing) },
+  return el("fieldset", { className: "engine-cards", disabled: Boolean(view.installing) || view.copying },
     el("legend", { className: "sr-only" }, "Choose how to run the game"),
     engineCard("openmohaa", install, render), engineCard("reborn", install, render), engineCard("original", install, render),
     view.overview.selection_error && !view.selected && el("p", { className: "note" }, "Both community engines are installed. Choose the one you want to use."));
@@ -285,10 +328,79 @@ async function loadOverview(install, render) {
   render();
 }
 
+async function loadStorage(install, render) {
+  try {
+    view.storage = await installationStorage(install.root);
+    view.copyDestination = view.storage.suggested_destination ?? null;
+  } catch (error) {
+    view.storage = { status: "unavailable" };
+    view.error = errorText(error);
+  }
+  render();
+}
+
+async function chooseCopyDestination(install, render) {
+  try {
+    const destination = await pickCopyDestination(install.root);
+    if (destination) view.copyDestination = destination;
+  } catch (error) {
+    view.error = errorText(error);
+  }
+  render();
+}
+
+async function runCopy(install, destination, render) {
+  if (!destination) return;
+  view.copying = true;
+  view.copyStopping = false;
+  view.copyProgress = null;
+  view.error = null;
+  render();
+  try {
+    const result = await copyGameInstallation(install.root, destination);
+    if (result.outcome === "cancelled") {
+      view.message = "The copy was cancelled. The incomplete copy was removed.";
+      return;
+    }
+    const copied = result.installation;
+    migrateInstallationPreferences(
+      install.root,
+      copied.root,
+      view.selected,
+      view.game ?? defaultGame(install),
+    );
+    adoptCandidate(copied);
+    view.manualPath = displayPath(copied.root);
+    view.message = "The writable copy is ready. The original game folder was not changed.";
+    view.storage = null;
+    view.copyDestination = null;
+    await Promise.all([loadOverview(copied, render), loadStorage(copied, render)]);
+  } catch (error) {
+    view.error = errorText(error);
+  } finally {
+    view.copying = false;
+    view.copyStopping = false;
+    view.copyProgress = null;
+    render();
+  }
+}
+
+async function stopCopy(render) {
+  view.copyStopping = true;
+  render();
+  try {
+    await cancelGameInstallationCopy();
+  } catch (error) {
+    view.error = errorText(error);
+    view.copyStopping = false;
+    render();
+  }
+}
+
 async function loadOpenStatus(install, render) {
   view.openError = null; render();
   try { view.openStatus = await openMohaaStatus(install.root, view.channel); }
-  catch (error) { view.openStatus = null; view.openError = error?.detail ?? errorText(error); }
+  catch (error) { view.openStatus = null; view.openError = errorText(error?.detail ?? error); }
   render();
 }
 
@@ -314,7 +426,7 @@ async function runOpenInstall(install, render) {
       return;
     }
     await reloadAfterInstall(install, "openmohaa", render);
-  } catch (error) { view.error = error?.detail ?? errorText(error); finishInstall(render); }
+  } catch (error) { view.error = errorText(error?.detail ?? error); finishInstall(render); }
 }
 
 async function runRebornInstall(install, render) {
@@ -390,7 +502,7 @@ async function check(path, render) {
   view.busy = true; view.error = null; view.message = "Reading."; render();
   try {
     const install = await detectInstall(path);
-    if (install) { adoptCandidate(install); view.message = "Read from the game files on disk."; await loadOverview(install, render); }
+    if (install) { adoptCandidate(install); view.message = "Read from the game files on disk."; await Promise.all([loadOverview(install, render), loadStorage(install, render)]); }
     else { resetCandidate(); view.message = "That folder holds no Medal of Honor game files."; }
   } catch (error) { view.error = errorText(error); view.message = "That folder could not be read."; }
   finally { view.busy = false; render(); }
@@ -404,8 +516,8 @@ export async function autoDetect(render, onReady, { skipConfirmation = true } = 
     install ??= await detectInstall(null);
     if (install) {
       adoptCandidate(install); view.manualPath = displayPath(install.root); view.message = "Read from the game files on disk.";
-      await loadOverview(install, render);
-      if (skipConfirmation && remembered && install.root === remembered && selectedAvailable()) await accept(install, onReady, render);
+      await Promise.all([loadOverview(install, render), loadStorage(install, render)]);
+      if (skipConfirmation && remembered && install.root === remembered && selectedAvailable() && view.storage?.status === "writable") await accept(install, onReady, render);
     } else view.message = "Nothing was found automatically. Pick the folder once and Reveille remembers it.";
   } catch (error) { view.error = errorText(error); view.message = "Detection failed. Pick the folder instead."; }
   finally { view.busy = false; render(); }
@@ -428,4 +540,6 @@ async function accept(install, onReady, render) {
 function resetCandidate() {
   loadToken += 1; view.candidate = null; view.overview = null; view.selected = null; view.game = null;
   view.openStatus = null; view.openError = null; view.result = null;
+  view.storage = null; view.copyDestination = null; view.copyProgress = null; view.copying = false;
+  view.copyStopping = false;
 }

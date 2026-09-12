@@ -112,16 +112,32 @@ nothing because a program was running now says so instead of reporting success.
 ### F3 · The game folder is not writable
 
 **Where** Setup, and again at every content install.
-**Who it stops** Anyone whose game sits under `C:\Program Files (x86)`.
-**Evidence** *Assumed.* The case is real and the engine behaviour is measured — the home path
-outranks the install directory in the search path (`files.cpp:3245-3257`) — but **how many
-installs land in Program Files is not measured.** GOG's standalone installer defaults to
-`C:\GOG Games\…`, which needs no elevation, so this may be rarer than it feels.
-**What Reveille does** Probes writability rather than inferring it from the path string, falls
-back to `%APPDATA%\openmohaa\<game directory>` on OpenMoHAA, and prints the real destination. Never raises a UAC
-prompt mid-journey. On retail there is no home path, so an unwritable folder is reported as a
-real blocker instead of being worked around.
-**Status** Shipped.
+**Who it stops** Anyone whose game sits under `C:\Program Files` or `C:\Program Files (x86)`.
+**Evidence** *Observed, 11 Sep 2026.* A player with the game in `C:\Program Files\MOHAA` was
+stopped at setup: **Continue to servers** reported `filesystem operation failed at
+\\?\C:\Program Files\MOHAA\.reveille-engines` and there was no way past it. Choosing **Original**
+changes no files, yet the selection note it writes beside the managed files needed a folder
+Windows would not let Reveille create, so a screen that installs nothing failed on a write it did
+not owe. The engine behaviour behind the fallback is measured — the home path outranks the install
+directory in the search path (`files.cpp:3245-3257`) — but **how many installs land in Program
+Files is still not measured.** GOG's standalone installer defaults to `C:\GOG Games\…`, which
+needs no elevation.
+**What Reveille does** Probes the root and every installed game-data directory during setup rather
+than inferring protection from the path string. A protected folder is named before the player
+commits, with two explicit paths forward: **Make a writable copy** to a suggested user-owned
+location, or **Continue without copying**. The copy measures the complete source first, refuses
+insufficient space with both figures, reports byte progress, can be cancelled, covers `main`,
+`mainta`, and `maintt`, and does not expose the final destination until the copy is complete and
+re-identified. Only then are the remembered root, engine, and game moved. The source stays
+untouched. Reveille never initiates elevation (rule S3).
+
+OpenMoHAA keeps its `%APPDATA%\openmohaa\<game directory>` content fallback and reports the real
+destination. Original and Reborn have no home path, so a write they actually need refuses with the
+selected engine, folder, and copy remedy. Browsing and joining a map already on disk are read-only
+and no longer resolve a writable target; selecting an already-active Original or Reborn overlay
+also writes nothing.
+**Status** Implemented 12 Sep 2026; not yet released. Before this change only the no-op selection
+fix and OpenMoHAA content fallback shipped, so the former **Shipped** label overstated coverage.
 
 ---
 

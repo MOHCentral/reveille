@@ -11,6 +11,10 @@
 //   openmohaa_status(path, channel)            -> OpenMohaaStatus
 //   install_openmohaa(path, offerId)           -> OpenMohaaInstallResult
 //   cancel_openmohaa_install()                 -> void
+//   installation_storage(path)                 -> InstallationStorageStatus
+//   pick_copy_destination(sourcePath)           -> string | null
+//   copy_game_installation(sourcePath, destinationPath) -> InstallationCopyResult
+//   cancel_game_installation_copy()             -> void
 //   pick_install_folder()                      -> string | null
 //   engine_overview(path)                      -> EngineOverview
 //   select_engine(path, engine)                -> EngineOverview
@@ -57,6 +61,13 @@ export const installOpenMohaa = (path, offerId) =>
 
 export const cancelOpenMohaaInstall = () => invoke("cancel_openmohaa_install");
 
+export const installationStorage = (path) => invoke("installation_storage", { path });
+export const pickCopyDestination = (sourcePath) =>
+  invoke("pick_copy_destination", { sourcePath });
+export const copyGameInstallation = (sourcePath, destinationPath) =>
+  invoke("copy_game_installation", { sourcePath, destinationPath });
+export const cancelGameInstallationCopy = () => invoke("cancel_game_installation_copy");
+
 export const checkReveilleUpdate = () => invoke("check_reveille_update");
 export const installReveilleUpdate = () => invoke("install_reveille_update");
 export const cancelReveilleUpdate = () => invoke("cancel_reveille_update");
@@ -89,6 +100,8 @@ export const onInstallProgress = (handler) => on("reveille://install", handler);
 export const onOpenMohaaInstallProgress = (handler) =>
   on("reveille://openmohaa-install", handler);
 export const onRebornInstallProgress = (handler) => on("reveille://reborn-install", handler);
+export const onInstallationCopyProgress = (handler) =>
+  on("reveille://installation-copy", handler);
 export const onSelfUpdateProgress = (handler) => on("reveille://self-update", handler);
 
 function on(name, handler) {
@@ -97,12 +110,18 @@ function on(name, handler) {
 
 /**
  * Commands reject with a plain string. Normalise so callers always get a string
- * to show, whatever the failure was.
+ * to show, whatever the failure was. Windows extended-length prefixes are stripped for the same
+ * reason `displayPath` strips them: a message quoting a folder should quote it the way the player
+ * would write it.
  */
 export function errorText(error) {
-  if (typeof error === "string") return error;
-  if (error && typeof error.message === "string") return error.message;
-  return String(error);
+  const text =
+    typeof error === "string"
+      ? error
+      : error && typeof error.message === "string"
+        ? error.message
+        : String(error);
+  return text.replace(/\\\\\?\\/g, "");
 }
 
 /**
@@ -115,7 +134,7 @@ export function errorText(error) {
  */
 export function browseFailure(error) {
   if (error && typeof error === "object" && typeof error.kind === "string") {
-    return { kind: error.kind, detail: String(error.detail ?? "") };
+    return { kind: error.kind, detail: errorText(error.detail ?? "") };
   }
   return { kind: "internal", detail: errorText(error) };
 }
