@@ -546,6 +546,7 @@ async function getAndJoin(row, acceptIncomplete) {
       next.joining = false;
       next.installRun = null;
       next.joinResult = { ...result, address: row.address };
+      rememberReadyJoin(next, row, result);
     });
   } catch (error) {
     if (token !== joinToken) return;
@@ -555,6 +556,30 @@ async function getAndJoin(row, acceptIncomplete) {
       next.joinError = errorText(error);
     });
   }
+}
+
+/**
+ * Carry a completed join's fresh disk assessment back to the server row.
+ *
+ * The row was measured before its downloads. Leaving it that way makes selecting another server
+ * and returning start a new preview for maps Reveille just installed, disabling Join while the
+ * server manifest and catalogue are queried again. Only a clean, compatible launch is remembered:
+ * any failed server package must leave the old question in place so selecting the row retries it.
+ */
+function rememberReadyJoin(next, row, result) {
+  if (
+    result.outcome?.launch !== "launched" ||
+    result.assessment?.state?.state !== "compatible" ||
+    result.failures.length !== 0
+  ) {
+    return;
+  }
+  const current = next.servers.find((server) => server.address === row.address);
+  if (current) current.compatibility = result.assessment;
+  next.preview = null;
+  next.previewProgress = null;
+  next.previewError = null;
+  next.choices = new Map();
 }
 
 onInstallProgress((progress) => {
@@ -729,6 +754,7 @@ function sameJoinQuestion(before, after) {
   return (
     before.server.current_map === after.server.current_map &&
     before.server.map_checksum === after.server.map_checksum &&
+    before.server.pr_downloads === after.server.pr_downloads &&
     before.compatibility.state.state === after.compatibility.state.state &&
     before.compatibility.current_map?.readiness === after.compatibility.current_map?.readiness &&
     before.server.rotation.length === after.server.rotation.length &&

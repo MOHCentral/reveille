@@ -199,7 +199,9 @@ downloaded only from moh-db. The desktop join and composed CLI journey now fetch
 compare each engine-visible package with its server-published MD5, install or atomically replace
 missing/outdated packages, rescan the full engine search path, and only then ask moh-db for maps
 that remain missing. A failed manifest or package is recorded per H9 and does not prevent the
-moh-db fallback.
+moh-db fallback. After a clean compatible launch, the final disk assessment replaces the selected
+server row's pre-download assessment; returning to that row therefore offers Join immediately
+instead of starting another lookup for maps Reveille just installed.
 
 **Confirmed upstream limitation.** `gameType` is not merely ignored by the endpoint — it is
 absent from the public `MapDto` entirely, so local pre-download game-family filtering is
