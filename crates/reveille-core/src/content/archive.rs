@@ -223,7 +223,8 @@ pub fn install_archive<Integrity>(
         path: game_directory.to_path_buf(),
         source,
     })?;
-    let target = game_directory.join(&archive.filename);
+    let target = existing_package_path(game_directory, &archive.filename)?
+        .unwrap_or_else(|| game_directory.join(&archive.filename));
     if target.exists() {
         return Err(ArchiveError::AlreadyExists(target));
     }
@@ -246,6 +247,82 @@ pub fn install_archive<Integrity>(
     })?;
     temporary
         .persist_noclobber(&target)
+        .map_err(|error| ArchiveError::Install {
+            path: target.clone(),
+            source: error.error,
+        })?;
+    Ok(target)
+}
+
+fn existing_package_path(
+    game_directory: &Path,
+    filename: &str,
+) -> Result<Option<PathBuf>, ArchiveError> {
+    let entries = fs::read_dir(game_directory).map_err(|source| ArchiveError::Install {
+        path: game_directory.to_path_buf(),
+        source,
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|source| ArchiveError::Install {
+            path: game_directory.to_path_buf(),
+            source,
+        })?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(filename)
+        {
+            return Ok(Some(entry.path()));
+        }
+    }
+    Ok(None)
+}
+
+/// Install a staged, source-verified archive, atomically replacing a package with the same name.
+///
+/// This is deliberately separate from [`install_archive`]. Catalogue downloads remain
+/// no-clobber, while a server-published `PakRadar` manifest supplies an MD5 specifically so an
+/// outdated package can be replaced with the exact version the server requires.
+///
+/// The archive is fully inspected before the existing package is touched. The replacement is
+/// staged in the destination directory and persisted with one rename, so a failed copy leaves the
+/// old package in place.
+///
+/// # Errors
+///
+/// Returns an error for unsafe archives, invalid filenames, or destination I/O.
+pub fn install_verified_archive(
+    archive: &DownloadedArchive<PakRadarIntegrity>,
+    game_directory: impl AsRef<Path>,
+) -> Result<PathBuf, ArchiveError> {
+    inspect_archive(&archive.path)?;
+    validate_package_filename(&archive.filename)?;
+    let game_directory = game_directory.as_ref();
+    fs::create_dir_all(game_directory).map_err(|source| ArchiveError::Install {
+        path: game_directory.to_path_buf(),
+        source,
+    })?;
+    let target = existing_package_path(game_directory, &archive.filename)?
+        .unwrap_or_else(|| game_directory.join(&archive.filename));
+    let mut source = File::open(&archive.path).map_err(|source| ArchiveError::Open {
+        path: archive.path.clone(),
+        source,
+    })?;
+    let mut temporary =
+        NamedTempFile::new_in(game_directory).map_err(|source| ArchiveError::Install {
+            path: game_directory.to_path_buf(),
+            source,
+        })?;
+    io::copy(&mut source, &mut temporary).map_err(|source| ArchiveError::Install {
+        path: temporary.path().to_path_buf(),
+        source,
+    })?;
+    temporary.flush().map_err(|source| ArchiveError::Install {
+        path: temporary.path().to_path_buf(),
+        source,
+    })?;
+    temporary
+        .persist(&target)
         .map_err(|error| ArchiveError::Install {
             path: target.clone(),
             source: error.error,
@@ -399,7 +476,7 @@ mod tests {
     use super::{
         ArchiveError, ArchiveInspection, ArchiveMap, DownloadedArchive, MohDbIntegrity,
         confirm_map, disambiguate_by_checksum, inspect_archive, install_archive,
-        validate_package_filename,
+        install_verified_archive, validate_package_filename,
     };
     use crate::bsp::Checksum;
 
@@ -516,6 +593,30 @@ mod tests {
             install_archive(&download, &main),
             Err(ArchiveError::AlreadyExists(_))
         ));
+    }
+
+    #[test]
+    fn a_verified_server_package_atomically_replaces_an_outdated_copy() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let staged = temporary.path().join("staging");
+        let main = temporary.path().join("main");
+        std::fs::create_dir_all(&staged).expect("staging directory");
+        std::fs::create_dir_all(&main).expect("game directory");
+        let path = staged.join("server-map.pk3");
+        write_archive(&path, &[("maps/obj/example.bsp", &bsp(42))]);
+        std::fs::write(main.join("SERVER-MAP.PK3"), b"outdated").expect("outdated package");
+        let download = DownloadedArchive {
+            path,
+            filename: "server-map.pk3".to_owned(),
+            integrity: super::PakRadarIntegrity::VerifiedMd5("published".to_owned()),
+        };
+
+        let installed =
+            install_verified_archive(&download, &main).expect("replace verified package");
+
+        assert_eq!(installed, main.join("SERVER-MAP.PK3"));
+        let inspection = inspect_archive(installed).expect("replacement is the staged archive");
+        assert_eq!(inspection.maps[0].checksum, Checksum::new(42));
     }
 
     #[test]

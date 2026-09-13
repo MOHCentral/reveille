@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Write as _;
 use std::net::SocketAddrV4;
@@ -455,7 +456,29 @@ async fn run_journey(
     let index = MapIndex::scan_chain(&search_path)?;
     let initial = reveille_core::join::classify_server(&index, &server, None);
     println!("Preflight: {}", render_compatibility_state(&initial.state));
-    let wanted = initial
+    let mut install_non_results = Vec::new();
+    let mut pakradar_complete = true;
+    if let Some(url) = server.pr_downloads.as_deref() {
+        match content::fetch_filelist(url, Duration::from_secs(15)).await {
+            Ok(entries) => {
+                let non_results = install_journey_pakradar(
+                    &entries,
+                    &search_path,
+                    &install_target.game_directory,
+                )
+                .await?;
+                pakradar_complete = non_results.is_empty();
+                install_non_results.extend(non_results);
+            }
+            Err(error) => {
+                pakradar_complete = false;
+                install_non_results.push(format!("server download list: {error}"));
+            }
+        }
+    }
+    let after_pakradar = MapIndex::scan_chain(&search_path)?;
+    let remaining = reveille_core::join::classify_server(&after_pakradar, &server, None);
+    let wanted = remaining
         .preflight
         .as_ref()
         .map_or_else(Vec::new, wanted_maps);
@@ -469,16 +492,18 @@ async fn run_journey(
         )
     };
 
-    let install_non_results =
+    install_non_results.extend(
         install_journey_content(catalogue.as_ref(), &server, &install_target.game_directory)
-            .await?;
+            .await?,
+    );
     for non_result in &install_non_results {
         println!("Content non-result: {non_result}");
     }
 
     let updated_index = MapIndex::scan_chain(&search_path)?;
+    let classification_catalogue = pakradar_complete.then_some(catalogue.as_ref()).flatten();
     let final_assessment =
-        reveille_core::join::classify_server(&updated_index, &server, catalogue.as_ref());
+        reveille_core::join::classify_server(&updated_index, &server, classification_catalogue);
     println!(
         "Final preflight: {}",
         render_compatibility_state(&final_assessment.state)
@@ -709,6 +734,51 @@ async fn browse_journey_target(
         })
         .cloned()
         .ok_or_else(|| format!("selected server {address} did not answer the browse pass").into())
+}
+
+async fn install_journey_pakradar(
+    entries: &[content::PakRadarEntry],
+    search_path: &[PathBuf],
+    game_directory: &Path,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let client = content::pakradar_client(Duration::from_secs(30))?;
+    let staging = tempfile::TempDir::new()?;
+    let mut non_results = Vec::new();
+    let mut filenames = HashSet::new();
+    for entry in entries {
+        let filename = match entry.filename() {
+            Ok(filename) => filename,
+            Err(error) => {
+                non_results.push(format!("{}: {error}", entry.alias));
+                continue;
+            }
+        };
+        if !filenames.insert(filename.to_ascii_lowercase()) {
+            continue;
+        }
+        let destination = match content::pakradar_entry_status(entry, search_path).await {
+            Ok(content::PakRadarPackageStatus::Current { .. }) => continue,
+            Ok(content::PakRadarPackageStatus::Missing) => game_directory.to_path_buf(),
+            Ok(content::PakRadarPackageStatus::Outdated { path }) => {
+                platform::effective_package_install_directory(&path, game_directory, search_path)
+            }
+            Err(error) => {
+                non_results.push(format!("{}: {error}", entry.alias));
+                continue;
+            }
+        };
+        let result: Result<PathBuf, Box<dyn Error>> = async {
+            let archive =
+                content::download_pakradar_archive(&client, entry, staging.path()).await?;
+            Ok(content::install_verified_archive(&archive, destination)?)
+        }
+        .await;
+        match result {
+            Ok(path) => println!("Installed server package {}", path.display()),
+            Err(error) => non_results.push(format!("{}: {error}", entry.alias)),
+        }
+    }
+    Ok(non_results)
 }
 
 async fn install_journey_content(

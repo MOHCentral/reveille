@@ -137,6 +137,15 @@ base : https://api.moh-db.com/api/external/v1/{maps,mods}
   trust-on-first-use: record the digest, never call it verified.
 - `mapName` values carry stray whitespace and inconsistent case — see normalisation below.
 
+### `pr_downloads` / PakRadar
+
+`pr_downloads` is a serverinfo cvar containing an HTTP(S) URL to a `filelist.txt`. The manifest is
+made of repeated `map { alias/md5/url }` blocks; each block names one pk3 and publishes the MD5 the
+server expects. The client behavior is package-oriented rather than map-name-oriented: compare the
+engine-visible pk3 with that MD5, download a missing or different package, reload the search path,
+and only then decide which maps remain absent. Reveille follows that order before falling back to
+moh-db. A manifest failure is one source's recorded non-result, not a reason to abandon the join.
+
 ### Reborn legacy player packages
 
 The supported Windows player packages come from `mohreborn/mohreborn-docs` commit
@@ -352,6 +361,9 @@ the part that belongs here.
   `NoSource` / `CantTell`, and `Compatible` means *nothing checkable is wrong*.
 - (L1) **Never redistribute EA assets.** Detection and linking to a store only.
 - (C1) Reject downloaded archives containing `.exe` or `.dll`. A map pack is data.
+- (C4) **Never replace an existing package without a server-published digest.** PakRadar publishes
+  the expected MD5 for each package; moh-db publishes no digest at all. The two install operations
+  therefore remain separate at the type level.
 
 ---
 

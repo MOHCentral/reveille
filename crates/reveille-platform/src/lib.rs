@@ -279,6 +279,35 @@ pub fn content_search_path(
     search_path_with_home(install_root, target, home.as_deref())
 }
 
+/// Select where a server-verified replacement must be written to become engine-visible.
+///
+/// A normal download uses `default`. When an outdated package already exists in a directory with
+/// higher search precedence, writing below it would leave the outdated copy active, so that exact
+/// directory is selected instead.
+#[must_use]
+pub fn effective_package_install_directory(
+    outdated_path: &Path,
+    default: &Path,
+    search_path: &[PathBuf],
+) -> PathBuf {
+    let Some(existing) = outdated_path.parent() else {
+        return default.to_path_buf();
+    };
+    let existing_precedence = search_path
+        .iter()
+        .position(|directory| directory == existing);
+    let default_precedence = search_path
+        .iter()
+        .position(|directory| directory == default);
+    if default_precedence.zip(existing_precedence).is_some_and(
+        |(default_precedence, existing_precedence)| default_precedence >= existing_precedence,
+    ) {
+        default.to_path_buf()
+    } else {
+        existing.to_path_buf()
+    }
+}
+
 /// The chain itself, with the home root supplied rather than read from the environment, so the
 /// ordering can be tested without depending on what exists on the machine running the test.
 fn search_path_with_home(
@@ -613,6 +642,22 @@ mod tests {
                 root.join("mainta"),
                 home.join("mainta"),
             ]
+        );
+    }
+
+    #[test]
+    fn an_outdated_higher_precedence_package_is_replaced_where_the_engine_reads_it() {
+        let root = PathBuf::from(r"C:\Games\MOHAA\main");
+        let home = PathBuf::from(r"C:\Users\player\AppData\Roaming\openmohaa\main");
+        let search = vec![root.clone(), home.clone()];
+
+        assert_eq!(
+            effective_package_install_directory(&home.join("server-map.pk3"), &root, &search,),
+            home
+        );
+        assert_eq!(
+            effective_package_install_directory(&root.join("server-map.pk3"), &home, &search,),
+            home
         );
     }
 

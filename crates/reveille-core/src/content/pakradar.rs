@@ -11,7 +11,8 @@ use reqwest::Client;
 use serde::Serialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
-use tokio::fs;
+use tokio::fs::{self, File};
+use tokio::io::AsyncReadExt;
 
 use super::archive::{DownloadedArchive, PakRadarIntegrity, validate_package_filename};
 
@@ -69,6 +70,45 @@ pub struct PakRadarEntry {
     pub url: String,
 }
 
+impl PakRadarEntry {
+    /// Return the safe package basename carried by this entry's HTTP(S) URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL is not HTTP(S), has no final path component, or names an
+    /// unsafe package filename.
+    pub fn filename(&self) -> Result<String, PakRadarError> {
+        package_filename(&self.url)
+    }
+}
+
+/// Bytes received while downloading one server-published package.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct PakRadarDownloadProgress {
+    /// Bytes received so far.
+    pub received: u64,
+    /// HTTP content length, when published.
+    pub declared: Option<u64>,
+}
+
+/// State of the package copy the engine would load for one manifest entry.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum PakRadarPackageStatus {
+    /// No engine search directory contains this package basename.
+    Missing,
+    /// The effective package matches the server-published MD5.
+    Current {
+        /// Exact path whose bytes were checked.
+        path: PathBuf,
+    },
+    /// The effective package exists but differs from the server-published MD5.
+    Outdated {
+        /// Exact path which must be replaced or shadowed by a higher-precedence copy.
+        path: PathBuf,
+    },
+}
+
 /// Parse `PakRadar`'s repeated `map { alias/md5/url }` blocks.
 ///
 /// # Errors
@@ -123,11 +163,8 @@ pub async fn fetch_filelist(
     url: &str,
     timeout: Duration,
 ) -> Result<Vec<PakRadarEntry>, PakRadarError> {
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(timeout)
-        .build()
-        .map_err(PakRadarError::Network)?;
+    validate_http_url(url)?;
+    let client = pakradar_client(timeout)?;
     let response = client
         .get(url)
         .send()
@@ -140,6 +177,19 @@ pub async fn fetch_filelist(
     parse_filelist(&body)
 }
 
+/// Build the HTTP client shared by `PakRadar` package downloads.
+///
+/// # Errors
+///
+/// Returns an error when the HTTP client cannot be configured.
+pub fn pakradar_client(timeout: Duration) -> Result<Client, PakRadarError> {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(timeout)
+        .build()
+        .map_err(PakRadarError::Network)
+}
+
 /// Download a `PakRadar` package and require its server-published MD5 before staging succeeds.
 ///
 /// # Errors
@@ -150,13 +200,21 @@ pub async fn download_pakradar_archive(
     entry: &PakRadarEntry,
     staging_directory: &Path,
 ) -> Result<DownloadedArchive<PakRadarIntegrity>, PakRadarError> {
-    let filename = entry
-        .url
-        .split(['/', '\\'])
-        .next_back()
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| PakRadarError::UnsafeUrl(entry.url.clone()))?;
-    validate_package_filename(filename).map_err(PakRadarError::Archive)?;
+    download_pakradar_archive_reporting(client, entry, staging_directory, |_| {}).await
+}
+
+/// Download a `PakRadar` package with progress and require its server-published MD5.
+///
+/// # Errors
+///
+/// Returns an error for an unsafe URL filename, HTTP/I/O failure, or digest mismatch.
+pub async fn download_pakradar_archive_reporting(
+    client: &Client,
+    entry: &PakRadarEntry,
+    staging_directory: &Path,
+    mut report: impl FnMut(PakRadarDownloadProgress),
+) -> Result<DownloadedArchive<PakRadarIntegrity>, PakRadarError> {
+    let filename = entry.filename()?;
     let response = client
         .get(&entry.url)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
@@ -166,8 +224,24 @@ pub async fn download_pakradar_archive(
     if !response.status().is_success() {
         return Err(PakRadarError::HttpStatus(response.status().as_u16()));
     }
-    let bytes = response.bytes().await.map_err(PakRadarError::Network)?;
-    let actual = Md5::digest(&bytes);
+    let declared = response.content_length();
+    report(PakRadarDownloadProgress {
+        received: 0,
+        declared,
+    });
+    let mut response = response;
+    let mut bytes = Vec::new();
+    let mut received = 0_u64;
+    let mut digest = Md5::new();
+    while let Some(chunk) = response.chunk().await.map_err(PakRadarError::Network)? {
+        received = received.saturating_add(
+            u64::try_from(chunk.len()).map_err(|_| PakRadarError::DownloadTooLarge)?,
+        );
+        digest.update(&chunk);
+        bytes.extend_from_slice(&chunk);
+        report(PakRadarDownloadProgress { received, declared });
+    }
+    let actual = digest.finalize();
     if actual.as_slice() != entry.md5.bytes() {
         return Err(PakRadarError::DigestMismatch {
             expected: entry.md5,
@@ -191,7 +265,7 @@ pub async fn download_pakradar_archive(
             path: temporary.path().to_path_buf(),
             source,
         })?;
-    let target = staging_directory.join(filename);
+    let target = staging_directory.join(&filename);
     temporary
         .persist_noclobber(&target)
         .map_err(|error| PakRadarError::Staging {
@@ -200,9 +274,125 @@ pub async fn download_pakradar_archive(
         })?;
     Ok(DownloadedArchive {
         path: target,
-        filename: filename.to_owned(),
+        filename,
         integrity: PakRadarIntegrity::VerifiedMd5(entry.md5.to_string()),
     })
+}
+
+/// Whether the engine-visible package with this entry's basename already matches its published
+/// MD5.
+///
+/// Search directories are supplied in engine precedence order, lowest first. The first matching
+/// basename from the reverse walk is therefore the package the engine actually reads.
+///
+/// # Errors
+///
+/// Returns an error for an unsafe entry URL or when an engine-visible package cannot be read.
+pub async fn pakradar_entry_is_current(
+    entry: &PakRadarEntry,
+    search_directories: &[PathBuf],
+) -> Result<bool, PakRadarError> {
+    Ok(matches!(
+        pakradar_entry_status(entry, search_directories).await?,
+        PakRadarPackageStatus::Current { .. }
+    ))
+}
+
+/// Inspect the engine-visible package for one manifest entry.
+///
+/// # Errors
+///
+/// Returns an error for an unsafe entry URL or when an engine-visible package cannot be read.
+pub async fn pakradar_entry_status(
+    entry: &PakRadarEntry,
+    search_directories: &[PathBuf],
+) -> Result<PakRadarPackageStatus, PakRadarError> {
+    let filename = entry.filename()?;
+    let Some(path) = effective_package_path(&filename, search_directories).await? else {
+        return Ok(PakRadarPackageStatus::Missing);
+    };
+    let mut file = File::open(&path)
+        .await
+        .map_err(|source| PakRadarError::LocalPackage {
+            path: path.clone(),
+            source,
+        })?;
+    let mut digest = Md5::new();
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .await
+            .map_err(|source| PakRadarError::LocalPackage {
+                path: path.clone(),
+                source,
+            })?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    if digest.finalize().as_slice() == entry.md5.bytes() {
+        Ok(PakRadarPackageStatus::Current { path })
+    } else {
+        Ok(PakRadarPackageStatus::Outdated { path })
+    }
+}
+
+async fn effective_package_path(
+    filename: &str,
+    search_directories: &[PathBuf],
+) -> Result<Option<PathBuf>, PakRadarError> {
+    for directory in search_directories.iter().rev() {
+        let mut entries = match fs::read_dir(directory).await {
+            Ok(entries) => entries,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(source) => {
+                return Err(PakRadarError::LocalPackage {
+                    path: directory.clone(),
+                    source,
+                });
+            }
+        };
+        while let Some(entry) =
+            entries
+                .next_entry()
+                .await
+                .map_err(|source| PakRadarError::LocalPackage {
+                    path: directory.clone(),
+                    source,
+                })?
+        {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(filename)
+            {
+                return Ok(Some(entry.path()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn package_filename(url: &str) -> Result<String, PakRadarError> {
+    let parsed = validate_http_url(url)?;
+    let filename = parsed
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| PakRadarError::UnsafeUrl(url.to_owned()))?
+        .to_owned();
+    validate_package_filename(&filename).map_err(PakRadarError::Archive)?;
+    Ok(filename)
+}
+
+fn validate_http_url(url: &str) -> Result<reqwest::Url, PakRadarError> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| PakRadarError::UnsafeUrl(url.to_owned()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(PakRadarError::UnsafeUrl(url.to_owned()));
+    }
+    Ok(parsed)
 }
 
 #[derive(Default)]
@@ -274,8 +464,8 @@ pub enum PakRadarError {
     /// MD5 text was not exactly 32 hexadecimal digits.
     #[error("invalid PakRadar MD5 {0:?}")]
     InvalidMd5(String),
-    /// The URL has no safe final package filename.
-    #[error("PakRadar URL has no safe package filename: {0}")]
+    /// The manifest or package URL is not HTTP(S).
+    #[error("PakRadar requires an HTTP(S) URL: {0}")]
     UnsafeUrl(String),
     /// Manifest or package request failed.
     #[error("PakRadar HTTP request failed")]
@@ -283,6 +473,9 @@ pub enum PakRadarError {
     /// Package URL returned an unsuccessful response.
     #[error("PakRadar download returned HTTP {0}")]
     HttpStatus(u16),
+    /// A response chunk length could not be represented by the download counter.
+    #[error("PakRadar package is too large")]
+    DownloadTooLarge,
     /// Download bytes did not match the server-published MD5.
     #[error("PakRadar MD5 mismatch: expected {expected}, received {actual}")]
     DigestMismatch {
@@ -303,11 +496,28 @@ pub enum PakRadarError {
         #[source]
         source: std::io::Error,
     },
+    /// An engine-visible local package could not be inspected.
+    #[error("could not inspect local PakRadar package {path}")]
+    LocalPackage {
+        /// Package or search directory being inspected.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_filelist;
+    use std::path::PathBuf;
+
+    use md5::{Digest, Md5};
+    use tempfile::TempDir;
+
+    use super::{
+        Md5Digest, PakRadarEntry, PakRadarPackageStatus, pakradar_entry_is_current,
+        pakradar_entry_status, parse_filelist,
+    };
 
     #[test]
     fn parses_real_filelist_shape_and_md5_values() {
@@ -321,5 +531,60 @@ mod tests {
             "1cdd05c74995132c64747650fa3eebb6"
         );
         assert_eq!(entries[1].alias, "LuV Final Map Pack");
+    }
+
+    #[tokio::test]
+    async fn checks_the_highest_precedence_package_by_case_insensitive_filename() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let low = temporary.path().join("install-main");
+        let high = temporary.path().join("home-main");
+        std::fs::create_dir_all(&low).expect("low directory");
+        std::fs::create_dir_all(&high).expect("high directory");
+        std::fs::write(low.join("server-map.pk3"), b"current").expect("low package");
+        std::fs::write(high.join("SERVER-MAP.PK3"), b"outdated").expect("high package");
+        let expected = Md5::digest(b"current");
+        let entry = PakRadarEntry {
+            alias: "Server map".to_owned(),
+            md5: Md5Digest(expected.into()),
+            url: "https://example.invalid/maps/server-map.pk3".to_owned(),
+        };
+
+        assert_eq!(
+            pakradar_entry_status(&entry, &[PathBuf::from(&low), PathBuf::from(&high)])
+                .await
+                .expect("inspect effective package"),
+            PakRadarPackageStatus::Outdated {
+                path: high.join("SERVER-MAP.PK3")
+            }
+        );
+        std::fs::write(high.join("SERVER-MAP.PK3"), b"current").expect("update high package");
+        assert!(
+            pakradar_entry_is_current(&entry, &[low, high])
+                .await
+                .expect("inspect effective package")
+        );
+    }
+
+    #[test]
+    fn accepts_only_safe_http_package_urls() {
+        let digest = Md5Digest::parse("00000000000000000000000000000000").expect("digest");
+        let entry = |url: &str| PakRadarEntry {
+            alias: "Map".to_owned(),
+            md5: digest,
+            url: url.to_owned(),
+        };
+
+        assert_eq!(
+            entry("https://example.invalid/maps/Safe.pk3")
+                .filename()
+                .expect("safe URL"),
+            "Safe.pk3"
+        );
+        assert!(entry("file:///C:/maps/unsafe.pk3").filename().is_err());
+        assert!(
+            entry("https://example.invalid/maps/not-a-package.zip")
+                .filename()
+                .is_err()
+        );
     }
 }

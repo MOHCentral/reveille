@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use reveille_core::content::{
     self, CatalogueCandidate, CatalogueNonResultReason, CatalogueResolutionPass, DownloadProgress,
-    ResolutionOutcome, WantedMap,
+    PakRadarDownloadProgress, PakRadarEntry, PakRadarPackageStatus, ResolutionOutcome, WantedMap,
 };
 use reveille_core::discovery::{
     self, BrowseConfig, BrowseEvent, BrowseSummary, DiscoveryError, MasterEndpoint, NonResult,
@@ -193,9 +193,23 @@ struct JoinPreview {
     address: SocketAddrV4,
     server: Server,
     assessment: CompatibilityAssessment,
+    pakradar: Option<PakRadarPreview>,
     catalogue: Option<CatalogueResolutionPass>,
     engine: EngineChoice,
     game: TargetGame,
+}
+
+/// Server-owned packages advertised through `pr_downloads`.
+///
+/// The manifest is fetched during preview, but its packages are not installed until the player
+/// starts the join. A manifest failure is retained as a recorded non-result so moh-db can still
+/// provide the maps it knows about.
+#[derive(Clone, Serialize)]
+struct PakRadarPreview {
+    url: String,
+    entries: Vec<PakRadarEntry>,
+    pending: usize,
+    non_result: Option<String>,
 }
 
 /// One map that could not be installed. Structured rather than pre-formatted prose, so the
@@ -218,6 +232,7 @@ enum LaunchOutcome {
 struct JoinResult {
     assessment: CompatibilityAssessment,
     installed: Vec<PathBuf>,
+    install_directories: Vec<PathBuf>,
     failures: Vec<InstallFailure>,
     game_directory: Option<PathBuf>,
     used_home_fallback: bool,
@@ -1434,13 +1449,17 @@ struct Session {
 /// need no writable destination, so a Program Files installation must reach them without a probe.
 /// The index still covers every directory the engine reads, including `main` beneath an expansion.
 fn installed_maps(session: &Session) -> Result<MapIndex, String> {
+    let search = session_search_path(session)?;
+    MapIndex::scan_chain(&search).map_err(|error| error.to_string())
+}
+
+fn session_search_path(session: &Session) -> Result<Vec<PathBuf>, String> {
     let installation = session_installation(session)?;
-    let search = platform::content_search_path(
+    Ok(platform::content_search_path(
         &installation.root,
         session.game,
         platform::ClientKind::from(session.engine),
-    );
-    MapIndex::scan_chain(&search).map_err(|error| error.to_string())
+    ))
 }
 
 /// Resolve where downloaded content goes for this session, and nothing else.
@@ -1536,6 +1555,10 @@ async fn preview_join(
 }
 
 #[tauri::command]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the ordered PakRadar, rescan, moh-db, rescan, and launch stages stay visible together"
+)]
 async fn install_and_launch(
     session: Session,
     address: String,
@@ -1558,35 +1581,101 @@ async fn install_and_launch(
         None => build_preview(&session, server.clone(), Some(&app)).await?,
     };
     let selected = selected_candidate_ids.into_iter().collect::<HashSet<_>>();
-    let install_target = preview
-        .catalogue
+    let search_path = session_search_path(&session)?;
+    let mut pakradar = preview.pakradar.clone();
+    if pakradar.is_some() {
+        // Re-fetch and re-check at the moment the player acts. The preview can be minutes old, and
+        // a package may have changed on disk while the server's manifest may now answer after a
+        // recorded non-result.
+        pakradar = build_pakradar_preview(&server, &search_path).await;
+    }
+    let mut install_target = pakradar
         .as_ref()
-        .filter(|catalogue| shopping_list_will_write(catalogue, &selected))
+        .filter(|pakradar| pakradar.pending > 0)
         .map(|_| install_destination(&session))
         .transpose()?;
-    let (installed, failures) = match (&preview.catalogue, &install_target) {
-        (Some(catalogue), Some(target)) => {
-            install_shopping_list(catalogue, &selected, &server, &target.game_directory, &app)
-                .await?
+    let (mut installed, pakradar_failures) = match (&pakradar, &install_target) {
+        (Some(pakradar), Some(target)) => {
+            install_pakradar_manifest(pakradar, &search_path, &target.game_directory, &app).await?
         }
-        _ => (Vec::new(), Vec::new()),
+        (Some(pakradar), None) => (
+            Vec::new(),
+            pakradar
+                .non_result
+                .as_ref()
+                .map(|reason| {
+                    vec![InstallFailure {
+                        map: "Server download list".to_owned(),
+                        reason: reason.clone(),
+                    }]
+                })
+                .unwrap_or_default(),
+        ),
+        (None, _) => (Vec::new(), Vec::new()),
     };
+    let pakradar_complete = pakradar_failures.is_empty();
+    let mut failures = pakradar_failures;
+    let after_pakradar = installed_maps(&session)?;
+    let after_pakradar_assessment =
+        reveille_core::join::classify_server(&after_pakradar, &server, None);
+    let remaining = after_pakradar_assessment
+        .preflight
+        .as_ref()
+        .map_or_else(Vec::new, wanted_maps);
+    // A server manifest can satisfy any subset of the published map list. Resolve moh-db only
+    // after those packages are installed and the engine search path has been scanned again.
+    let catalogue = if pakradar.is_some() {
+        if remaining.is_empty() {
+            None
+        } else {
+            let client = content::MohDbClient::new(Duration::from_secs(15))
+                .map_err(|error| error.to_string())?;
+            Some(client.resolve_all(&remaining).await)
+        }
+    } else {
+        preview.catalogue.clone()
+    };
+    if install_target.is_none()
+        && catalogue
+            .as_ref()
+            .is_some_and(|catalogue| shopping_list_will_write(catalogue, &selected))
+    {
+        install_target = Some(install_destination(&session)?);
+    }
+    if let (Some(catalogue), Some(target)) = (&catalogue, &install_target) {
+        let (mohdb_installed, mohdb_failures) =
+            install_shopping_list(catalogue, &selected, &server, &target.game_directory, &app)
+                .await?;
+        installed.extend(mohdb_installed);
+        failures.extend(mohdb_failures);
+    }
     // Re-index the whole search path, not just the directory written to: the gate below asks
     // whether the engine can now find the map, and the engine reads all of it. The destination is
     // the preview's, not a fresh probe — the files went where the download put them, and that is
     // what gets reported (H8).
     let index = installed_maps(&session)?;
+    let classification_catalogue = pakradar_complete.then_some(catalogue.as_ref()).flatten();
     let assessment =
-        reveille_core::join::classify_server(&index, &server, preview.catalogue.as_ref());
+        reveille_core::join::classify_server(&index, &server, classification_catalogue);
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
         LaunchOutcome::Refused { reason }
     } else {
         launch(&session, preview.address)?
     };
+    let mut install_directories = Vec::new();
+    for directory in installed.iter().filter_map(|path| path.parent()) {
+        if !install_directories
+            .iter()
+            .any(|existing| existing == directory)
+        {
+            install_directories.push(directory.to_path_buf());
+        }
+    }
     info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
     Ok(JoinResult {
         assessment,
         installed,
+        install_directories,
         failures,
         game_directory: install_target
             .as_ref()
@@ -1598,6 +1687,128 @@ async fn install_and_launch(
         game: session.game,
         outcome,
     })
+}
+
+/// Install every missing or outdated package from the server's `pr_downloads` manifest.
+///
+/// Each package is checked against the engine-visible copy before downloading. Server-published
+/// MD5 evidence permits an atomic replacement; one failed package is recorded and does not stop
+/// the remaining packages or the later moh-db fallback.
+#[expect(
+    clippy::too_many_lines,
+    reason = "per-package validation, progress, installation, and recorded failure stay in one loop"
+)]
+async fn install_pakradar_manifest(
+    pakradar: &PakRadarPreview,
+    search_path: &[PathBuf],
+    game_directory: &Path,
+    app: &tauri::AppHandle,
+) -> Result<(Vec<PathBuf>, Vec<InstallFailure>), String> {
+    let mut failures = Vec::new();
+    if let Some(reason) = &pakradar.non_result {
+        failures.push(InstallFailure {
+            map: "Server download list".to_owned(),
+            reason: reason.clone(),
+        });
+        return Ok((Vec::new(), failures));
+    }
+    let mut filenames = HashSet::new();
+    let mut pending = Vec::new();
+    for entry in &pakradar.entries {
+        let filename = match entry.filename() {
+            Ok(filename) => filename,
+            Err(error) => {
+                failures.push(InstallFailure {
+                    map: entry.alias.clone(),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        if !filenames.insert(filename.to_ascii_lowercase()) {
+            continue;
+        }
+        match content::pakradar_entry_status(entry, search_path).await {
+            Ok(PakRadarPackageStatus::Current { .. }) => {}
+            Ok(PakRadarPackageStatus::Missing) => {
+                pending.push((entry, filename, game_directory.to_path_buf()));
+            }
+            Ok(PakRadarPackageStatus::Outdated { path }) => pending.push((
+                entry,
+                filename,
+                platform::effective_package_install_directory(&path, game_directory, search_path),
+            )),
+            Err(error) => failures.push(InstallFailure {
+                map: entry.alias.clone(),
+                reason: error.to_string(),
+            }),
+        }
+    }
+    let client =
+        content::pakradar_client(Duration::from_secs(30)).map_err(|error| error.to_string())?;
+    let staging = tempfile::TempDir::new().map_err(|error| error.to_string())?;
+    let planned = pending.len();
+    let mut installed = Vec::new();
+    for (position, (entry, filename, destination)) in pending.into_iter().enumerate() {
+        let progress = InstallProgress {
+            map: entry.alias.clone(),
+            filename,
+            index: position,
+            of: planned,
+            phase: InstallPhase::Downloading {
+                received: 0,
+                total: None,
+            },
+        };
+        let mut announced = 0_u64;
+        let result: Result<PathBuf, String> = async {
+            let archive = content::download_pakradar_archive_reporting(
+                &client,
+                entry,
+                staging.path(),
+                |PakRadarDownloadProgress { received, declared }| {
+                    if received != 0 && received < announced.saturating_add(DOWNLOAD_EVENT_STRIDE) {
+                        return;
+                    }
+                    announced = received;
+                    emit_install(
+                        app,
+                        &progress,
+                        InstallPhase::Downloading {
+                            received,
+                            total: declared,
+                        },
+                    );
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            emit_install(app, &progress, InstallPhase::Confirming);
+            content::install_verified_archive(&archive, destination)
+                .map_err(|error| error.to_string())
+        }
+        .await;
+        match result {
+            Ok(path) => {
+                emit_install(app, &progress, InstallPhase::Installed);
+                installed.push(path);
+            }
+            Err(reason) => {
+                emit_install(
+                    app,
+                    &progress,
+                    InstallPhase::Failed {
+                        reason: reason.clone(),
+                    },
+                );
+                failures.push(InstallFailure {
+                    map: entry.alias.clone(),
+                    reason,
+                });
+            }
+        }
+    }
+    Ok((installed, failures))
 }
 
 /// Download, confirm and install every candidate the player's selection resolves to.
@@ -1812,9 +2023,11 @@ async fn build_preview(
     let address = SocketAddrV4::new(server.endpoint.address, server.game_port.get());
     info!(%address, game = ?session.game, engine = ?session.engine, "starting preview build");
     let index = installed_maps(session)?;
+    let search_path = session_search_path(session)?;
     let first = reveille_core::join::classify_server(&index, &server, None);
     let wanted = first.preflight.as_ref().map_or_else(Vec::new, wanted_maps);
     info!(%address, wanted_maps = wanted.len(), "computed preview map requirements");
+    let pakradar = build_pakradar_preview(&server, &search_path).await;
     let catalogue = if wanted.is_empty() {
         None
     } else {
@@ -1843,14 +2056,65 @@ async fn build_preview(
                 .await,
         )
     };
-    let assessment = reveille_core::join::classify_server(&index, &server, catalogue.as_ref());
+    let pakradar_unresolved = pakradar
+        .as_ref()
+        .is_some_and(|pakradar| pakradar.pending > 0 || pakradar.non_result.is_some());
+    let assessment = reveille_core::join::classify_server(
+        &index,
+        &server,
+        (!pakradar_unresolved)
+            .then_some(catalogue.as_ref())
+            .flatten(),
+    );
     Ok(JoinPreview {
         address,
         server,
         assessment,
+        pakradar,
         catalogue,
         engine: session.engine,
         game: session.game,
+    })
+}
+
+async fn build_pakradar_preview(
+    server: &Server,
+    search_path: &[PathBuf],
+) -> Option<PakRadarPreview> {
+    let url = server.pr_downloads.as_ref()?.clone();
+    let entries = match content::fetch_filelist(&url, Duration::from_secs(15)).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            return Some(PakRadarPreview {
+                url,
+                entries: Vec::new(),
+                pending: 0,
+                non_result: Some(error.to_string()),
+            });
+        }
+    };
+    let mut pending = 0;
+    let mut filenames = HashSet::new();
+    for entry in &entries {
+        let key = entry.filename().map_or_else(
+            |_| entry.url.to_ascii_lowercase(),
+            |filename| filename.to_ascii_lowercase(),
+        );
+        if !filenames.insert(key) {
+            continue;
+        }
+        if !matches!(
+            content::pakradar_entry_is_current(entry, search_path).await,
+            Ok(true)
+        ) {
+            pending += 1;
+        }
+    }
+    Some(PakRadarPreview {
+        url,
+        entries,
+        pending,
+        non_result: None,
     })
 }
 
@@ -3218,6 +3482,31 @@ mod tests {
                 "ui/views/join.js: the map rotation listing must not come back ({gone})"
             );
         }
+    }
+
+    #[test]
+    fn server_packages_are_applied_before_the_mohdb_fallback() {
+        let source = include_str!("main.rs");
+        let flow = source
+            .split_once("async fn install_and_launch(")
+            .and_then(|(_, rest)| rest.split_once("async fn install_pakradar_manifest("))
+            .map(|(flow, _)| flow)
+            .expect("install-and-launch flow");
+        let pakradar = flow
+            .find("install_pakradar_manifest(")
+            .expect("PakRadar install stage");
+        let rescan = flow
+            .find("let after_pakradar = installed_maps(&session)?;")
+            .expect("post-PakRadar rescan");
+        let mohdb = flow
+            .find("client.resolve_all(&remaining).await")
+            .expect("moh-db fallback");
+
+        assert!(pakradar < rescan && rescan < mohdb);
+
+        let join = include_str!("../ui/views/join.js");
+        assert!(join.contains("totals.serverFiles > 0"));
+        assert!(join.contains("before the catalogue is used"));
     }
 
     #[test]

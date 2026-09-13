@@ -230,8 +230,10 @@ leaving its figures on screen: the check is evidence about now, and they are not
 (`plan.md:233`).
 **Evidence** *Measured, 19 Aug 2026.* Reproduced end to end on `<[TFC]> Sniper Only OBJ`: 7 of
 14 rotation maps present, 9.1 MB across 4 files, 2 awaiting a choice.
-**What Reveille does** Prices the download before you commit (`Get 9.1 MB & join`), resolves what
-it can, and lists what it cannot as a recorded non-result rather than failing the pass.
+**What Reveille does** Prices catalogue downloads before you commit (`Get 9.1 MB & join`). When a
+server publishes `pr_downloads`, its MD5-backed packages are installed first; Reveille rescans the
+engine search path and asks moh-db only for maps still missing. Anything it cannot fetch is a
+recorded non-result rather than a failed pass.
 **Status** Shipped.
 **Narrowed 24 Aug 2026** The **Needs** column was removed from the server list at the owner's
 request, so the price is now visible only after a server is selected. The join itself is unchanged
