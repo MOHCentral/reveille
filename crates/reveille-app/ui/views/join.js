@@ -396,6 +396,7 @@ function needsSection(assessment, preview, server) {
 function resolvingMeter() {
   const { index, of, map } = state.previewProgress;
   const percent = of > 0 ? Math.round(((index + 1) / of) * 100) : 0;
+  const status = of > 0 ? `looking up ${mapName(map)} · ${index + 1}/${of}` : "checking downloads…";
   return el(
     "div",
     { className: "stack--tight" },
@@ -411,7 +412,7 @@ function resolvingMeter() {
       },
       el("span", { className: "meter__fill", style: `width:${percent}%` }),
     ),
-    el("p", { className: "quiet data" }, `looking up ${mapName(map)} · ${index + 1}/${of}`),
+    el("p", { className: "quiet data" }, status),
   );
 }
 

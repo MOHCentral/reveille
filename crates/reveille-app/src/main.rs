@@ -3510,6 +3510,24 @@ mod tests {
     }
 
     #[test]
+    fn a_clean_join_replaces_the_rows_stale_pre_download_assessment() {
+        // Reproduced with a PakRadar server: after downloading its maps, selecting another row and
+        // returning left Join disabled behind a new 0/0 preview because the list row still said
+        // Needs maps. A clean final assessment is direct evidence about the same row's local maps.
+        let app = include_str!("../ui/app.js");
+        let remember = app
+            .split_once("function rememberReadyJoin(")
+            .and_then(|(_, rest)| rest.split_once("onInstallProgress("))
+            .map(|(remember, _)| remember)
+            .expect("completed-join reconciliation");
+
+        assert!(app.contains("rememberReadyJoin(next, row, result);"));
+        assert!(remember.contains("result.failures.length !== 0"));
+        assert!(remember.contains("current.compatibility = result.assessment"));
+        assert!(remember.contains("next.preview = null"));
+    }
+
+    #[test]
     fn the_self_update_offer_is_explicit_and_keeps_the_checked_release() {
         // A background response may reveal an offer, but only the player's labelled action may
         // install it. The Rust side retains Tauri's checked Update object so the frontend cannot
