@@ -13,6 +13,7 @@ use crate::mapindex::MapKey;
 pub use archive::{
     ArchiveError, ArchiveInspection, ArchiveMap, ConfirmedMap, DownloadedArchive, MohDbIntegrity,
     PakRadarIntegrity, confirm_map, disambiguate_by_checksum, inspect_archive, install_archive,
+    install_verified_archive,
 };
 pub use mohdb::{
     CatalogueCandidate, CatalogueNonResult, CatalogueNonResultReason, CataloguePage,
@@ -21,8 +22,9 @@ pub use mohdb::{
     download_mohdb_archive_reporting, resolve_candidates,
 };
 pub use pakradar::{
-    Md5Digest, PakRadarEntry, PakRadarError, download_pakradar_archive, fetch_filelist,
-    parse_filelist,
+    Md5Digest, PakRadarDownloadProgress, PakRadarEntry, PakRadarError, PakRadarPackageStatus,
+    download_pakradar_archive, download_pakradar_archive_reporting, fetch_filelist,
+    pakradar_client, pakradar_entry_is_current, pakradar_entry_status, parse_filelist,
 };
 
 /// A server map name paired with the exact normalised key used everywhere in the pipeline.

@@ -193,6 +193,14 @@ equality — no edit distance anywhere. Integrity is separated at the type level
 (`MohDbIntegrity::RecordedSha256` vs `PakRadarIntegrity::VerifiedMd5`), so no moh-db path can
 say "verified".
 
+**Correction, 12 Sep 2026 — `pr_downloads` was parsed but not honored.** Discovery retained the
+server's PakRadar manifest URL and the CLI could print its entries, while every actual join still
+downloaded only from moh-db. The desktop join and composed CLI journey now fetch the manifest,
+compare each engine-visible package with its server-published MD5, install or atomically replace
+missing/outdated packages, rescan the full engine search path, and only then ask moh-db for maps
+that remain missing. A failed manifest or package is recorded per H9 and does not prevent the
+moh-db fallback.
+
 **Confirmed upstream limitation.** `gameType` is not merely ignored by the endpoint — it is
 absent from the public `MapDto` entirely, so local pre-download game-family filtering is
 impossible. Verified directly against the API. Post-download BSP inspection is the substitute.

@@ -330,7 +330,7 @@ function needsSection(assessment, preview, server) {
     (resolution) => resolution.outcome === "choice_required",
   );
   const notes = caveats(server, assessment.state?.state === "compatible");
-  const costly = Boolean(totals && totals.count > 0);
+  const costly = Boolean(totals && (totals.count > 0 || totals.serverFiles > 0));
 
   if (!resolving && !explanation && !costly && !choices.length && !notes && !state.previewError) {
     return null;
@@ -346,7 +346,14 @@ function needsSection(assessment, preview, server) {
     // title is unreachable by keyboard and by touch (docs/ux-standards.md §3.1).
     explanation ? el("p", { className: "verdict-note" }, explanation) : null,
     resolving ? resolvingMeter() : null,
-    costly
+    totals?.serverFiles > 0
+      ? el(
+          "p",
+          { className: "note note--brass" },
+          `This server provides ${plural(totals.serverFiles, "file")} to fetch before the catalogue is used.`,
+        )
+      : null,
+    totals?.count > 0
       ? el(
           "div",
           { className: "headline-number" },
@@ -356,6 +363,13 @@ function needsSection(assessment, preview, server) {
             { className: "quiet" },
             `to fetch · ${plural(totals.count, "file")}${totals.pending ? ` · ${totals.pending} awaiting a choice` : ""}`,
           ),
+        )
+      : null,
+    preview?.pakradar?.non_result
+      ? el(
+          "p",
+          { className: "quiet", title: preview.pakradar.non_result },
+          "The server's download list did not answer. Reveille will use the map catalogue.",
         )
       : null,
     state.previewError ? el("p", { className: "error", role: "alert" }, state.previewError) : null,
@@ -465,7 +479,9 @@ function installItem(item) {
   const percent =
     item.total && item.total > 0 ? Math.min(100, Math.round((item.received / item.total) * 100)) : 0;
   let stateText = "waiting";
-  if (item.phase === "downloading") stateText = `${bytes(item.received)} / ${bytes(item.total)}`;
+  if (item.phase === "downloading") {
+    stateText = item.total ? `${bytes(item.received)} / ${bytes(item.total)}` : bytes(item.received);
+  }
   else if (item.phase === "confirming") stateText = "checking the file";
   else if (item.phase === "installed") stateText = "installed";
   else if (item.phase === "failed") stateText = "failed";
@@ -486,8 +502,8 @@ function installItem(item) {
     item.phase === "downloading"
       ? el(
           "div",
-          { className: "meter" },
-          el("span", { className: "meter__fill", style: `width:${percent}%` }),
+          { className: `meter${item.total ? "" : " meter--indeterminate"}` },
+          el("span", { className: "meter__fill", style: item.total ? `width:${percent}%` : null }),
         )
       : null,
     item.phase === "failed" ? el("p", { className: "quiet" }, item.reason) : null,
@@ -512,14 +528,7 @@ function outcomeSection(result) {
         ? `${GAME_LABELS[result.game] ?? "The game"} is connecting. The server decides the rest: bans, a full server, and its own ping limits.`
         : result.outcome.reason,
     ),
-    result.installed.length
-      ? el(
-          "p",
-          { className: "quiet" },
-          `${plural(result.installed.length, "file")} installed into `,
-          el("span", { className: "data selectable" }, displayPath(result.game_directory)),
-        )
-      : null,
+    installedLocations(result),
     result.used_home_fallback
       ? el(
           "p",
@@ -549,6 +558,21 @@ function outcomeSection(result) {
           ),
         )
       : null,
+  );
+}
+
+function installedLocations(result) {
+  if (!result.installed.length) return null;
+  const directories = result.install_directories?.length
+    ? result.install_directories
+    : [result.game_directory];
+  return el(
+    "div",
+    { className: "stack--tight" },
+    el("p", { className: "quiet" }, `${plural(result.installed.length, "file")} installed.`),
+    directories.map((directory) =>
+      el("p", { className: "data quiet selectable" }, displayPath(directory)),
+    ),
   );
 }
 
@@ -609,7 +633,10 @@ export function shoppingTotals(preview) {
       }
     }
   }
-  return { size, count, pending };
+  const serverFiles = Number(preview?.pakradar?.pending ?? 0);
+  const retryServerFiles = Boolean(preview?.pakradar?.non_result);
+  const checksServerFiles = Boolean(preview?.pakradar);
+  return { size, count, pending, serverFiles, retryServerFiles, checksServerFiles };
 }
 
 /**
@@ -736,6 +763,8 @@ function actionBar(row, onJoin) {
 
 /** The primary button's label, which is also the consent it records. */
 function joinLabel(kind, totals) {
+  if (totals.serverFiles > 0) return `Get ${plural(totals.serverFiles, "server file")} & join`;
+  if (totals.retryServerFiles) return "Retry server files & join";
   if (totals.count > 0) return `Get ${bytes(totals.size)} & join`;
   if (kind === "compatible") return "Join";
   if (kind === "cant_tell") return "Join without a map list";
@@ -754,6 +783,10 @@ function joinLabel(kind, totals) {
 function currentMapFetchable(preview, currentMap) {
   const key = mapKey(currentMap);
   if (!preview || key === null) return "unknown";
+  // A PakRadar manifest names packages rather than individual BSPs. Until those packages are
+  // installed and the search path is rescanned, a catalogue miss cannot prove the current map is
+  // unavailable.
+  if (Number(preview.pakradar?.pending ?? 0) > 0 || preview.pakradar?.non_result) return "unknown";
   const resolution = (preview.catalogue?.resolutions ?? []).find(
     (item) => mapKey(item.wanted.name) === key,
   );

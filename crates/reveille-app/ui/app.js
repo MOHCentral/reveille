@@ -511,7 +511,9 @@ let joinToken = 0;
 async function getAndJoin(row, acceptIncomplete) {
   const token = ++joinToken;
   const preview = state.preview?.address === row.address ? state.preview : null;
-  const totals = preview ? shoppingTotals(preview) : { count: 0 };
+  const totals = preview
+    ? shoppingTotals(preview)
+    : { count: 0, serverFiles: 0, retryServerFiles: false, checksServerFiles: false };
   const selectedCandidateIds = [...state.choices.values()];
 
   update((next) => {
@@ -521,7 +523,10 @@ async function getAndJoin(row, acceptIncomplete) {
     // nothing to fetch, so without this the pane would look idle while the game was being started,
     // and a check finishing in that window could drop the row the outcome renders against.
     next.joining = true;
-    next.installRun = totals.count > 0 ? { items: new Map(), done: false } : null;
+    next.installRun =
+      totals.count + totals.serverFiles > 0 || totals.retryServerFiles || totals.checksServerFiles
+        ? { items: new Map(), done: false }
+        : null;
   });
 
   try {
@@ -556,13 +561,14 @@ onInstallProgress((progress) => {
   if (!state.installRun) return;
   update((next) => {
     const items = next.installRun.items;
-    const existing = items.get(progress.map) ?? {
+    const key = progress.filename;
+    const existing = items.get(key) ?? {
       map: progress.map,
       filename: progress.filename,
       received: 0,
       total: null,
     };
-    items.set(progress.map, {
+    items.set(key, {
       ...existing,
       filename: progress.filename,
       phase: progress.phase,

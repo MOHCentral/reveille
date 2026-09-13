@@ -326,6 +326,7 @@ Change a rule in the register first, then update the right-hand column here.
 | **H5** · Never imply the release digest proves publisher authenticity | Visible setup copy promises only that Reveille checks whether the download arrived intact; it never calls the file safe or the publisher verified. The release page's exact file check is optional tooltip detail, not newcomer-facing copy. |
 | **H6** · Never state a cause that was not observed | Engine failures are classified in Rust (`OpenMohaaFailureKind`), and since 27 Aug 2026 so are sweep failures (`BrowseFailureKind`: `NoNetwork`, `MasterUnreachable`, `MasterUnreadable`, `Internal`) — never by matching message text in the shell. `NoNetwork` is reserved for local routing, address, or permission failures; a TCP refusal or reset by the remote master is `MasterUnreachable`, never evidence that the player's PC is offline. A per-map catalogue non-result renders as a sentence rather than through `{:?}`. A release that publishes no file check was never downloaded and says so; only a size or digest mismatch may say the download did not arrive intact. An unclassified failure shows its own text rather than borrowing a cause. The original message stays as tooltip detail. |
 | **C3** · Never auto-apply an ambiguous match | Choice radios start with **nothing selected**. The total excludes unresolved maps and the pane says how many still need a choice. |
+| **C4** · Replace content only with server-published digest evidence | A PakRadar package is replaced only after its MD5 matches the server manifest. moh-db downloads remain no-clobber. |
 | **H8** · Say where files went | A join resolves its destination once, only when it has a file to install, and the result prints that same directory. `used_home_fallback` prints the real `%APPDATA%\openmohaa\<game directory>` path, not a euphemism. |
 | **H13** · Index the whole search path | An expansion session indexes `main` underneath `mainta` or `maintt`, so a base-game map is never reported as missing on a Spearhead or Breakthrough server. |
 | **H14** · Never offer a game the folder has no files for | The **Game** switch lists only the products detected in the folder, and is hidden entirely when there is one. |
@@ -380,6 +381,13 @@ player decide.
 map index, re-classifies, and only then calls `launch_refusal`, so a current map that was missing
 but fetchable is present by the time the gate is evaluated.
 
+**A server-published download list goes first.** When `pr_downloads` is present, preview says how
+many server files do not match their published MD5. The join installs those packages, rescans the
+whole engine search path, and only then resolves and downloads the maps still missing from moh-db.
+The manifest names packages rather than individual maps, so its size is not folded into the
+catalogue's byte total and a catalogue miss cannot hard-block the current map until the manifest
+has been applied and the rescan has established that it is still absent.
+
 **The interface must not pre-empt that.** The action bar hard-blocks only when the current map is
 missing *and* the catalogue has no source for it (`currentMapFetchable` in `views/join.js`, which
 lines the server's `mapname` up with its rotation entry using the engine normalisation from
@@ -394,6 +402,7 @@ one control, and it names what this join is missing:
 | Situation | Label | `accept_incomplete` |
 |---|---|---|
 | `Compatible` | `Join` | `false` |
+| Server-published files to fetch | `Get 2 server files & join` | state-dependent |
 | Anything to fetch | `Get 9.1 MB & join` | `true` |
 | `Map list not published` | `Join without a map list` | `true` |
 | Nothing fetchable left | `Join anyway` | `true` |

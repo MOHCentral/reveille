@@ -406,6 +406,17 @@ reason to trust the rest.
 **Enforced at** Choice radios start with nothing selected; the total excludes unresolved maps and
 the pane says how many still need a choice.
 
+### C4 · Never replace an existing package without a server-published digest
+**Because** moh-db publishes no digest, so its downloaded bytes cannot establish that an existing
+package is stale. A `pr_downloads` manifest publishes the exact MD5 the server expects and can
+justify replacing a same-named package only after the new archive matches it and passes hostile
+archive inspection.
+**Enforced at** `content::install_archive` remains no-clobber. The separate
+`install_verified_archive` accepts only `DownloadedArchive<PakRadarIntegrity>`, making a moh-db
+replacement unrepresentable. Tests:
+`content::archive::tests::installs_with_the_source_filename_and_never_overwrites` and
+`content::archive::tests::a_verified_server_package_atomically_replaces_an_outdated_copy`.
+
 ---
 
 ## L — Legal

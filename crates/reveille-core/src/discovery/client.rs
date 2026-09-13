@@ -743,6 +743,10 @@ mod tests {
             server.map_checksum.map(crate::bsp::Checksum::get),
             Some(-42)
         );
+        assert_eq!(
+            server.pr_downloads.as_deref(),
+            Some("https://example.invalid/list")
+        );
         assert_eq!(server.rotation, ["dm/current", "obj/next"]);
         assert_eq!(
             server.minimum_ping.map(crate::discovery::PingMillis::get),
