@@ -67,6 +67,11 @@ and no bytes are installed until Tauri verifies the release signature embedded b
 workflow.
 **Status** Shipped. The owner must create the updater key once and store its private half in GitHub
 Actions before the next release; the public half is compiled into release builds.
+**Corrected 16 Sep 2026.** The channel was carrying builds nobody had checked. Release and CI were
+independent workflows, so v0.2.1 was published — and offered to installed copies — from a commit
+CI had rejected. Packaging now runs the gate itself and depends on its result, so what reaches this
+channel is a build the repository accepted (rule **S7**; `plan.md`, "Release could publish a build
+CI had already rejected").
 
 ### F1 · The player cannot tell Reveille where the game is
 

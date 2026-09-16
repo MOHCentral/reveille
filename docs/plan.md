@@ -1016,6 +1016,62 @@ recorded above — pk3 writes into `C:\GOG Games\...\main\` being virtualised or
 packaged app — need not be taken at all. winget plus a signed publisher-hosted installer carries no
 such constraint.
 
+## Release could publish a build CI had already rejected (corrected 16 Sep 2026)
+
+**What happened.** `release.yml` and `ci.yml` were independent workflows on the same trigger. A
+`v*` tag started both, neither waited for the other, and nothing compared their conclusions — so
+packaging proceeded on its own timetable whatever the gate decided. It was not a theoretical hole:
+
+| Commit | Release | CI |
+|---|---|---|
+| `7e0f191` (v0.2.1, released) | [run 34686524493](https://github.com/MOHCentral/reveille/actions/runs/34686524493) — success | [run 34686524487](https://github.com/MOHCentral/reveille/actions/runs/34686524487) — **failure** |
+| `f017293` (v0.2.1, first attempt) | [run 34685859030](https://github.com/MOHCentral/reveille/actions/runs/34685859030) — success | [run 34685859029](https://github.com/MOHCentral/reveille/actions/runs/34685859029) — **failure** |
+
+So v0.2.1 shipped, and was offered to installed copies through the updater, from a commit the
+repository's own gate had rejected twice.
+
+**What the gate was actually failing on.** `cargo fmt --all --check`, over one line:
+`use std::io::{Cursor};` in `reveille-platform/src/installation_copy.rs`, a redundant brace group
+left by the protected-install work in `d2df227`. Recorded because the triviality is the point and
+the temptation is to file it as one. A formatting slip and a rejected archive reach the release
+path through exactly the same absent `needs:`; the gate cannot rank its own findings, and a
+pipeline that ships through a red fmt is a pipeline that will ship through a red test. `main` had
+been red since that commit.
+
+**Why local checks did not catch it.** `just release` runs `just check` before it tags, but
+`--no-check` exists and the whole point of CI is to be the backstop when the local gate is skipped,
+partial, or run on a different tree. It was also stricter than CI in a way that mattered: `just
+check` ran `tools/check-sources.mjs` and CI did not, so the documented gate and the binding one
+disagreed about SPDX headers (L2) and the no-elevation scan (S3).
+
+**The correction.** `ci.yml` gained `workflow_call:` and became the single definition of the gate.
+`release.yml` now runs *that workflow itself* with `uses: ./.github/workflows/ci.yml`, and its
+packaging job `needs:` it, so a red gate leaves packaging skipped — no installer artifact, no
+`latest.json`, no draft release. The gate is unconditional, including on a manual packaging
+rehearsal: an artifact retained from a rejected commit is the same lie as a release made from one.
+A called workflow runs at the caller's commit, so the checked SHA and the packaged SHA are the
+same one by construction rather than by coincidence of timing. `ci.yml` also gained the missing
+source-policy leg, and its push trigger was narrowed to branches so a tag runs the gate once,
+through Release, instead of twice.
+
+**What guards it.** Rule **S7**, and gate 4 of `tools/check-sources.mjs`. The guard computes
+`needs:` reachability across the whole job graph rather than matching a string, for two reasons: a
+gate job carrying an `if:` could be skipped, and a skipped dependency *satisfies* `needs:`; and
+issue #11 will split packaging, signing and publishing into separate jobs, where the check must
+keep holding without being rewritten. Six deliberate breakages were run against it — dropping
+`needs:`, deleting the gate job, adding `if:` to it, removing `workflow_call:`, adding an ungated
+job, and rewriting `jobs:` in a flow style the reader cannot see — and each one fails the gate; a
+job two hops from the gate passes. The last of those is the one that matters most: a reader that
+finds no jobs would otherwise satisfy every check on an empty map, so the guard refuses to pass on
+fewer than two.
+
+**What this deliberately does not do.** It does not address who holds the updater private key
+during the build, which is issue #11 and a different failure mode: this change decides *whether* a
+build may be packaged, not what the packaging step can read while it runs. Nor does it unify the
+local and CI gates in full — pinned toolchains and one canonical command list are issue #8. Adding
+the source-policy leg here was the part issue #7's own acceptance criteria required, not an
+attempt to close #8 sideways.
+
 ## Decisions still open
 
 Maintainer model. The moh-db relationship: worth telling them, and worth asking for published

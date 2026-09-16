@@ -2,9 +2,28 @@
 
 name: CI
 
+# This workflow is the repository gate, and it is the *only* definition of it. It runs on its own
+# for a branch push or a pull request, and Release calls it with `uses:` before it builds a single
+# installer byte, so there is no second approximation of CI living in `release.yml` to drift out of
+# step with this one.
+#
+# A called workflow runs at the caller's commit, which is what makes "the gate passed for the
+# commit being packaged" true rather than approximately true. Before 16 Sep 2026 the two workflows
+# were independent and a tag could — and did — publish from a commit this gate rejected; see
+# `docs/plan.md`, "Release could publish a build CI had already rejected".
 on:
+  # Branch pushes only. A tag runs this gate through `release.yml`, which needs its result to
+  # package anything; triggering here as well would run the same checks twice for one tag.
   push:
+    branches:
+      - "**"
   pull_request:
+  workflow_call:
+
+# Nothing here reads issues, writes releases, or needs a token beyond the checkout. Release calls
+# this workflow from a job that holds no more than this.
+permissions:
+  contents: read
 
 jobs:
   # The portable half. `reveille-core` and `reveille-cli` must keep building and
@@ -22,6 +41,24 @@ jobs:
       - run: cargo clippy -p reveille-core -p reveille-cli --all-targets --locked -- -D warnings
       - run: cargo fmt --all --check
 
+  # Repository-wide source policy: SPDX headers (rule L2), the no-elevation scan (rule S3), the
+  # frontend parse, and the release-gate structure this workflow is half of. None of it is
+  # platform-specific and all of it is seconds long, so it runs on its own and fails cheapest.
+  #
+  # This leg was missing until 16 Sep 2026: `just check` ran it, CI did not, so the documented
+  # local gate was stricter than the one that could block a release.
+  sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `check-sources.mjs` uses `node:module`'s type-stripping parser, which needs Node 22. The
+      # runner's default Node is not a version this repository chose; packaging pins 22 and so
+      # does this.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --disable-warning=ExperimentalWarning tools/check-sources.mjs
+
   # The whole workspace, including the Tauri shell. `reveille-app` is a
   # Windows-targeted crate for v1; building it on Linux would need the GTK and
   # WebKit development packages, which buys nothing until a Linux build is in
@@ -37,7 +74,9 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # The shell's frontend has no build step, so nothing else would catch a
-      # syntax error in it before the window opens blank.
+      # syntax error in it before the window opens blank. `check-sources.mjs` parses the same
+      # files in-process; this is Node's own parser over each module, and the two are kept
+      # separate deliberately — a policy script is not a parser substitute.
       - name: Check the shell's JavaScript parses
         shell: bash
         run: find crates/reveille-app/ui -name '*.js' -print0 | xargs -0 -n1 node --check

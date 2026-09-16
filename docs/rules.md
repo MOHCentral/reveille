@@ -367,6 +367,24 @@ restart** button; **Later** closes the offer without installing. The download ca
 the verified apply phase. Test:
 `reveille-app::the_self_update_offer_is_explicit_and_keeps_the_checked_release`.
 
+### S7 · Never package or publish a build from a commit the repository gate rejects
+**Because** S6 binds an update to the release key, which says the bytes came from this project —
+not that they were ever checked. The updater is a pipe into an already-installed Reveille, so an
+unchecked build does not sit on a download page waiting to be chosen; it is offered to every
+player who already has the program. "CI ran and failed beside the release" is not a gate: nobody
+reads a red run on a tag that shipped.
+**Enforced at** `.github/workflows/release.yml` runs `.github/workflows/ci.yml` itself through
+`uses:`, and every packaging and publishing job descends from that job by `needs:`, so a red gate
+leaves them skipped — no installer artifact, no `latest.json`, no draft release. A called workflow
+runs at the caller's commit, which is what makes the checked SHA and the packaged SHA the same
+one. The gate carries no `if:`, because a skipped dependency satisfies `needs:`. Test:
+`tools/check-sources.mjs` gate 4, which computes the `needs:` reachability rather than matching a
+pattern, so splitting packaging from publishing later cannot quietly drop it.
+**Corrected 16 Sep 2026.** This rule did not exist and the two workflows were independent. v0.2.1
+was released from `7e0f191` while CI failed for that exact commit; the earlier attempt at
+`f017293` did the same. See `docs/plan.md`, "Release could publish a build CI had already
+rejected".
+
 ---
 
 ## C — Content: what Reveille installs

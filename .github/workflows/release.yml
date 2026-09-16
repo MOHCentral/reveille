@@ -11,8 +11,27 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  # The repository gate, run against the exact commit being packaged. This is `ci.yml` itself
+  # rather than a copy of its steps, so the two cannot drift: whatever CI checks on a branch is
+  # what a tag has to pass before anything is built.
+  #
+  # It is unconditional. A manual packaging rehearsal is gated too, because an artifact retained
+  # from a commit the gate rejects is the same lie as a release made from one, and it is the
+  # rehearsal that decides whether the tag is worth cutting.
+  gate:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   windows-installer:
+    # Nothing below runs unless every leg of the gate passed for this commit. `needs` is failure
+    # propagating: a red gate leaves this job skipped, so there is no installer to upload, no
+    # `latest.json` to write, and no draft release to attach to.
+    needs: gate
     runs-on: windows-latest
     permissions:
       contents: write
