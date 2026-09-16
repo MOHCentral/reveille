@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-// Three gates nothing else covers.
+// Four gates nothing else covers.
 //
 // 1. The shell's frontend has no build step, so a syntax error in it first appears as a blank
 //    window rather than as a failed build.
@@ -9,6 +9,9 @@
 //    one.
 // 3. Rule S3 forbids every elevation path, including setup-time helpers. A code review can miss
 //    one verb or manifest change; the source gate must not.
+// 4. Rule S7 forbids packaging or publishing from a commit this gate rejects. Nothing in a
+//    workflow file compiles, so a dropped `needs:` is invisible until a tag ships an unchecked
+//    build — which is exactly how v0.2.1 was released (docs/plan.md).
 //
 // The owned source tree is checked directly, including new files not yet added to Git. Generated
 // and third-party directories are excluded explicitly.
@@ -165,6 +168,124 @@ if (tauriConfig.bundle?.windows?.nsis?.installMode !== "currentUser") {
   failures.push("crates/reveille-app/tauri.conf.json: NSIS installMode must remain currentUser (rule S3)");
 }
 
+// --- 4. Release cannot outrun the gate ------------------------------------
+
+// Rule S7. `release.yml` must reach `ci.yml` through `needs:` from every job it runs, so a red
+// gate leaves the packaging and publishing jobs skipped rather than merely accompanied by a
+// failure nobody reads. Before 16 Sep 2026 the two workflows were independent and a tag did
+// publish from a commit CI had rejected.
+//
+// The reachability is computed rather than pattern-matched, so splitting packaging, signing and
+// publishing into separate jobs later keeps working as long as each one still descends from the
+// gate.
+
+/** Read the job map of a workflow: each job's `uses`, `if`, and `needs` list. */
+function workflowJobs(source) {
+  const lines = source.split(/\r?\n/);
+  const jobs = new Map();
+  let inJobs = false;
+  let current = null;
+  let pendingNeeds = false;
+  for (const line of lines) {
+    if (/^\S/u.test(line)) {
+      inJobs = line.startsWith("jobs:");
+      current = null;
+      pendingNeeds = false;
+      continue;
+    }
+    if (!inJobs) continue;
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+
+    const job = /^ {2}([A-Za-z0-9_-]+):\s*$/u.exec(line);
+    if (job) {
+      current = { name: job[1], uses: null, conditional: false, needs: [] };
+      jobs.set(job[1], current);
+      pendingNeeds = false;
+      continue;
+    }
+    if (!current) continue;
+
+    // A block sequence under `needs:`, which the key line below opened.
+    if (pendingNeeds) {
+      const item = /^ {4,}-\s*(.+?)\s*$/u.exec(line);
+      if (item) {
+        current.needs.push(item[1].replace(/^["']|["']$/gu, ""));
+        continue;
+      }
+      pendingNeeds = false;
+    }
+
+    const key = /^ {4}([A-Za-z0-9_-]+):\s*(.*)$/u.exec(line);
+    if (!key) continue;
+    const [, name, value] = key;
+    if (name === "uses") current.uses = value.trim();
+    else if (name === "if") current.conditional = true;
+    else if (name === "needs") {
+      const rest = value.trim();
+      if (rest === "") pendingNeeds = true;
+      else if (rest.startsWith("[")) {
+        current.needs.push(
+          ...rest
+            .slice(1, rest.lastIndexOf("]"))
+            .split(",")
+            .map((entry) => entry.trim().replace(/^["']|["']$/gu, ""))
+            .filter(Boolean),
+        );
+      } else current.needs.push(rest.replace(/^["']|["']$/gu, ""));
+    }
+  }
+  return jobs;
+}
+
+const GATE_WORKFLOW = ".github/workflows/ci.yml";
+const RELEASE_WORKFLOW = ".github/workflows/release.yml";
+
+const gateSource = readFileSync(join(repository, GATE_WORKFLOW), "utf8");
+if (!/^ {2}workflow_call:\s*$/mu.test(gateSource)) {
+  failures.push(`${GATE_WORKFLOW}: must stay callable (\`workflow_call:\`) so Release reuses it`);
+}
+
+const releaseJobs = workflowJobs(readFileSync(join(repository, RELEASE_WORKFLOW), "utf8"));
+// A reader that stopped finding jobs would pass every check below on an empty map, which is the
+// one way this gate could fail open. Release has at least the gate and the job it gates.
+if (releaseJobs.size < 2) {
+  failures.push(
+    `${RELEASE_WORKFLOW}: read ${releaseJobs.size} job(s) — the gate check cannot confirm anything and must not pass by default`,
+  );
+}
+const gateJobs = [...releaseJobs.values()].filter((job) => job.uses === `./${GATE_WORKFLOW}`);
+if (gateJobs.length === 0) {
+  failures.push(`${RELEASE_WORKFLOW}: must run the repository gate with \`uses: ./${GATE_WORKFLOW}\``);
+} else {
+  // An `if:` on the gate itself would let it be skipped, and a skipped dependency satisfies
+  // `needs:`. The gate is unconditional or it is not a gate.
+  for (const gate of gateJobs) {
+    if (gate.conditional) {
+      failures.push(`${RELEASE_WORKFLOW}: job "${gate.name}" runs the gate under \`if:\`, so it can be skipped`);
+    }
+  }
+  const gated = new Set(gateJobs.map((gate) => gate.name));
+  // Fixed point: a job is gated when it needs a gated job, however many hops away.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const job of releaseJobs.values()) {
+      if (gated.has(job.name)) continue;
+      if (job.needs.some((dependency) => gated.has(dependency))) {
+        gated.add(job.name);
+        changed = true;
+      }
+    }
+  }
+  for (const job of releaseJobs.values()) {
+    if (!gated.has(job.name)) {
+      failures.push(
+        `${RELEASE_WORKFLOW}: job "${job.name}" does not depend on the gate, so it would run for a commit CI rejected (rule S7)`,
+      );
+    }
+  }
+}
+
 // --- Report ---------------------------------------------------------------
 
 if (failures.length > 0) {
@@ -176,5 +297,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `${scripts.length} scripts parse, ${headered.length} sources carry the SPDX header, and no elevation path exists.`,
+  `${scripts.length} scripts parse, ${headered.length} sources carry the SPDX header, no elevation path exists, and every Release job descends from the gate.`,
 );
