@@ -268,8 +268,9 @@ test("the clock label is absolute, and two different minutes read differently", 
   assert.match(format.clockTime(at), /\d/u);
 });
 
-test("timeAgo crosses its branches at the documented boundaries", () => {
-  const now = Date.now();
+test("timeAgo crosses its branches at the documented boundaries", (t) => {
+  const now = new Date("2026-09-19T14:32:00Z").getTime();
+  t.mock.method(Date, "now", () => now);
   const ago = (seconds) => format.timeAgo(new Date(now - seconds * 1000).toISOString());
   assert.equal(ago(10), "just now");
   assert.equal(ago(89), "just now");
