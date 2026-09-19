@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // The boundaries AGENTS.md states, made mechanical (issue #9). `print_stdout`/`print_stderr` are
 // deliberately absent from this list, unlike the other three crates: this binary's output *is* the

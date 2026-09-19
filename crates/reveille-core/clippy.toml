@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: GPL-3.0-only
 
 # Read by Clippy when it compiles this crate only. The lookup starts at `CARGO_MANIFEST_DIR` and
 # walks up, and the first file found wins — so this does not merge with a workspace-root config,

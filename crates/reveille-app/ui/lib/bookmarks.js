@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // What Reveille remembers about servers between runs: the ones the player starred,
 // and the ones it launched the game for.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! Hermetic encoding and parsing for `GameSpy` v1 and MOHAA out-of-band packets.
 

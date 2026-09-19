@@ -3,7 +3,7 @@ name: verify
 description: Build, launch and drive the Reveille Tauri app on Windows to observe a change at its real surface.
 ---
 
-<!-- SPDX-License-Identifier: GPL-2.0-only -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # Verifying a Reveille change
 

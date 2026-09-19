@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Supply-chain security
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflows:
+    name: Workflow correctness and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false
+          annotations: true
+          version: v1.30.1
+
+      # actionlint complements zizmor with schema, expression, and embedded-shell checks.
+      - name: Run actionlint
+        uses: nicholas-fedor/actionlint-action@b349ef9a439253e292855fc2b07b337a27bb2954 # v1.0.18
+        with:
+          version: "1.7.12"
+          # actionlint 1.7.12 predates GitHub's July 2026 self-repository syntax.
+          ignore: 'reusable workflow call.*ci\.yml'
+
+  rust-dependencies:
+    name: Rust advisories and dependency policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Keep these checks identical to `just dependency-security`; the action only supplies a
+      # cached cargo-deny.
+      - name: Check advisories, duplicate baseline, sources, and licences
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          command-arguments: advisories bans sources licenses

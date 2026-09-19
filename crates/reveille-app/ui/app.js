@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Boot, routing and the long-running operations. Views render from `state`;
 // this module is the only place that calls commands and mutates state in

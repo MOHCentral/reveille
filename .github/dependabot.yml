@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+version: 2
+
+multi-ecosystem-groups:
+  tauri-stack:
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    commit-message:
+      prefix: "chore"
+
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    patterns:
+      - tauri
+      - "tauri-*"
+    multi-ecosystem-group: tauri-stack
+    cooldown:
+      default-days: 7
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - tauri
+          - "tauri-*"
+
+  - package-ecosystem: npm
+    directory: "/crates/reveille-app"
+    patterns:
+      - "@tauri-apps/*"
+    multi-ecosystem-group: tauri-stack
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore"

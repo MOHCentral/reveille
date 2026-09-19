@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! Explicitly opt-in release-metadata checks; they never download or install a release asset.
 
