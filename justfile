@@ -184,10 +184,10 @@ app-release:
 
 # Produce the installer. Needs the npm dev dependency: `cd crates/reveille-app && npm install`.
 bundle: notices
-    cd crates/reveille-app && npm run tauri build
+    cd crates/reveille-app && npm run tauri build -- --config notices.conf.json
 
-# Write the attribution file the installer ships. Offline: it reads the locked graph and the
-# licence files already in the cargo registry.
+# Write the attribution file the installer ships, and the packaging config that adds it to the
+# bundle. Offline: it reads the locked graph and the licence files already in the cargo registry.
 notices:
     node tools/third-party-notices.mjs
 

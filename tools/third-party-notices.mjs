@@ -18,6 +18,10 @@ import { fileURLToPath } from "node:url";
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TARGET = "x86_64-pc-windows-msvc";
 const OUTPUT = join(repository, "crates", "reveille-app", "THIRD-PARTY-NOTICES.md");
+// `bundle.resources` is validated when `tauri-build` compiles the shell, not when the bundler
+// runs, so naming the file in tauri.conf.json would break every `cargo build` that has not
+// generated it first. It belongs to packaging alone, which is what this overlay is for.
+const PACKAGING_CONFIG = join(repository, "crates", "reveille-app", "notices.conf.json");
 const LICENCE_FILE = /^(licen[cs]e|copying|notice|unlicense)/i;
 
 function cargo(args) {
@@ -151,6 +155,11 @@ for (const record of texts) {
 lines.push("");
 
 writeFileSync(OUTPUT, lines.join("\n"), "utf8");
+writeFileSync(
+  PACKAGING_CONFIG,
+  `${JSON.stringify({ bundle: { resources: ["THIRD-PARTY-NOTICES.md"] } }, null, 2)}\n`,
+  "utf8",
+);
 console.log(
   `${entries.length} distributed components, ${texts.length} distinct licence texts -> ${OUTPUT.slice(repository.length + 1)}`,
 );

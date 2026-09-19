@@ -69,8 +69,8 @@ jobs:
         run: npm ci
 
       # The permissive licences in the shipped graph require their notices to travel with the
-      # binary. `bundle.resources` installs this file beside the executable, and the bundler fails
-      # if it is missing, so it cannot be silently dropped from a release.
+      # binary. This writes both the notices and the packaging config that installs them beside
+      # the executable; the bundler fails if the file is missing, so a release cannot drop it.
       - name: Write the third-party notices
         run: node tools/third-party-notices.mjs
 
@@ -113,7 +113,7 @@ jobs:
           } | ConvertTo-Json -Compress -Depth 4
           $updaterConfigPath = Join-Path $env:RUNNER_TEMP 'reveille-updater-config.json'
           Set-Content -LiteralPath $updaterConfigPath -Value $updaterConfig -Encoding utf8
-          npx -- tauri build --config $updaterConfigPath -- --locked
+          npx -- tauri build --config $updaterConfigPath --config notices.conf.json -- --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Record the installer's SHA-256

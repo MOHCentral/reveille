@@ -39,7 +39,6 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
-    "resources": ["THIRD-PARTY-NOTICES.md"],
     "publisher": "Reveille",
     "homepage": "https://github.com/MOHCentral/reveille",
     "license": "GPL-3.0-only",

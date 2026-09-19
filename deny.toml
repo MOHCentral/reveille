@@ -1,5 +1,11 @@
-# Cargo dependency policy. The licence allowlist below is the GPL-3.0-only compatibility decision
-# recorded in docs/dependency-policy.md; do not widen it without updating that record.
+# Cargo dependency policy, enforced by `just dependency-security` and the security workflow.
+#
+# The licence allowlist below is this project's GPL-3.0-only compatibility decision, audited on
+# 19 September 2026 against Cargo.lock with cargo-deny 0.20.2: 550 packages, 32 distinct SPDX
+# expressions, none without licence metadata. It is also why Reveille is no longer GPL-2.0-only.
+# `tao`, `ring`, `sync_wrapper`, `zopfli`, and `dpi` offer only Apache-2.0 terms and are compiled
+# into the shipped application, and Apache-2.0 imposes patent-termination and indemnity conditions
+# GPL-2.0-only cannot accept. Widening the list is a change to that decision, not a config tweak.
 
 [licenses]
 # Every entry is a licence the combined GPL-3.0-only application may distribute. The list is the
