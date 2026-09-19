@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // A minimal element builder. Everything in this interface is constructed rather
 // than interpolated into innerHTML, so server hostnames and map names — which are

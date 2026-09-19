@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-2.0-only -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # Reveille
 
@@ -116,3 +116,9 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
+
+## Licence
+
+Reveille is free software under the GNU General Public License version 3; see `LICENSE`. The
+Windows installer ships `THIRD-PARTY-NOTICES.md` beside the executable, listing every component
+it links and that component's own licence.

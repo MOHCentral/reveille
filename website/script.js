@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 const header = document.querySelector("[data-header]");
 const nav = document.querySelector("[data-nav]");

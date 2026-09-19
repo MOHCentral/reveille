@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // The only module that knows the Rust contract. Everything else speaks in terms
 // of these functions, so a change to a command signature has exactly one place
