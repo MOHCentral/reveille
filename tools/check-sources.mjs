@@ -202,9 +202,9 @@ if (releaseJobs.size < 2) {
     `${RELEASE_WORKFLOW}: read ${releaseJobs.size} job(s) — the gate check cannot confirm anything and must not pass by default`,
   );
 }
-const gateJobs = [...releaseJobs.values()].filter((job) => job.uses === `./${GATE_WORKFLOW}`);
+const gateJobs = [...releaseJobs.values()].filter((job) => job.uses === `$/${GATE_WORKFLOW}`);
 if (gateJobs.length === 0) {
-  failures.push(`${RELEASE_WORKFLOW}: must run the repository gate with \`uses: ./${GATE_WORKFLOW}\``);
+  failures.push(`${RELEASE_WORKFLOW}: must run the repository gate with \`uses: $/${GATE_WORKFLOW}\``);
 } else {
   // An `if:` on the gate itself would let it be skipped, and a skipped dependency satisfies
   // `needs:`. The gate is unconditional or it is not a gate.

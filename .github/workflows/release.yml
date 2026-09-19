@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: GPL-3.0-only
 
 name: Release
 
@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # The repository gate, run against the exact commit being packaged. This is `ci.yml` itself
   # rather than a copy of its steps, so the two cannot drift: whatever CI checks on a branch is
@@ -23,7 +27,7 @@ jobs:
   # from a commit the gate rejects is the same lie as a release made from one, and it is the
   # rehearsal that decides whether the tag is worth cutting.
   gate:
-    uses: ./.github/workflows/ci.yml
+    uses: $/.github/workflows/ci.yml
     permissions:
       contents: read
 
@@ -33,7 +37,9 @@ jobs:
     # `latest.json` to write, and no draft release to attach to.
     needs: gate
     runs-on: windows-latest
+    environment: release
     permissions:
+      # Required to create and update the draft release and its assets.
       contents: write
     env:
       # The private half never enters the repository or an artifact. The public half is compiled
@@ -42,22 +48,31 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       REVEILLE_UPDATER_PUBKEY: ${{ vars.REVEILLE_UPDATER_PUBKEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # `rust-toolchain.toml` is the only statement of which compiler this project uses, and the
       # gate above compiled with it. Naming a version here as well is how the two come apart.
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          lookup-only: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: crates/reveille-app/package-lock.json
+          package-manager-cache: false
 
       # The Tauri CLI is a devDependency of the shell rather than a cargo subcommand, so this
       # installs the pinned binary instead of compiling one.
       - name: Install the Tauri CLI
         working-directory: crates/reveille-app
         run: npm ci
+
+      # The permissive licences in the shipped graph require their notices to travel with the
+      # binary. `bundle.resources` installs this file beside the executable, and the bundler fails
+      # if it is missing, so it cannot be silently dropped from a release.
+      - name: Write the third-party notices
+        run: node tools/third-party-notices.mjs
 
       - name: Check release identity and updater key
         shell: bash
@@ -134,7 +149,7 @@ jobs:
             echo "SHA-256: \`$digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: reveille-windows-installer
           path: |
