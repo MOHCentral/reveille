@@ -876,7 +876,7 @@ mod tests {
             RoundTripMillis::new(1_500)
         );
         assert_eq!(
-            round_trip_millis(std::time::Duration::from_secs(60 * 60 * 24 * 100)),
+            round_trip_millis(std::time::Duration::from_hours(2400)),
             RoundTripMillis::new(u32::MAX)
         );
     }

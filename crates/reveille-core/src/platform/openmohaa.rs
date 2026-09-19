@@ -68,7 +68,8 @@ impl PublishedSha256 {
             return Err(OpenMohaaError::InvalidDigest(value.to_owned()));
         }
         let mut digest = [0_u8; 32];
-        for (index, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+        // The length check above leaves no remainder, so `as_chunks` discards nothing.
+        for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             let high = hex_nibble(pair[0])
                 .ok_or_else(|| OpenMohaaError::InvalidDigest(value.to_owned()))?;
             let low = hex_nibble(pair[1])

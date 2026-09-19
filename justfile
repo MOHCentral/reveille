@@ -21,11 +21,30 @@ default:
     @just --list
 
 # ---------------------------------------------------------------------------
-# Gates. `just check` is what CI runs; run it before pushing.
+# Gates. `just check` is the repository gate, and CI runs exactly these recipes — one `ci-*` recipe
+# per CI job, and nothing else. A job in `.github/workflows/ci.yml` may contain no check of its
+# own: `tools/check-sources.mjs` rejects any `run:` step there that is not `just ci-…`, and
+# requires the set of recipes CI names to equal the set `check` depends on. That is what makes
+# "`just check` is what CI runs" a fact rather than a comment (issue #8).
+#
+# To add a check, add it to the relevant `ci-*` recipe below. Never to a workflow step.
 # ---------------------------------------------------------------------------
 
-# Everything CI checks, in the order that fails cheapest first.
-check: fmt-check lint test sources
+# The whole gate, in the order that fails cheapest first.
+check: fmt-check ci-sources ci-portable ci-windows
+
+# --- The three CI jobs ------------------------------------------------------
+
+# Repository-wide source policy and the frontend's own tests. Seconds long, platform-independent.
+ci-sources: sources
+
+# `reveille-core` and `reveille-cli` off Windows. See "Portability" below.
+ci-portable: portable-test portable-lint fmt-check
+
+# The whole workspace, including the Tauri shell, plus a real parse of what the webview loads.
+ci-windows: test lint js-parse
+
+# --- The legs themselves ----------------------------------------------------
 
 # Apply the canonical formatting.
 fmt:
@@ -47,9 +66,16 @@ test:
 # first shows up as a blank window, and no compiler enforces the licence header CLAUDE.md
 # requires on every source file.
 
-# Check SPDX headers and that the shell's JavaScript parses.
+# Check SPDX headers, repository policy, and that every owned script parses.
 sources:
     node --disable-warning=ExperimentalWarning tools/check-sources.mjs
+
+# Kept separate from `sources` deliberately: that script parses in-process so it can run in a
+# restricted shell, and a policy script is not a parser.
+
+# Node's own parser over each shell module.
+js-parse:
+    node tools/check-js-parse.mjs
 
 # ---------------------------------------------------------------------------
 # Portability. `reveille-core` and `reveille-cli` must keep building and passing off Windows —
@@ -57,9 +83,6 @@ sources:
 # (docs/plan.md, "Cross-platform posture"). Running these on Windows will not prove a non-Windows
 # target, but it does catch an accidental dependency on `reveille-platform` or on `winreg`.
 # ---------------------------------------------------------------------------
-
-# The ubuntu CI leg.
-portable: portable-test portable-lint fmt-check
 
 # Test only the crates that must build off Windows.
 portable-test:

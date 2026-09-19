@@ -35,7 +35,8 @@ impl Md5Digest {
             return Err(PakRadarError::InvalidMd5(value.to_owned()));
         }
         let mut digest = [0_u8; 16];
-        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        // The length check above leaves no remainder, so `as_chunks` discards nothing.
+        for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             let high = hex_digit(pair[0]).ok_or_else(|| PakRadarError::InvalidMd5(value.into()))?;
             let low = hex_digit(pair[1]).ok_or_else(|| PakRadarError::InvalidMd5(value.into()))?;
             digest[index] = (high << 4) | low;
