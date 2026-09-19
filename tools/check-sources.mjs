@@ -4,6 +4,12 @@
 //
 // 1. The shell's frontend has no build step, so a syntax error in it first appears as a blank
 //    window rather than as a failed build.
+//
+//    This is a *parse*, and only a parse. Until 19 Sep 2026 two behavioural assertions lived here
+//    too — a localStorage shim exercising `store.js`'s preference migration, and a Tauri stub
+//    exercising `api.js`'s error normaliser — because the frontend had no test runner and there
+//    was nowhere else to put them. There is now: `crates/reveille-app/ui-tests`, run by
+//    `just ui-test` (issue #12). Behaviour goes there. This script is source policy.
 // 2. CLAUDE.md requires `SPDX-License-Identifier: GPL-2.0-only` in every source file; the
 //    repository licence is GPL-2.0-only and a missing header is a licensing defect, not a style
 //    one.
@@ -23,7 +29,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,69 +72,6 @@ for (const file of scripts) {
     const detail = String(error.message).trim();
     failures.push(`${file}: does not parse\n${detail}`);
   }
-}
-
-// The protected-install copy moves three related preferences as one transaction. Exercise the
-// actual browser-storage behavior here, offline, rather than only checking that the function is
-// spelled in the setup source. `store.js` imports the bookmark store, so the same in-memory shim
-// deliberately covers all module-load reads too.
-const stored = new Map([
-  ["reveille.install", "C:\\Program Files\\MOHAA"],
-  [
-    "reveille.engines",
-    JSON.stringify({ "C:\\Program Files\\MOHAA": "reborn", "D:\\Keep": "original" }),
-  ],
-  [
-    "reveille.games",
-    JSON.stringify({ "C:\\Program Files\\MOHAA": "spearhead", "D:\\Keep": "breakthrough" }),
-  ],
-]);
-globalThis.localStorage = {
-  getItem: (key) => stored.get(key) ?? null,
-  setItem: (key, value) => stored.set(key, String(value)),
-};
-try {
-  const store = await import(pathToFileURL(join(repository, "crates/reveille-app/ui/lib/store.js")));
-  store.migrateInstallationPreferences(
-    "C:\\Program Files\\MOHAA",
-    "C:\\Users\\Player\\Games\\MOHAA",
-    "reborn",
-    "spearhead",
-  );
-  const engines = JSON.parse(stored.get("reveille.engines"));
-  const games = JSON.parse(stored.get("reveille.games"));
-  if (
-    stored.get("reveille.install") !== "C:\\Users\\Player\\Games\\MOHAA" ||
-    engines["C:\\Program Files\\MOHAA"] !== undefined ||
-    engines["C:\\Users\\Player\\Games\\MOHAA"] !== "reborn" ||
-    engines["D:\\Keep"] !== "original" ||
-    games["C:\\Program Files\\MOHAA"] !== undefined ||
-    games["C:\\Users\\Player\\Games\\MOHAA"] !== "spearhead" ||
-    games["D:\\Keep"] !== "breakthrough"
-  ) {
-    failures.push("ui/lib/store.js: installation-copy preference migration is not atomic");
-  }
-} catch (error) {
-  failures.push(`ui/lib/store.js: preference migration test failed\n${error}`);
-}
-
-// Tauri can serialize canonical Windows paths with the extended-length prefix. Stub the bridge and
-// exercise the one error normalizer all player-facing command failures use.
-globalThis.window = {
-  __TAURI__: {
-    core: { invoke: () => undefined },
-    event: { listen: () => undefined },
-    opener: { openUrl: () => undefined },
-  },
-};
-try {
-  const api = await import(pathToFileURL(join(repository, "crates/reveille-app/ui/lib/api.js")));
-  const normalized = api.errorText(String.raw`Windows protects \\?\C:\Program Files\MOHAA`);
-  if (normalized !== String.raw`Windows protects C:\Program Files\MOHAA`) {
-    failures.push(`ui/lib/api.js: extended Windows path prefix reached player-facing text: ${normalized}`);
-  }
-} catch (error) {
-  failures.push(`ui/lib/api.js: error normalization test failed\n${error}`);
 }
 
 // --- 2. SPDX headers ------------------------------------------------------

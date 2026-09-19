@@ -496,6 +496,97 @@ export function canRecheck(address) {
   return state.checks.get(address)?.status !== "checking";
 }
 
+/**
+ * Carry a completed join's fresh disk assessment back to the server row.
+ *
+ * The row was measured before its downloads. Leaving it that way makes selecting another server
+ * and returning start a new preview for maps Reveille just installed, disabling Join while the
+ * server manifest and catalogue are queried again. Only a clean, compatible launch is remembered:
+ * any failed server package must leave the old question in place so selecting the row retries it.
+ */
+export function rememberReadyJoin(next, row, result) {
+  if (
+    result.outcome?.launch !== "launched" ||
+    result.assessment?.state?.state !== "compatible" ||
+    result.failures.length !== 0
+  ) {
+    return;
+  }
+  const current = next.servers.find((server) => server.address === row.address);
+  if (current) current.compatibility = result.assessment;
+  next.preview = null;
+  next.previewProgress = null;
+  next.previewError = null;
+  next.choices = new Map();
+}
+
+/**
+ * What a single-server check that got no answer does to the list.
+ *
+ * A check that ran and got no answer is evidence about *now*, and it outranks whatever the sweep
+ * saw. The live row for this address is **dropped** rather than left standing with figures this
+ * check has just shown are no longer current (docs/rules.md H12) — and its freshness stamp goes
+ * with it, because a time is a claim about a measurement that no longer exists.
+ *
+ * `dropped` carries the name the row had, so the pane can still say what the check was about.
+ */
+export function applyCheckNonResult(next, entry, result, dropped) {
+  next.checks.set(entry.address, {
+    status: "absent",
+    nonResult: result.non_result,
+    otherGame: result.other_game,
+    dropped,
+  });
+  next.servers = next.servers.filter((row) => row.address !== entry.address);
+  next.checkedAt.delete(entry.address);
+}
+
+/**
+ * What a single-server check that answered does to the list.
+ *
+ * A server publishes its own game port, so one that moved now publishes a different game address.
+ * The row is real and joins at the address it published; what the player selected or starred is
+ * left pointing where they put it, because a shared query port is not proof of the same server.
+ * The old address keeps an entry saying where the answer came from.
+ *
+ * The old *row* goes, though, which is where this differs from `merge_checked_server` on the Rust
+ * side: that function sees two game endpoints and cannot tell they came from one query port, so it
+ * keeps both. Here the check was addressed to that query port, and nothing now vouches for the
+ * game address it used to publish.
+ *
+ * Both the address asked and the address that answered give way to the new row. Filtering only the
+ * second would leave a server that moved listed twice, once with its old figures.
+ */
+export function applyCheckedRow(next, entry, result, dropped, at) {
+  if (result.row.address !== entry.address) {
+    next.checks.set(entry.address, { status: "absent", movedTo: result.row.address, dropped });
+  } else {
+    next.checks.delete(entry.address);
+  }
+  next.servers = [
+    ...next.servers.filter(
+      (row) => row.address !== result.row.address && row.address !== entry.address,
+    ),
+    result.row,
+  ];
+  next.checkedAt.delete(entry.address);
+  next.checkedAt.set(result.row.address, at);
+}
+
+/**
+ * What the list holds for an address before a check replaces it.
+ *
+ * The reading this check is about to replace, and the name to fall back on if it replaces it with
+ * nothing. A server already dropped by an earlier check has no row left, so what that check
+ * recorded is carried forward: losing it would leave the pane asking for this check unable to name
+ * what it is about.
+ */
+export function droppedIdentity(entry) {
+  const before = state.servers.find((row) => row.address === entry.address) ?? null;
+  if (before) return { hostname: before.server.hostname, queryPort: entry.queryPort };
+  return state.checks.get(entry.address)?.dropped ?? null;
+}
+
 export function selectedRow() {
   return state.servers.find((row) => row.address === state.selected) ?? null;
 }
