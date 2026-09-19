@@ -13,6 +13,14 @@
   executable `main` boundary.
 - Keep `reveille-core` policy-free: no terminal output, process spawning, or exit codes. I/O
   presentation and platform policy belong in `reveille-cli` and `reveille-app`.
+- **Those two are enforced, not reviewed.** Each crate root denies `unwrap_used`, `expect_used`,
+  `dbg_macro`, `todo` and `unimplemented` under `cfg(not(test))`, so tests keep `expect` with
+  explicit messages; the three non-CLI crates also deny `print_stdout`/`print_stderr`, while
+  `reveille-cli` keeps them because its output is the product. `crates/reveille-core/clippy.toml`
+  additionally disallows `std::process::{Command, Child, exit, abort}` in that crate. Adding one
+  at a prohibited site fails `just lint`. The single exemption is a statement `#[allow]` on the
+  Tauri run in `reveille-app`'s `main` — add another only with a `reason =` that says why the
+  boundary does not apply.
 - Prefer newtypes over bare primitives where mixing values would fail silently, including map
   keys, BSP checksums, client counts, and ports.
 - Put a source comment beside every protocol constant (for example, `// sv_gamespy.c:42`) so

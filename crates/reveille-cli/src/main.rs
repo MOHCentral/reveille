@@ -1,5 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+// The boundaries AGENTS.md states, made mechanical (issue #9). `print_stdout`/`print_stderr` are
+// deliberately absent from this list, unlike the other three crates: this binary's output *is* the
+// product, and every `println!` below is a documented command result rather than a debugging leak.
+//
+// `cfg_attr(not(test), …)` rather
+// than a bare `deny`: `cargo clippy --all-targets` compiles this crate twice, once plain and once
+// with `cfg(test)`. The plain build still denies every production site, so nothing is weakened —
+// but unit tests keep `unwrap`/`expect` with explicit messages, in one line here instead of an
+// `#[allow]` on every `mod tests`. Integration tests are separate crates and are untouched.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::dbg_macro,
+        clippy::todo,
+        clippy::unimplemented,
+    )
+)]
+
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Write as _;

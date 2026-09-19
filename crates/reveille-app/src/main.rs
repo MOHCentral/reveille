@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// The boundaries AGENTS.md states, made mechanical (issue #9). `cfg_attr(not(test), …)` rather
+// than a bare `deny`: `cargo clippy --all-targets` compiles this crate twice, once plain and once
+// with `cfg(test)`. The plain build still denies every production site, so nothing is weakened —
+// but unit tests keep `unwrap`/`expect` with explicit messages, in one line here instead of an
+// `#[allow]` on every `mod tests`. Integration tests are separate crates and are untouched.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::dbg_macro,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::print_stdout,
+        clippy::print_stderr,
+    )
+)]
 
 //! Tauri shell. This layer owns presentation policy: it turns the pipeline's typed results into
 //! payloads and progress events, and decides nothing the core has not already established.
@@ -2324,6 +2341,18 @@ fn init_stderr_logging() {
 }
 
 fn main() {
+    // The one exemption to the crate's `expect_used` deny, and the narrowest form of it: a
+    // statement attribute on the last statement of an executable `main`, where a failed Tauri run
+    // has no caller to return to and no window in which to report anything. AGENTS.md names this
+    // boundary; this is it.
+    //
+    // `#[allow]`, not `#[expect]`. Under `cfg(test)` the lint is not enabled, so the expectation
+    // would go unfulfilled and `unfulfilled_lint_expectations` — a warning, and `-D warnings` is
+    // the gate — would fail the build.
+    #[allow(
+        clippy::expect_used,
+        reason = "executable main boundary: a failed run has no caller to return to"
+    )]
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
