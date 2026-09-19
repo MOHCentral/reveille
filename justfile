@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: GPL-3.0-only
 
 # Recipes are single commands that read the same under `sh` and under `cmd`, so the same justfile
 # serves the Windows machine and the aarch64 Linux one. Two things forced that:
@@ -89,6 +89,24 @@ js-parse:
     node tools/check-js-parse.mjs
 
 # ---------------------------------------------------------------------------
+# Supply-chain checks. These require separately installed tools and may use the network, so they
+# are deliberately outside `just check`. CI runs them in the dedicated security workflow.
+# ---------------------------------------------------------------------------
+
+# Fetch RustSec and enforce the dependency source, duplicate, and licence baselines.
+dependency-security:
+    cargo deny check advisories bans sources licenses
+
+# Check workflow security plus YAML, expression, and embedded-shell correctness. The ignore is
+# temporary: actionlint 1.7.12 predates GitHub's self-repository (`$/...`) syntax.
+workflow-security:
+    zizmor .
+    actionlint -ignore "reusable workflow call.*ci\.yml"
+
+# Run all network/tool-backed security maintenance checks.
+security: dependency-security workflow-security
+
+# ---------------------------------------------------------------------------
 # Portability. `reveille-core` and `reveille-cli` must keep building and passing off Windows —
 # that is what makes the deferred Linux and macOS builds deferred rather than precluded
 # (docs/plan.md, "Cross-platform posture"). Running these on Windows will not prove a non-Windows
@@ -165,8 +183,13 @@ app-release:
     cargo run -p reveille-app --release
 
 # Produce the installer. Needs the npm dev dependency: `cd crates/reveille-app && npm install`.
-bundle:
+bundle: notices
     cd crates/reveille-app && npm run tauri build
+
+# Write the attribution file the installer ships. Offline: it reads the locked graph and the
+# licence files already in the cargo registry.
+notices:
+    node tools/third-party-notices.mjs
 
 # Generate the updater key once; an empty password is valid, and the private key needs backup.
 updater-key-generate KEY:
