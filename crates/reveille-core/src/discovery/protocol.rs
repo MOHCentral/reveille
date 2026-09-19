@@ -176,11 +176,14 @@ pub fn build_master_query(target: TargetGame, challenge: &[u8]) -> Result<String
 pub fn parse_master_response(response: &[u8]) -> Result<Vec<MasterEndpoint>, ParseError> {
     let end = find_bytes(response, MASTER_TERMINATOR).ok_or(ParseError::MissingMasterTerminator)?;
     let body = &response[..end];
-    if body.len() % 6 != 0 {
+    if !body.len().is_multiple_of(6) {
         return Err(ParseError::MisalignedMasterBody { length: body.len() });
     }
 
-    body.chunks_exact(6)
+    // The length check above leaves no remainder, so `as_chunks` discards nothing.
+    body.as_chunks::<6>()
+        .0
+        .iter()
         .map(|record| {
             let port = u16::from_be_bytes([record[4], record[5]]);
             if port == 0 {

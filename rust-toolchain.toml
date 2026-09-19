@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+# The only statement of which compiler this project uses. `rustup` reads it on every `cargo`
+# invocation in this directory, so a fresh checkout selects the same toolchain locally and in CI
+# without either one naming a version of its own — that is what stops `just check` and the CI gate
+# from drifting apart (issue #8).
+#
+# The patch is exact, not `1.98`. Clippy's lint set can change within a patch release, and
+# `-D warnings` turns a newly-added lint into a build failure for whoever ran `rustup update` that
+# morning. Bumping this file is therefore a deliberate act, and `tools/check-sources.mjs` requires
+# `rust-version` in the workspace manifest to match, so the published MSRV claim is the compiler
+# that is actually tested rather than an aspiration.
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

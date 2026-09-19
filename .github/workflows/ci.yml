@@ -11,6 +11,13 @@ name: CI
 # commit being packaged" true rather than approximately true. Before 16 Sep 2026 the two workflows
 # were independent and a tag could — and did — publish from a commit this gate rejected; see
 # `docs/plan.md`, "Release could publish a build CI had already rejected".
+#
+# **No job below may contain a check of its own.** Each one runs exactly one `just ci-…` recipe,
+# and the justfile is where a check is added or changed. `tools/check-sources.mjs` enforces both
+# halves of that: every `run:` here must be `just ci-…` or `rustup …`, and the recipes named here
+# must be exactly the ones `just check` depends on. Until 19 Sep 2026 the two gates differed — the
+# justfile claimed to be what CI ran, while CI ran `node --check` over the UI and the justfile ran
+# the source-policy script (issue #8).
 on:
   # Branch pushes only. A tag runs this gate through `release.yml`, which needs its result to
   # package anything; triggering here as well would run the same checks twice for one tag.
@@ -25,21 +32,29 @@ on:
 permissions:
   contents: read
 
+# A second push to the same branch makes the first run's answer irrelevant. Tags and `main` are
+# unaffected: `github.ref` differs for each.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # The portable half. `reveille-core` and `reveille-cli` must keep building and
   # passing on a non-Windows target, which is what makes the deferred Linux and
   # macOS builds deferred rather than precluded.
   portable:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - uses: extractions/setup-just@v3
+      # `rust-toolchain.toml` names the compiler and its components; with no argument this reads
+      # that file. Doing it as a step rather than letting the first `cargo` call auto-install
+      # means the log says which toolchain the run used, and it is why no workflow here names a
+      # Rust version of its own.
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p reveille-core -p reveille-cli --locked
-      - run: cargo clippy -p reveille-core -p reveille-cli --all-targets --locked -- -D warnings
-      - run: cargo fmt --all --check
+      - run: just ci-portable
 
   # Repository-wide source policy: SPDX headers (rule L2), the no-elevation scan (rule S3), the
   # frontend parse, and the release-gate structure this workflow is half of. None of it is
@@ -49,34 +64,34 @@ jobs:
   # local gate was stricter than the one that could block a release.
   sources:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      # `check-sources.mjs` uses `node:module`'s type-stripping parser, which needs Node 22. The
-      # runner's default Node is not a version this repository chose; packaging pins 22 and so
-      # does this.
+      - uses: extractions/setup-just@v3
+      # `check-sources.mjs` uses `node:module`'s type-stripping parser, which needs a recent Node.
+      # `.node-version` is the single statement of which one; packaging reads the same file.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: node --disable-warning=ExperimentalWarning tools/check-sources.mjs
+          node-version-file: .node-version
+      - run: just ci-sources
 
   # The whole workspace, including the Tauri shell. `reveille-app` is a
   # Windows-targeted crate for v1; building it on Linux would need the GTK and
   # WebKit development packages, which buys nothing until a Linux build is in
   # scope.
+  #
+  # Node is installed here too: `ci-windows` ends with a real parse of every shell module, which
+  # nothing else would catch before the window opens blank. Until 19 Sep 2026 this job used
+  # whatever Node the runner image happened to carry.
   windows:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v3
+      - uses: actions/setup-node@v4
         with:
-          components: clippy
+          node-version-file: .node-version
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --locked
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # The shell's frontend has no build step, so nothing else would catch a
-      # syntax error in it before the window opens blank. `check-sources.mjs` parses the same
-      # files in-process; this is Node's own parser over each module, and the two are kept
-      # separate deliberately — a policy script is not a parser substitute.
-      - name: Check the shell's JavaScript parses
-        shell: bash
-        run: find crates/reveille-app/ui -name '*.js' -print0 | xargs -0 -n1 node --check
+      - run: just ci-windows
