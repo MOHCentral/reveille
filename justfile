@@ -16,6 +16,10 @@ set windows-shell := ["cmd.exe", "/c"]
 # so it never lands in `git status`.
 engine_source := "../openmohaa"
 
+# The GitHub Project linked to this repository.
+project_owner := "MOHCentral"
+project_number := "2"
+
 # List the recipes.
 default:
     @just --list
@@ -121,6 +125,15 @@ live-discovery:
 # The third-party moh-db catalogue.
 live-catalogue:
     cargo test -p reveille-core --test live_catalogue --locked -- --ignored --nocapture
+
+# ---------------------------------------------------------------------------
+# Project management.
+# ---------------------------------------------------------------------------
+
+# Requires `gh auth refresh -s project` once for the active GitHub CLI account.
+# List every project item with the fields used to plan and sequence the work.
+project-status:
+    gh project item-list {{ project_number }} --owner {{ project_owner }} --limit 1000 --field Status --field Priority --field Size --field Area --field "Next action"
 
 # ---------------------------------------------------------------------------
 # Running the thing.
