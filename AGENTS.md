@@ -1,32 +1,31 @@
-# Reveille repository conventions
+# Repository Guidelines
 
-- Run `just check` before pushing. It is the repository gate, and CI runs exactly the `ci-*`
-  recipes it depends on — one per CI job, and nothing else. **Add a check to a `ci-*` recipe in
-  the justfile, never as a step in `.github/workflows/ci.yml`**; `tools/check-sources.mjs` rejects
-  a workflow step that is not `just ci-…` and requires the two lists to match.
-- The toolchains are pinned in the tree, not in CI: `rust-toolchain.toml` names the compiler (and
-  `Cargo.toml`'s `rust-version` must equal it) and `.node-version` names Node. No workflow names a
-  version of its own.
-- Use default `cargo fmt` formatting. `cargo clippy --workspace --all-targets -- -D warnings`
-  must pass.
-- Model library errors with `thiserror`. Do not use `unwrap` or `expect` outside tests and the
-  executable `main` boundary.
-- Keep `reveille-core` policy-free: no terminal output, process spawning, or exit codes. I/O
-  presentation and platform policy belong in `reveille-cli` and `reveille-app`.
-- **Those two are enforced, not reviewed.** Each crate root denies `unwrap_used`, `expect_used`,
-  `dbg_macro`, `todo` and `unimplemented` under `cfg(not(test))`, so tests keep `expect` with
-  explicit messages; the three non-CLI crates also deny `print_stdout`/`print_stderr`, while
-  `reveille-cli` keeps them because its output is the product. `crates/reveille-core/clippy.toml`
-  additionally disallows `std::process::{Command, Child, exit, abort}` in that crate. Adding one
-  at a prohibited site fails `just lint`. The single exemption is a statement `#[allow]` on the
-  Tauri run in `reveille-app`'s `main` — add another only with a `reason =` that says why the
-  boundary does not apply.
-- Prefer newtypes over bare primitives where mixing values would fail silently, including map
-  keys, BSP checksums, client counts, and ports.
-- Put a source comment beside every protocol constant (for example, `// sv_gamespy.c:42`) so
-  it can be re-verified against the engine.
-- Add `SPDX-License-Identifier: GPL-2.0-only` to every new source file. The repository license
-  is GPL-2.0-only.
+## Project Structure & Module Organization
 
-Engine ground truth is the openmohaa source at https://github.com/openmoh/openmohaa. Clone it
-when a protocol or filesystem question comes up.
+This is a Rust 2024 workspace. `crates/reveille-core` contains reusable discovery, installation, content-resolution, and join logic. Keep it free of presentation and process-launch policy. `crates/reveille-platform` owns Windows write-target and launch behavior; `crates/reveille-cli` is the headless interface; and `crates/reveille-app` is the Tauri desktop shell. Its static ES-module frontend lives in `ui/`, with tests and handwritten fakes in `ui-tests/`. Integration tests and frozen fixtures are under `crates/reveille-core/tests/`. Repository automation is in `tools/`, CI in `.github/workflows/`, and the static project site in `website/`.
+
+## Build, Test, and Development Commands
+
+- `just check`: run the complete local gate used by CI.
+- `just fmt`: apply canonical Rust formatting.
+- `just test`: run all offline workspace tests with locked dependencies.
+- `just ui-test`: run frontend unit tests with Node's built-in test runner.
+- `just app`: launch the Tauri development build on Windows.
+- `just cli --help`: inspect CLI commands; for example, `just scan "C:\Games\MOHAA"`.
+- `just live`: run ignored, network-dependent tests; never add live calls to the default suite.
+
+Use the pinned Rust toolchain and Node version from `rust-toolchain.toml` and `.node-version`. Building an installer additionally requires `npm install` in `crates/reveille-app`.
+
+## Coding Style & Naming Conventions
+
+Use `cargo fmt` defaults (four-space Rust indentation) and keep Clippy warning-free. Modules, functions, and test names use `snake_case`; types use `UpperCamelCase`; constants use `SCREAMING_SNAKE_CASE`. Prefer newtypes where primitive values could be confused. Model library failures with `thiserror`; avoid `unwrap` and `expect` outside tests and executable boundaries. Add `SPDX-License-Identifier: GPL-2.0-only` to new source files. Cite the OpenMoHAA source beside protocol constants.
+
+Comments explain only why a non-obvious choice or constraint exists. Never restate the code, narrate changes, preserve history, or leave essay-length commentary.
+
+## Testing Guidelines
+
+Place focused unit tests beside Rust modules and cross-module scenarios in `tests/*.rs`; name cases by observable behavior. Put UI tests in `ui-tests/**/*.test.js`. Fixtures must be deterministic and live under `tests/fixtures/`. Run `just check` before pushing; it includes formatting, source-policy, portability, lint, Rust, and JavaScript checks.
+
+## Commit & Pull Request Guidelines
+
+History favors short imperative subjects, optionally Conventional Commit prefixes such as `feat:`, `fix:`, or `chore:`. Keep commits narrowly scoped. Pull requests should explain user-visible behavior, link relevant issues, list verification performed, and include screenshots for UI changes. Do not add checks directly to `ci.yml`; add them to the appropriate `ci-*` recipe in `justfile` so local and CI gates remain identical.
