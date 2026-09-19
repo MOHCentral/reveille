@@ -80,7 +80,7 @@ export const state = {
   /** Install run in progress, or null. Downloads only — see `joining` for the whole command. */
   installRun: null,
   /**
-   * Whether `install_and_launch` is running.
+   * Whether a server-file install or `install_and_launch` is running.
    *
    * Wider than `installRun`, which is null when a compatible server has nothing to fetch. The join
    * command owns the detail pane for its whole length, downloads or not, so this is what the pane

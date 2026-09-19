@@ -75,11 +75,18 @@ test("every server-facing command sends the whole session", async () => {
   await api.browseServers(SESSION);
   await api.checkServer(SESSION, "10.0.0.1:12203", 12300);
   await api.previewJoin(SESSION, "10.0.0.1:12203");
+  await api.installServerFiles(SESSION, "10.0.0.1:12203");
   await api.installAndLaunch(SESSION, "10.0.0.1:12203", [7], true);
 
   assert.deepEqual(
     bridge.calls.map((call) => call.command),
-    ["browse_servers", "check_server", "preview_join", "install_and_launch"],
+    [
+      "browse_servers",
+      "check_server",
+      "preview_join",
+      "install_server_files",
+      "install_and_launch",
+    ],
   );
   for (const call of bridge.calls) {
     assert.deepEqual(call.args.session, SESSION, `${call.command} sends the session`);

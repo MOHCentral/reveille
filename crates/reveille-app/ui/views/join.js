@@ -42,7 +42,7 @@ import {
   update,
 } from "../lib/store.js";
 
-export function joinView(root, { onJoin, onRecheck }) {
+export function joinView(root, { onInstallServerFiles, onJoin, onRecheck }) {
   const scroll = el("div", { className: "detail-pane__scroll" });
   const actions = el("div", { className: "actions" });
   fill(root, scroll, actions);
@@ -63,7 +63,9 @@ export function joinView(root, { onJoin, onRecheck }) {
       fill(scroll, row ? body(row, onRecheck) : gonePane(state.selected, gone));
       fill(
         actions,
-        ...(row ? actionBar(row, onJoin) : goneActions(state.selected, gone, onRecheck)),
+        ...(row
+          ? actionBar(row, onInstallServerFiles, onJoin)
+          : goneActions(state.selected, gone, onRecheck)),
       );
     });
   };
@@ -326,11 +328,15 @@ function needsSection(assessment, preview, server) {
   const resolving = state.previewProgress && !preview;
   const totals = preview ? shoppingTotals(preview) : null;
   const explanation = stateExplanation(assessment.state);
-  const choices = (preview?.catalogue?.resolutions ?? []).filter(
-    (resolution) => resolution.outcome === "choice_required",
-  );
   const notes = caveats(server, assessment.state?.state === "compatible");
   const costly = Boolean(totals && (totals.count > 0 || totals.serverFiles > 0));
+  const serverStageUnresolved =
+    Number(totals?.serverFiles ?? 0) > 0 || Boolean(totals?.retryServerFiles);
+  const choices = serverStageUnresolved
+    ? []
+    : (preview?.catalogue?.resolutions ?? []).filter(
+        (resolution) => resolution.outcome === "choice_required",
+      );
 
   if (!resolving && !explanation && !costly && !choices.length && !notes && !state.previewError) {
     return null;
@@ -348,12 +354,20 @@ function needsSection(assessment, preview, server) {
     resolving ? resolvingMeter() : null,
     totals?.serverFiles > 0
       ? el(
-          "p",
-          { className: "note note--brass" },
-          `This server provides ${plural(totals.serverFiles, "file")} to fetch before the catalogue is used.`,
+          "div",
+          { className: "headline-number" },
+          el("strong", null, plural(totals.serverFiles, "server file")),
+          el("span", { className: "quiet" }, "Download size not provided"),
         )
       : null,
-    totals?.count > 0
+    totals?.serverFiles > 0
+      ? el(
+          "p",
+          { className: "verdict-note" },
+          "Reveille will install and verify these files, then check whether anything else is needed.",
+        )
+      : null,
+    !serverStageUnresolved && totals?.count > 0
       ? el(
           "div",
           { className: "headline-number" },
@@ -369,7 +383,7 @@ function needsSection(assessment, preview, server) {
       ? el(
           "p",
           { className: "quiet", title: preview.pakradar.non_result },
-          "The server's download list did not answer. Reveille will use the map catalogue.",
+          "The server's download list did not answer. Retry it before the map catalogue is checked.",
         )
       : null,
     state.previewError ? el("p", { className: "error", role: "alert" }, state.previewError) : null,
@@ -665,7 +679,7 @@ function goneActions(address, check, onRecheck) {
   ];
 }
 
-function actionBar(row, onJoin) {
+function actionBar(row, onInstallServerFiles, onJoin) {
   const preview = state.preview?.address === row.address ? state.preview : null;
   const assessment = preview?.assessment ?? row.compatibility;
   const kind = assessment.state.state;
@@ -748,9 +762,12 @@ function actionBar(row, onJoin) {
           className: "btn btn--primary",
           disabled: busy || resolving || checking,
           dataset: { focusKey: "join" },
-          // Consent is the click. The label names what this join is missing, so a
-          // separate confirmation toggle would only add a step to the same answer.
-          onclick: () => onJoin(row, kind !== "compatible"),
+          // Server files are a separate first stage. Only the later branch asks for launch
+          // consent, and its label names what that join is still missing.
+          onclick: () =>
+            totals.serverFiles > 0 || totals.retryServerFiles
+              ? onInstallServerFiles(row)
+              : onJoin(row, kind !== "compatible"),
         },
         busy ? "Working…" : checking ? "Checking…" : joinLabel(kind, totals),
       ),
@@ -764,8 +781,8 @@ function actionBar(row, onJoin) {
 
 /** The primary button's label, which is also the consent it records. */
 function joinLabel(kind, totals) {
-  if (totals.serverFiles > 0) return `Get ${plural(totals.serverFiles, "server file")} & join`;
-  if (totals.retryServerFiles) return "Retry server files & join";
+  if (totals.serverFiles > 0) return `Get ${plural(totals.serverFiles, "server file")}`;
+  if (totals.retryServerFiles) return "Retry server files";
   if (totals.count > 0) return `Get ${bytes(totals.size)} & join`;
   if (kind === "compatible") return "Join";
   if (kind === "cant_tell") return "Join without a map list";

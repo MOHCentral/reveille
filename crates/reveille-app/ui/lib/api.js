@@ -23,6 +23,7 @@
 //   cancel_browse()                            -> void
 //   check_server(session, address, queryPort)  -> CheckResult
 //   preview_join(session, address)             -> JoinPreview
+//   install_server_files(session, address)     -> ServerFilesResult
 //   install_and_launch(session, address, selectedCandidateIds, acceptIncomplete) -> JoinResult
 //   check_reveille_update()                    -> { version, current_version } | null
 //   install_reveille_update()                  -> void (the app exits on Windows)
@@ -90,6 +91,9 @@ export const checkServer = (session, address, queryPort) =>
   invoke("check_server", { session, address, queryPort });
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });
+
+export const installServerFiles = (session, address) =>
+  invoke("install_server_files", { session, address });
 
 export const installAndLaunch = (session, address, selectedCandidateIds, acceptIncomplete) =>
   invoke("install_and_launch", { session, address, selectedCandidateIds, acceptIncomplete });

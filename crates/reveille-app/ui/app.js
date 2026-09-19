@@ -17,6 +17,7 @@ import {
   checkServer,
   errorText,
   installAndLaunch,
+  installServerFiles,
   installReveilleUpdate,
   onBrowseProgress,
   onInstallProgress,
@@ -65,7 +66,11 @@ const servers = serversView({
   onCheck: check,
   onGame: selectGame,
 });
-const join = joinView($("#detail-slot"), { onJoin: getAndJoin, onRecheck: recheck });
+const join = joinView($("#detail-slot"), {
+  onInstallServerFiles: getServerFiles,
+  onJoin: getAndJoin,
+  onRecheck: recheck,
+});
 const setup = setupView(setupRoot, {
   onReady: enterServers,
   onUpdate: openReveilleUpdate,
@@ -508,16 +513,48 @@ onPreviewProgress((progress) => {
   update((next) => (next.previewProgress = progress));
 });
 
-/* Getting files and joining -------------------------------------------------- */
+/* Getting files and joining in stages ---------------------------------------- */
 
 let joinToken = 0;
+
+async function getServerFiles(row) {
+  const token = ++joinToken;
+  update((next) => {
+    next.joinError = null;
+    next.joinResult = null;
+    next.joining = true;
+    next.installRun = { items: new Map(), done: false };
+  });
+
+  try {
+    const result = await installServerFiles(session(), row.address);
+    if (token !== joinToken) return;
+    update((next) => {
+      next.joining = false;
+      next.installRun = null;
+      next.preview = result.preview;
+      next.previewProgress = null;
+      next.choices = new Map();
+      next.joinError = result.failures.length
+        ? result.failures.map((failure) => `${failure.map}: ${failure.reason}`).join(" ")
+        : null;
+    });
+  } catch (error) {
+    if (token !== joinToken) return;
+    update((next) => {
+      next.joining = false;
+      next.installRun = null;
+      next.joinError = errorText(error);
+    });
+  }
+}
 
 async function getAndJoin(row, acceptIncomplete) {
   const token = ++joinToken;
   const preview = state.preview?.address === row.address ? state.preview : null;
   const totals = preview
     ? shoppingTotals(preview)
-    : { count: 0, serverFiles: 0, retryServerFiles: false, checksServerFiles: false };
+    : { count: 0 };
   const selectedCandidateIds = [...state.choices.values()];
 
   update((next) => {
@@ -527,10 +564,7 @@ async function getAndJoin(row, acceptIncomplete) {
     // nothing to fetch, so without this the pane would look idle while the game was being started,
     // and a check finishing in that window could drop the row the outcome renders against.
     next.joining = true;
-    next.installRun =
-      totals.count + totals.serverFiles > 0 || totals.retryServerFiles || totals.checksServerFiles
-        ? { items: new Map(), done: false }
-        : null;
+    next.installRun = totals.count > 0 ? { items: new Map(), done: false } : null;
   });
 
   try {

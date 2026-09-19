@@ -9,7 +9,7 @@
 //
 // **What this models.** `createElement`, `createDocumentFragment`, `activeElement`, `Node`,
 // `CSS.escape`, and per element: `append`, `replaceChildren`, `setAttribute`, `addEventListener`,
-// `dataset`, `querySelector`, `contains`, `focus`, `setSelectionRange`, `textContent`, and the
+// `dataset`, `classList`, `querySelector`, `contains`, `focus`, `setSelectionRange`, `textContent`, and the
 // reflected properties `el()` distinguishes by `key in node`.
 //
 // **What it does not model, and therefore what must not be tested against it.** Layout, styles,
@@ -54,6 +54,29 @@ class FakeElement extends FakeNode {
     this.selectionRanges = [];
     for (const key of REFLECTED) this[key] = undefined;
     this.textContent = "";
+    this.classList = {
+      add: (...names) => this.#setClasses(names, true),
+      remove: (...names) => this.#setClasses(names, false),
+      contains: (name) => this.#classes().has(name),
+      toggle: (name, force) => {
+        const enabled = force === undefined ? !this.#classes().has(name) : Boolean(force);
+        this.#setClasses([name], enabled);
+        return enabled;
+      },
+    };
+  }
+
+  #classes() {
+    return new Set(String(this.className ?? "").split(/\s+/u).filter(Boolean));
+  }
+
+  #setClasses(names, enabled) {
+    const classes = this.#classes();
+    for (const name of names) {
+      if (enabled) classes.add(name);
+      else classes.delete(name);
+    }
+    this.className = [...classes].join(" ");
   }
 
   append(...nodes) {
