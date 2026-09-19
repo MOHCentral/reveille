@@ -29,13 +29,17 @@ import { favorites, recordLaunch, toggleFavorite } from "./lib/bookmarks.js";
 import { clockTime, displayPath } from "./lib/format.js";
 import {
   GAME_LABELS,
+  applyCheckNonResult,
+  applyCheckedRow,
   canRecheck,
+  droppedIdentity,
   listIsForCurrentSession,
   loadFilters,
   notify,
   playableGames,
   recallInstall,
   rememberGame,
+  rememberReadyJoin,
   selectedRow,
   session,
   state,
@@ -558,30 +562,6 @@ async function getAndJoin(row, acceptIncomplete) {
   }
 }
 
-/**
- * Carry a completed join's fresh disk assessment back to the server row.
- *
- * The row was measured before its downloads. Leaving it that way makes selecting another server
- * and returning start a new preview for maps Reveille just installed, disabling Join while the
- * server manifest and catalogue are queried again. Only a clean, compatible launch is remembered:
- * any failed server package must leave the old question in place so selecting the row retries it.
- */
-function rememberReadyJoin(next, row, result) {
-  if (
-    result.outcome?.launch !== "launched" ||
-    result.assessment?.state?.state !== "compatible" ||
-    result.failures.length !== 0
-  ) {
-    return;
-  }
-  const current = next.servers.find((server) => server.address === row.address);
-  if (current) current.compatibility = result.assessment;
-  next.preview = null;
-  next.previewProgress = null;
-  next.previewError = null;
-  next.choices = new Map();
-}
-
 onInstallProgress((progress) => {
   if (!state.installRun) return;
   update((next) => {
@@ -636,14 +616,11 @@ async function check(subject) {
 
   for (const entry of entries) {
     if (generation !== checkGeneration) return;
-    // What the list holds for this address before the answer arrives — the reading this check is
-    // about to replace, and the name to fall back on if it replaces it with nothing. A server
-    // already dropped by an earlier check has no row left, so what that check recorded is carried
-    // forward: losing it would leave the pane asking for this check unable to name what it is about.
+    // The row this check is about to replace, kept so `resettle` below can compare, and the
+    // identity to fall back on if the check replaces it with nothing (`droppedIdentity`, in
+    // store.js where it can be tested).
     const before = state.servers.find((row) => row.address === entry.address) ?? null;
-    const dropped = before
-      ? { hostname: before.server.hostname, queryPort: entry.queryPort }
-      : (state.checks.get(entry.address)?.dropped ?? null);
+    const dropped = droppedIdentity(entry);
     update((next) => next.checks.set(entry.address, { status: "checking", dropped }));
 
     let result;
@@ -658,44 +635,8 @@ async function check(subject) {
     }
     if (generation !== checkGeneration) return;
     update((next) => {
-      if (!result.row) {
-        // A check that ran and got no answer is evidence about now, and it outranks whatever the
-        // sweep saw. A live row for this address is dropped rather than left standing with figures
-        // this check has just shown are no longer current (docs/rules.md H12).
-        next.checks.set(entry.address, {
-          status: "absent",
-          nonResult: result.non_result,
-          otherGame: result.other_game,
-          dropped,
-        });
-        next.servers = next.servers.filter((row) => row.address !== entry.address);
-        next.checkedAt.delete(entry.address);
-        return;
-      }
-      // A server publishes its own game port, so one that moved now publishes a different game
-      // address. The row is real and joins at the address it published; what the player selected or
-      // starred is left pointing where they put it, because a shared query port is not proof of the
-      // same server. The old address keeps an entry saying where the answer came from.
-      //
-      // The old *row* goes, though, which is where this differs from `merge_checked_server` on the
-      // Rust side: that function sees two game endpoints and cannot tell they came from one query
-      // port, so it keeps both. Here the check was addressed to that query port, and nothing now
-      // vouches for the game address it used to publish.
-      if (result.row.address !== entry.address) {
-        next.checks.set(entry.address, { status: "absent", movedTo: result.row.address, dropped });
-      } else {
-        next.checks.delete(entry.address);
-      }
-      // Both the address asked and the address that answered give way to the new row. Filtering
-      // only the second would leave a server that moved listed twice, once with its old figures.
-      next.servers = [
-        ...next.servers.filter(
-          (row) => row.address !== result.row.address && row.address !== entry.address,
-        ),
-        result.row,
-      ];
-      next.checkedAt.delete(entry.address);
-      next.checkedAt.set(result.row.address, clockTime());
+      if (result.row) applyCheckedRow(next, entry, result, dropped, clockTime());
+      else applyCheckNonResult(next, entry, result, dropped);
     });
     if (entry.address === state.selected) resettle(before, result.row);
   }

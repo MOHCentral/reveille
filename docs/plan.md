@@ -1122,6 +1122,48 @@ Recorded as rule **S8**.
 within a patch release, and `-D warnings` turns that into a build failure for whoever ran
 `rustup update` that morning — which is the failure mode this whole entry is about.
 
+## The shell got a test runner (19 Sep 2026)
+
+**What was there before.** No test runner at all, and two workarounds standing in for one. Sixteen
+Rust tests in `reveille-app/src/main.rs` read `ui/*.js` with `include_str!` and asserted `contains`
+on a line; and `tools/check-sources.mjs`, whose job is source policy, had grown two actual
+behavioural assertions — a `localStorage` shim exercising `store.js`'s preference migration, and a
+`window.__TAURI__` stub exercising `api.js`'s error normaliser — because there was nowhere else to
+put them. `rules.md` said so plainly: both text checks guard "the exact regression that shipped,
+not the behaviour in general".
+
+**What it is now.** `crates/reveille-app/ui-tests`, run by `just ui-test` as a leg of `ci-sources`.
+`node --test` over the production ES modules, with no npm install, no framework, no bundler and no
+dev server. 111 tests.
+
+**Why no jsdom.** The repository's entire npm surface is one devDependency, which builds the
+installer. jsdom is roughly a hundred transitive packages and would immediately become issue #10's
+problem — a large answer to a small one. `lib/dom.js` is 88 lines and touches a countable set of
+DOM features, so `ui-tests/fakes/dom.js` models exactly those and says in its header what it does
+**not**: ARIA and `tabIndex` reflection, event bubbling, layout. The tests that depend on those
+stay source-text checks. A fake that approximated them would hand back confidence it had not
+earned, which is worse than an honest gap.
+
+**Three extractions made three behaviours testable.** They were moved, not reimplemented:
+`rememberReadyJoin` from `app.js` to `store.js` verbatim; the two branches of `check`'s `update`
+callback into `applyCheckedRow`/`applyCheckNonResult` plus `droppedIdentity`; and the sweep's
+quarter arithmetic into `format.js` as `sweepProgressText`. `app.js` keeps the async sequencing —
+the generation guard, `resettle` — because that genuinely cannot run outside the shell.
+
+**Net effect: 16 tests reading `ui/` as text, down to 10.** Five deleted outright; one
+(`server_packages_are_applied_before_the_mohdb_fallback`) kept its Rust stage-ordering claim and
+lost its shell half entirely; four more shrank to the half with no runtime equivalent. Every
+survivor's comment now says *why* it is still source text, so the next reader does not assume it
+was missed.
+
+**One thing the verification caught.** `node --test <directory>` does not scan that directory on
+Node 26 — it treats the path as a module to run, and fails. The first fourteen "does this test
+catch a regression?" probes all reported success because the suite was erroring out identically
+whatever was injected. The recipe uses `node --test "ui-tests/**/*.test.js"` instead, and the
+probes were re-run: fourteen deliberate regressions, fourteen caught, including three that first
+exposed a too-forgiving `querySelector` in the DOM fake and two probes that were not actually
+breaks.
+
 ## Decisions still open
 
 Maintainer model. The moh-db relationship: worth telling them, and worth asking for published

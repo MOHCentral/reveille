@@ -3013,27 +3013,6 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_sends_the_session_to_every_command_that_needs_one() {
-        // The Rust signatures and the JavaScript that calls them are one contract with two halves
-        // in different languages, and no compiler spans both. A rename on either side is an
-        // "invalid args" failure on every server-facing command, found by hand, at runtime.
-        let api = include_str!("../ui/lib/api.js");
-
-        for command in [
-            "browse_servers",
-            "check_server",
-            "preview_join",
-            "install_and_launch",
-        ] {
-            let call = format!(r#"invoke("{command}", {{ session"#);
-            assert!(
-                api.contains(&call),
-                "ui/lib/api.js must pass `session` to {command}"
-            );
-        }
-    }
-
-    #[test]
     fn the_shell_sweeps_again_when_the_session_the_list_was_swept_for_changed() {
         // A text check, and it is what is available: the shell has no test runner, and the failure
         // it guards is invisible — the wrong game's servers under the right heading, with no error
@@ -3051,54 +3030,19 @@ mod tests {
             "ui/app.js: enterServers must sweep again when the list is for another session"
         );
 
-        // The comparison has to cover all three: the game decides which servers exist, the folder
-        // and the engine decide the search path their compatibility was judged against.
-        let store = include_str!("../ui/lib/store.js");
-        assert!(
-            store.contains(
-                "swept.path === now.path && swept.engine === now.engine && swept.game === now.game"
-            ),
-            "ui/lib/store.js: listIsForCurrentSession must compare path, engine and game"
-        );
-    }
-
-    #[test]
-    fn a_check_that_got_no_answer_drops_the_row_it_was_checking() {
-        // The same kind of text check, for the same reason: the shell has no test runner, and the
-        // failure is silent. A player presses "Check again" precisely to find out whether the
-        // figures still hold, and a server that has stopped answering while keeping its client
-        // count, map and round trip on screen answers that question with a lie (H12).
-        let app = include_str!("../ui/app.js");
-
-        assert!(
-            app.contains(
-                "next.servers = next.servers.filter((row) => row.address !== entry.address);"
-            ),
-            "ui/app.js: a check that returned no row must drop any live row for the address it asked"
-        );
-        assert!(
-            app.contains("next.checkedAt.set(result.row.address, clockTime());"),
-            "ui/app.js: a check that answered must record when it measured the row"
-        );
+        // The comparison itself — that all three of folder, engine and game count — is asserted
+        // behaviourally in `ui-tests/lib/store.test.js`. What stays here is the `app.js` half: the
+        // sweep trigger cannot run outside the shell, because `app.js` imports every view and
+        // touches `document` at module load.
     }
 
     #[test]
     fn folded_remembered_entries_always_state_their_count() {
-        // The same text check as the two above, guarding H15. Favorites and History fold the
-        // entries this check did not return behind a disclosure, and the one thing that keeps a
-        // fold from being an invisible filter is that the count is drawn whether it is open or
-        // shut. A regression here is silent: rows simply stop being there.
-        let store = include_str!("../ui/lib/store.js");
-
-        assert!(
-            store.contains(r#"{ kind: "disclosure", address: `${absent.length}:${state.showAbsent}`, count: absent.length },"#),
-            "ui/lib/store.js: the disclosure must be emitted with its count, whatever the open state"
-        );
-        assert!(
-            store.contains("...(state.showAbsent"),
-            "ui/lib/store.js: only the absent rows are conditional on the block being open"
-        );
-
+        // H15's *rendering* half. That `scopedRows` emits the disclosure with its count whether
+        // the block is open or shut is asserted behaviourally in `ui-tests/lib/store.test.js`;
+        // what stays here is the wording and the ARIA state, which need a real DOM with real
+        // attribute reflection. `ui-tests/fakes/dom.js` deliberately does not model that, because
+        // a fake that approximated it would hand back confidence it had not earned.
         let servers = include_str!("../ui/views/servers.js");
         assert!(
             servers.contains("`${count} ${savedNoun(count)} not in ${check}`"),
@@ -3154,10 +3098,16 @@ mod tests {
 
     #[test]
     fn protected_setup_offers_a_cancellable_copy_and_migrates_only_the_validated_result() {
+        // The `store.js` migration and the `api.js` path-prefix stripping that this test used to
+        // assert as source text are now behavioural, in `ui-tests/lib/store.test.js` and
+        // `ui-tests/lib/api.test.js` respectively — where the migration is exercised against a
+        // real preference blob rather than checked for two spellings.
+        //
+        // What stays is the ordering claim: the preferences must move only *after* Rust has
+        // returned a re-identified installation. That is a statement about the order of two
+        // statements inside `runCopy`, and it has no runtime equivalent short of driving the
+        // whole copy flow with a filesystem behind it.
         let setup = include_str!("../ui/views/setup.js");
-        let store = include_str!("../ui/lib/store.js");
-        let api = include_str!("../ui/lib/api.js");
-
         for wording in [
             "Windows protects this game folder.",
             "Make a writable copy",
@@ -3181,22 +3131,6 @@ mod tests {
             .find("migrateInstallationPreferences")
             .expect("preference migration");
         assert!(migrated > validated, "preferences moved before validation");
-        assert!(store.contains("delete engines[oldRoot]"));
-        assert!(store.contains("localStorage.setItem(INSTALL_KEY, newRoot)"));
-        assert!(api.contains(r#"text.replace(/\\\\\?\\/g, "")"#));
-    }
-
-    #[test]
-    fn a_check_carries_forward_what_it_knows_about_a_row_already_dropped() {
-        // Found by review, and it made the one control on screen destroy the pane holding it: the
-        // second "Check again" on a dropped server recomputed the remembered name from a list the
-        // first check had already emptied, so the pane fell back to "No server selected".
-        let app = include_str!("../ui/app.js");
-
-        assert!(
-            app.contains("(state.checks.get(entry.address)?.dropped ?? null)"),
-            "ui/app.js: a check on a row already dropped must keep what the earlier check recorded"
-        );
     }
 
     #[test]
@@ -3442,22 +3376,6 @@ mod tests {
     }
 
     #[test]
-    fn sweep_progress_is_announced_at_milestones_rather_than_per_probe() {
-        // A sweep emits one event per probed endpoint. A live region that restated "N of M done"
-        // on each one sent a screen reader roughly two hundred announcements per sweep.
-        let servers = include_str!("../ui/views/servers.js");
-
-        assert!(
-            servers.contains("const quarter = Math.min(3, Math.floor((probed / inspected) * 4));"),
-            "ui/views/servers.js: sweep progress must be coarsened before it is announced"
-        );
-        assert!(
-            !servers.contains("${state.browse.probed} of ${state.browse.inspected}"),
-            "ui/views/servers.js: a running count inside the announcement defeats the milestone"
-        );
-    }
-
-    #[test]
     fn a_ready_server_adds_nothing_to_the_detail_pane() {
         // docs/ui.md §9: a ready server says nothing — silence is the correct rendering of
         // "nothing to do". `needsSection` returns null when there is no explanation to give, no
@@ -3486,6 +3404,9 @@ mod tests {
 
     #[test]
     fn server_packages_are_applied_before_the_mohdb_fallback() {
+        // A claim about the order of three stages inside one function, which is genuinely a
+        // statement about this source and has no runtime equivalent. The shell half — that the
+        // pane says server files come first — moved to `ui-tests` (issue #12).
         let source = include_str!("main.rs");
         let flow = source
             .split_once("async fn install_and_launch(")
@@ -3503,28 +3424,6 @@ mod tests {
             .expect("moh-db fallback");
 
         assert!(pakradar < rescan && rescan < mohdb);
-
-        let join = include_str!("../ui/views/join.js");
-        assert!(join.contains("totals.serverFiles > 0"));
-        assert!(join.contains("before the catalogue is used"));
-    }
-
-    #[test]
-    fn a_clean_join_replaces_the_rows_stale_pre_download_assessment() {
-        // Reproduced with a PakRadar server: after downloading its maps, selecting another row and
-        // returning left Join disabled behind a new 0/0 preview because the list row still said
-        // Needs maps. A clean final assessment is direct evidence about the same row's local maps.
-        let app = include_str!("../ui/app.js");
-        let remember = app
-            .split_once("function rememberReadyJoin(")
-            .and_then(|(_, rest)| rest.split_once("onInstallProgress("))
-            .map(|(remember, _)| remember)
-            .expect("completed-join reconciliation");
-
-        assert!(app.contains("rememberReadyJoin(next, row, result);"));
-        assert!(remember.contains("result.failures.length !== 0"));
-        assert!(remember.contains("current.compatibility = result.assessment"));
-        assert!(remember.contains("next.preview = null"));
     }
 
     #[test]
@@ -3559,8 +3458,11 @@ mod tests {
 
     #[test]
     fn bug_reports_use_the_scoped_system_opener_and_name_persistent_logs() {
+        // That `openExternalUrl` reaches the opener plugin rather than `window.open` is asserted
+        // behaviourally in `ui-tests/lib/api.test.js`. What stays is the part no JavaScript runtime
+        // can see: the Tauri capability allowlist, the markup and the stylesheet that have to agree
+        // with each other for the control to exist at all.
         let shell = include_str!("../ui/app.js");
-        let api = include_str!("../ui/lib/api.js");
         let setup = include_str!("../ui/views/setup.js");
         let index = include_str!("../ui/index.html");
         let styles = include_str!("../ui/styles/components.css");
@@ -3569,7 +3471,6 @@ mod tests {
         assert!(shell.contains("await openExternalUrl(issueUrl)"));
         assert!(!shell.contains("window.open("));
         assert!(shell.contains("await appLogFiles()"));
-        assert!(api.contains("tauri.opener.openUrl"));
         assert!(capability.contains("opener:allow-open-url"));
         assert!(capability.contains("https://github.com/MOHCentral/reveille/issues/new*"));
         assert!(setup.contains("btn btn--sm btn--utility"));

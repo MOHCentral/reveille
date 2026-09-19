@@ -5,7 +5,8 @@
   "license": "GPL-2.0-only",
   "type": "module",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "node --test \"ui-tests/**/*.test.js\""
   },
   "engines": {
     "node": ">=26"

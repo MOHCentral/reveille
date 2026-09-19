@@ -142,8 +142,10 @@ the wrong thing when the game stutters.
 **Enforced at** `discovery/model.rs` `RoundTripMillis` is a distinct newtype from `PingMillis`,
 so the two cannot be assigned to each other; the field is `Server::status_round_trip`. The Ping
 column's tooltip (`ui/lib/format.js` `roundTrip`) says "measured once during this check. Not the
-in-game ping." Test:
-`discovery/client.rs::keeps_the_measured_round_trip_apart_from_the_servers_own_ping_gate`.
+in-game ping." Tests:
+`discovery/client.rs::keeps_the_measured_round_trip_apart_from_the_servers_own_ping_gate`, and
+`ui-tests/lib/format.test.js` for the tooltip's wording and for an unmeasured trip rendering as an
+em dash rather than a synthesised figure.
 **Never** synthesise a value. A server that produced no reply is not listed at all, so there is
 no unknown case to fill in.
 
@@ -175,19 +177,20 @@ just ran is evidence about now and the figures it replaces have been shown not t
 survives so the pane can say what the check found and offer to ask again. A check that could not
 *run* is not a server that did not answer, and says so separately — the last measured figures are
 still the last measured figures. Enforced at `ui/app.js` `check`, which filters the checked address
-out of `state.servers` on a non-result and records `state.checkedAt` on an answer. Test:
-`reveille-app::a_check_that_got_no_answer_drops_the_row_it_was_checking` — a text check over
-`app.js`, for the same reason as the one below.
+out of `state.servers` on a non-result and records `state.checkedAt` on an answer. Tests: `ui-tests/lib/reducers.test.js`, which asserts the drop and the freshness stamp going with
+it against the reducers themselves, and `ui-tests/lib/bookmarks.test.js`, which asserts by *shape*
+that a stored entry carries no figure to go stale. The async sequencing around them stays in
+`app.js` and unguarded; see "Known gaps".
 **Nor a list swept for another session** The table is the answer to one question — this folder,
 this engine, this game — and nothing on it says which. Re-entering setup can change all three, so
 `state.listSession` records what the rows were swept for and `enterServers` (`ui/app.js`) sweeps
 again whenever it no longer matches, exactly as the toolbar's game switch does. Leaving Spearhead's
 servers on screen under Allied Assault would be the same false currency as a bookmark's old figures:
 those servers were never asked this question, and their compatibility was judged against a different
-search path. Test:
-`reveille-app::the_shell_sweeps_again_when_the_session_the_list_was_swept_for_changed` — a text
-check over `app.js` and `store.js`, because the shell has no test runner; it guards the exact
-regression that shipped, not the behaviour in general.
+search path. Tests: `ui-tests/lib/store.test.js` asserts that `listIsForCurrentSession` compares all three
+facts and rejects a change to any one of them; `reveille-app::the_shell_sweeps_again_when_the_session_the_list_was_swept_for_changed`
+is what remains of the text check, covering the `app.js` trigger that cannot be imported outside
+the webview.
 
 ### H13 · Never index an expansion's directory without the base game underneath it
 **Because** Spearhead and Breakthrough do not replace `main`; the engine adds their directory
@@ -250,10 +253,10 @@ behind it. `ui/views/servers.js` `disclosureRow` draws it with `aria-expanded`, 
 those entries would have been, and `liveText` repeats the folded count for a screen reader.
 `scopedStatusbar` withholds **Check the other N** while the block is shut, because the whole of
 that button's effect is inside the block. `ui/app.js` `autoCheckFavorites` waits for the same
-thing, for the same reason. Test:
-`reveille-app::folded_remembered_entries_always_state_their_count` — a text check over `store.js`
-and `servers.js`, for the same reason as the ones under H12: the shell has no test runner and the
-failure would be silent.
+thing, for the same reason. Tests: `ui-tests/lib/store.test.js` asserts that `scopedRows` emits the disclosure with its count
+whether the block is open or shut, and that an absent entry carries no figures;
+`reveille-app::folded_remembered_entries_always_state_their_count` keeps the wording and the
+`aria-expanded` state, which need a DOM with real attribute reflection.
 
 ### H16 · Never offer the installed or an older Reveille release as an update
 **Because** A GitHub release title or installer filename is not version evidence. Re-offering the
@@ -398,7 +401,8 @@ findings accumulate unseen. Six did.
 that recipe; the justfile is the single definition. `rust-toolchain.toml` names the compiler and
 its components, `.node-version` names Node, and no workflow names a version of its own. Tests:
 `tools/check-sources.mjs` gate 5 rejects any `run:` step in `ci.yml` that is not `just ci-…` and
-requires the recipes CI names to equal the ones `check` depends on; gate 6 requires
+requires the recipes CI names to equal the ones `check` depends on (`ci-sources` carries the
+shell's own unit suite since 19 Sep 2026); gate 6 requires
 `Cargo.toml`'s `rust-version` to equal the pinned channel, so the published MSRV is by
 construction the compiler that is tested.
 **Added 19 Sep 2026.** See `docs/plan.md`, "The local gate and CI were not the same gate".
@@ -446,7 +450,9 @@ store only.
 
 ### L2 · Every source file carries `SPDX-License-Identifier: GPL-2.0-only`
 **Because** The repository licence is GPL-2.0-only, matching openmohaa.
-**Enforced at** `tools/check-sources.mjs`, run by `just sources` and `just check`.
+**Enforced at** `tools/check-sources.mjs`, run by `just sources` and `just check`. It walks the
+whole owned tree, so a new directory — `crates/reveille-app/ui-tests`, say — is covered with no
+change to the script.
 
 ---
 
@@ -482,10 +488,22 @@ H5, H7, C3, E1 and E2 have **no mechanical guard**. They hold only as long as so
 looking. H5 is partly covered by the `copy-review` agent; the others are not covered at all, and
 that is worth knowing before trusting this list as a safety net.
 
-H12 is **partly** guarded, and the split matters. Two of its clauses have a text check each — the
-list swept for another session, and the row a later check found gone. Its storage half needs none:
-`bookmarks.js` never persists a measurement, so the stale figure a reviewer would look for does not
-exist to be rendered. What is unguarded is the wording — "not in this list" versus "offline",
-"Launched" versus "Joined" — and `copy-review` is the check for that. Both text checks guard the
-exact regression that shipped, not the behaviour in general: neither would catch the same rule
-broken in a new place.
+H12 is **partly** guarded, and the split moved on 19 Sep 2026 when the shell got a test runner
+(`crates/reveille-app/ui-tests`, issue #12).
+
+*Now behavioural, and therefore guarded in general rather than at one line:* the storage shape —
+`bookmarks.js` is asserted by *shape* to carry no client count, bot count, round trip or map, so
+the stale figure does not exist to be rendered; the row a later check found gone, and its freshness
+stamp with it; the list swept for another session, in `listIsForCurrentSession`; and "Launched",
+which `launchedLabel` is asserted never to spell as "joined" or "played".
+
+*Still guarded only at the line that regressed once:* the `app.js` sweep trigger and the check
+sequencing, because `app.js` imports every view and touches `document` at module load and so cannot
+be imported outside the webview; and the rendering of an absent row — "not in this list" rather
+than "offline" — which needs a real DOM. `copy-review` remains the check for the wording.
+
+**The DOM fake is deliberately limited.** `ui-tests/fakes/dom.js` models element construction,
+`dataset`, and focus, which is enough for `lib/dom.js`. It does **not** model ARIA or `tabIndex`
+reflection, event bubbling, or layout — so `the_server_table_is_one_tab_stop` and the
+`aria-expanded` half of H15 stay source-text checks in `main.rs`. A fake that approximated those
+would hand back confidence it had not earned, which is worse than an honest gap.

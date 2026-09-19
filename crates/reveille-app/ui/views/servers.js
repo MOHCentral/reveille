@@ -30,6 +30,7 @@ import {
   occupancy,
   roundTrip,
   shortVersion,
+  sweepProgressText,
 } from "../lib/format.js";
 import {
   clearHistory,
@@ -1178,20 +1179,12 @@ function announce(live) {
  *
  * Deliberately carries no live counts. A running total inside the sentence would make the string
  * differ on every probe and defeat the whole point of the milestone.
+ *
+ * The milestone arithmetic lives in `lib/format.js` as `sweepProgressText`, where it can be tested
+ * without a DOM (issue #12). This is the one line that reads the sweep's own counters.
  */
-const SWEEP_MILESTONES = [
-  "A quarter of the servers checked.",
-  "Half of the servers checked.",
-  "Three quarters of the servers checked.",
-];
-
 function sweepLiveText() {
-  const { probed, inspected } = state.browse;
-  if (inspected <= 0) return "Getting the server list. Contacting the master server.";
-  const quarter = Math.min(3, Math.floor((probed / inspected) * 4));
-  return quarter === 0
-    ? `Checking ${inspected} servers.`
-    : SWEEP_MILESTONES[quarter - 1];
+  return sweepProgressText(state.browse);
 }
 
 function liveText() {

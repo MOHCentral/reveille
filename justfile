@@ -36,7 +36,7 @@ check: fmt-check ci-sources ci-portable ci-windows
 # --- The three CI jobs ------------------------------------------------------
 
 # Repository-wide source policy and the frontend's own tests. Seconds long, platform-independent.
-ci-sources: sources
+ci-sources: sources ui-test
 
 # `reveille-core` and `reveille-cli` off Windows. See "Portability" below.
 ci-portable: portable-test portable-lint fmt-check
@@ -69,6 +69,12 @@ test:
 # Check SPDX headers, repository policy, and that every owned script parses.
 sources:
     node --disable-warning=ExperimentalWarning tools/check-sources.mjs
+
+# The shell's own unit suite. No npm install, no framework, no bundler: `node --test` over the
+# production ES modules, with hand-written fakes for localStorage, the Tauri bridge and the DOM.
+# The glob is quoted so Node expands it — `node --test <dir>` treats the path as a module to run.
+ui-test:
+    cd crates/reveille-app && node --test "ui-tests/**/*.test.js"
 
 # Kept separate from `sources` deliberately: that script parses in-process so it can run in a
 # restricted shell, and a policy script is not a parser.
