@@ -27,7 +27,7 @@ jobs:
   # from a commit the gate rejects is the same lie as a release made from one, and it is the
   # rehearsal that decides whether the tag is worth cutting.
   gate:
-    uses: ./.github/workflows/ci.yml
+    uses: $/.github/workflows/ci.yml
     permissions:
       contents: read
 

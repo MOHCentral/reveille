@@ -34,8 +34,12 @@ permissions:
 
 # A second push to the same branch makes the first run's answer irrelevant. Tags and `main` are
 # unaffected: `github.ref` differs for each.
+#
+# The `ci-` prefix is not decoration. Inside a called workflow `github.workflow` and `github.ref`
+# are the *caller's*, so without it Release would ask for the group it is already holding, and
+# GitHub fails that run outright as a deadlock rather than queueing the gate behind its caller.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
