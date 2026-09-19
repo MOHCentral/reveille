@@ -13,7 +13,9 @@ resolver = "3"
 version = "0.3.0"
 edition = "2024"
 license = "GPL-2.0-only"
-rust-version = "1.85"
+# Equal to `rust-toolchain.toml`'s channel, and `tools/check-sources.mjs` requires it to stay so.
+# The two disagreeing is how an MSRV claim nobody compiles against gets published.
+rust-version = "1.98.1"
 
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }

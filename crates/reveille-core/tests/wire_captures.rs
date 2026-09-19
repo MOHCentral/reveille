@@ -69,9 +69,15 @@ fn decode_hex(encoded: &str) -> Vec<u8> {
         .bytes()
         .filter(|byte| !byte.is_ascii_whitespace())
         .collect::<Vec<_>>();
-    assert_eq!(digits.len() % 2, 0, "hex fixture has complete bytes");
+    assert!(
+        digits.len().is_multiple_of(2),
+        "hex fixture has complete bytes"
+    );
+    // The assertion above leaves no remainder, so `as_chunks` discards nothing.
     digits
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| (nibble(pair[0]) << 4) | nibble(pair[1]))
         .collect()
 }

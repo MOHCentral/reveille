@@ -385,6 +385,24 @@ was released from `7e0f191` while CI failed for that exact commit; the earlier a
 `f017293` did the same. See `docs/plan.md`, "Release could publish a build CI had already
 rejected".
 
+### S8 · Never let the documented gate and the gate CI runs differ, and never float the toolchain
+**Because** S7 makes a release depend on the gate passing, which is worth exactly as much as the
+gate checks. Two ways it silently stops checking. If the documented local command and CI run
+different lists, a check exists in only one place and nobody finds out — `just check` ran the
+source-policy script while CI ran `node --check` over the shell, and each gate was missing the
+other's leg for weeks under a comment saying they agreed. And if the compiler and Node versions
+come from the runner rather than the tree, the gate's strictness changes without a commit: a new
+Clippy lint reddens CI with no source change, while a runner behind the developer's machine lets
+findings accumulate unseen. Six did.
+**Enforced at** `.github/workflows/ci.yml` has one job per `ci-*` recipe and each runs exactly
+that recipe; the justfile is the single definition. `rust-toolchain.toml` names the compiler and
+its components, `.node-version` names Node, and no workflow names a version of its own. Tests:
+`tools/check-sources.mjs` gate 5 rejects any `run:` step in `ci.yml` that is not `just ci-…` and
+requires the recipes CI names to equal the ones `check` depends on; gate 6 requires
+`Cargo.toml`'s `rust-version` to equal the pinned channel, so the published MSRV is by
+construction the compiler that is tested.
+**Added 19 Sep 2026.** See `docs/plan.md`, "The local gate and CI were not the same gate".
+
 ---
 
 ## C — Content: what Reveille installs

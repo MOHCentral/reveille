@@ -43,11 +43,13 @@ jobs:
       REVEILLE_UPDATER_PUBKEY: ${{ vars.REVEILLE_UPDATER_PUBKEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # `rust-toolchain.toml` is the only statement of which compiler this project uses, and the
+      # gate above compiled with it. Naming a version here as well is how the two come apart.
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: crates/reveille-app/package-lock.json
 

@@ -1,5 +1,12 @@
 # Reveille repository conventions
 
+- Run `just check` before pushing. It is the repository gate, and CI runs exactly the `ci-*`
+  recipes it depends on — one per CI job, and nothing else. **Add a check to a `ci-*` recipe in
+  the justfile, never as a step in `.github/workflows/ci.yml`**; `tools/check-sources.mjs` rejects
+  a workflow step that is not `just ci-…` and requires the two lists to match.
+- The toolchains are pinned in the tree, not in CI: `rust-toolchain.toml` names the compiler (and
+  `Cargo.toml`'s `rust-version` must equal it) and `.node-version` names Node. No workflow names a
+  version of its own.
 - Use default `cargo fmt` formatting. `cargo clippy --workspace --all-targets -- -D warnings`
   must pass.
 - Model library errors with `thiserror`. Do not use `unwrap` or `expect` outside tests and the

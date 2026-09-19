@@ -1082,6 +1082,46 @@ local and CI gates in full — pinned toolchains and one canonical command list 
 the source-policy leg here was the part issue #7's own acceptance criteria required, not an
 attempt to close #8 sideways.
 
+## The local gate and CI were not the same gate (corrected 19 Sep 2026)
+
+**What happened.** The justfile said `just check` was what CI ran. It was not, in two ways that
+compounded.
+
+The *lists* differed. `just check` ran `tools/check-sources.mjs`; the Windows CI job instead ran
+`node --check` over the shell's modules. Neither gate ran both, so the source-policy script never
+saw a Windows runner and the real parser never ran locally — and the justfile's claim made it
+reasonable not to look.
+
+The *toolchains* floated. CI used `dtolnay/rust-toolchain@stable` and whatever Node the runner
+image carried, while the manifest declared `rust-version = "1.85"` and packaging pinned Node 22.
+Nothing compiled against 1.85, so the MSRV was a claim rather than a fact, and a new Clippy lint
+or a runner-image bump could redden CI with no source change.
+
+**What it had already cost.** Pinning the compiler surfaced **six** Clippy findings across
+`discovery/protocol.rs`, `discovery/client.rs`, `content/pakradar.rs`, `platform/openmohaa.rs` and
+`tests/wire_captures.rs` that the tree had never been held to, because the runner's `stable` was
+behind the developer machine's. They were all mechanical (`chunks_exact` → `as_chunks`,
+`% 2 != 0` → `is_multiple_of`, `Duration::from_secs` → `from_hours`) and none was a defect — which
+is the point. A gate that drifts does not announce itself; it just quietly stops checking, and the
+backlog only appears when someone pins it.
+
+**The correction.** One recipe per CI job — `ci-sources`, `ci-portable`, `ci-windows` — and every
+`ci.yml` job runs exactly one of them and nothing else. `rust-toolchain.toml` names the compiler,
+`.node-version` names Node, and no workflow names a version of its own.
+
+**Why this could not stay a convention.** The previous drift happened *under* a comment saying the
+two agreed. So `tools/check-sources.mjs` gained two checks: every `run:` step in `ci.yml` must be
+`just ci-…` (or the one permitted setup command), and the set of recipes CI names must equal the
+set `check` depends on; plus `Cargo.toml`'s `rust-version` must equal the pinned channel, so the
+published MSRV is by construction the compiler that is tested. Adding a check to a workflow step,
+or to only one of the two lists, now fails the gate that would have shipped it.
+
+Recorded as rule **S8**.
+
+**Rejected.** Pinning the minor (`1.98`) rather than the exact patch. Clippy's lint set can move
+within a patch release, and `-D warnings` turns that into a build failure for whoever ran
+`rustup update` that morning — which is the failure mode this whole entry is about.
+
 ## Decisions still open
 
 Maintainer model. The moh-db relationship: worth telling them, and worth asking for published
