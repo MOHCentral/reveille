@@ -1,0 +1,107 @@
+# Cargo dependency policy, enforced by `just dependency-security` and the security workflow.
+#
+# The licence allowlist below is this project's GPL-3.0-only compatibility decision, audited on
+# 19 September 2026 against Cargo.lock with cargo-deny 0.20.2: 550 packages, 32 distinct SPDX
+# expressions, none without licence metadata. It is also why Reveille is no longer GPL-2.0-only.
+# `tao`, `ring`, `sync_wrapper`, `zopfli`, and `dpi` offer only Apache-2.0 terms and are compiled
+# into the shipped application, and Apache-2.0 imposes patent-termination and indemnity conditions
+# GPL-2.0-only cannot accept. Widening the list is a change to that decision, not a config tweak.
+
+[licenses]
+# Every entry is a licence the combined GPL-3.0-only application may distribute. The list is the
+# minimum the current graph needs: crates offering a choice resolve to one of these, so a licence
+# accepted only as an alternative (BSL-1.0, LGPL-2.1-or-later, Unlicense, CC0-1.0, 0BSD, MIT-0) is
+# deliberately absent.
+allow = [
+    # Reveille's own crates.
+    "GPL-3.0-only",
+    "MIT",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    # One-way compatible with GPL-3.0-only, which is why this project is not GPL-2.0-only. Reached
+    # unavoidably through `tao`, `ring`, `sync_wrapper`, `zopfli`, and `dpi`.
+    "Apache-2.0",
+    # `target-lexicon`; the exception exists to permit exactly this kind of combination.
+    "Apache-2.0 WITH LLVM-exception",
+    # `cssparser`, `selectors`, and friends. MPL-2.0 section 3.3 permits distributing the larger
+    # work under this project's licence while those files stay under MPL-2.0.
+    "MPL-2.0",
+    # `webpki-roots`: permissive, and the crate carries certificate data rather than code.
+    "CDLA-Permissive-2.0",
+]
+# An allowance no crate needs any more is a stale decision, not a harmless leftover.
+unused-allowed-license = "deny"
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+
+[bans]
+multiple-versions = "deny"
+# Internal workspace crates use path-only requirements and are not published to crates.io.
+wildcards = "allow"
+highlight = "simplest-path"
+# Tauri's cross-platform graph currently spans these older API generations. Exact skips retain
+# the newest resolved generation as the baseline, so an additional version still fails the check.
+skip = [
+    "base64@=0.21.7",
+    "base64@=0.22.1",
+    "bitflags@=1.3.2",
+    "getrandom@=0.2.17",
+    "getrandom@=0.3.4",
+    "hashbrown@=0.12.3",
+    "heck@=0.4.1",
+    "indexmap@=1.9.3",
+    "jni@=0.21.1",
+    "jni-sys@=0.3.1",
+    "png@=0.17.16",
+    "proc-macro-crate@=1.3.1",
+    "proc-macro-crate@=2.0.2",
+    "r-efi@=5.3.0",
+    "reqwest@=0.12.28",
+    "serde_spanned@=0.6.9",
+    "syn@=1.0.109",
+    "syn@=2.0.119",
+    "thiserror@=1.0.69",
+    "thiserror-impl@=1.0.69",
+    "toml@=0.8.2",
+    "toml@=0.9.12+spec-1.1.0",
+    "toml_datetime@=0.6.3",
+    "toml_datetime@=0.7.5+spec-1.1.0",
+    "toml_edit@=0.19.15",
+    "toml_edit@=0.20.2",
+    "windows-link@=0.1.3",
+    "windows-sys@=0.45.0",
+    "windows-sys@=0.52.0",
+    "windows-sys@=0.59.0",
+    "windows-sys@=0.60.2",
+    "windows-targets@=0.42.2",
+    "windows-targets@=0.52.6",
+    "windows_aarch64_gnullvm@=0.42.2",
+    "windows_aarch64_gnullvm@=0.52.6",
+    "windows_aarch64_msvc@=0.42.2",
+    "windows_aarch64_msvc@=0.52.6",
+    "windows_i686_gnu@=0.42.2",
+    "windows_i686_gnu@=0.52.6",
+    "windows_i686_gnullvm@=0.52.6",
+    "windows_i686_msvc@=0.42.2",
+    "windows_i686_msvc@=0.52.6",
+    "windows_x86_64_gnu@=0.42.2",
+    "windows_x86_64_gnu@=0.52.6",
+    "windows_x86_64_gnullvm@=0.42.2",
+    "windows_x86_64_gnullvm@=0.52.6",
+    "windows_x86_64_msvc@=0.42.2",
+    "windows_x86_64_msvc@=0.52.6",
+    "winnow@=0.5.40",
+    "winnow@=0.7.15",
+    "winreg@=0.55.0",
+    "zip@=2.4.2",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! GOG Galaxy `goggame-<product-id>.info` mini-manifest parsing.
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // The boundaries AGENTS.md states, made mechanical (issue #9). `cfg_attr(not(test), …)` rather

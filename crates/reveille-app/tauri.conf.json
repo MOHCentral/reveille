@@ -41,7 +41,7 @@
     "icon": ["icons/icon.ico"],
     "publisher": "Reveille",
     "homepage": "https://github.com/MOHCentral/reveille",
-    "license": "GPL-2.0-only",
+    "license": "GPL-3.0-only",
     "copyright": "Copyright (C) 2026 Reveille contributors",
     "shortDescription": "Server browser and launcher for Medal of Honor: Allied Assault",
     "longDescription": "Reveille finds an existing Medal of Honor: Allied Assault, Spearhead or Breakthrough installation, browses the servers answering now, checks what each one's rotation needs, installs exact missing-map matches, and launches the game.",

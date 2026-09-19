@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! `inspect_endpoint` against a loopback stand-in, so the probe behind a single-server check is
 //! exercised end to end without a third party (rules.md S4).

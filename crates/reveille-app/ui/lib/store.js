@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // One state object and a subscribe/notify pair. Views read `state` and re-render
 // on change; nothing else holds application state.

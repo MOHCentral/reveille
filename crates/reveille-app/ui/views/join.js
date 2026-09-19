@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // The detail pane. Selecting a server previews the join in place, so the list
 // never disappears and servers stay comparable.
