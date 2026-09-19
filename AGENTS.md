@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+Do not create markdown documents unless requested.
+
 ## Project Structure & Module Organization
 
 This Rust 2024 workspace contains reusable logic (`reveille-core`), Windows policy (`reveille-platform`), the CLI (`reveille-cli`), and Tauri shell (`reveille-app`). Frontend code and tests live in the app's `ui/` and `ui-tests/`; core integration tests and fixtures live in `crates/reveille-core/tests/`. Automation is in `tools/`, CI in `.github/workflows/`, and the site in `website/`.
@@ -18,7 +20,7 @@ Use versions pinned in `rust-toolchain.toml` and `.node-version`. Installer buil
 
 ## Coding Style & Naming Conventions
 
-Use `cargo fmt` defaults (four-space Rust indentation) and keep Clippy warning-free. Modules, functions, and test names use `snake_case`; types use `UpperCamelCase`; constants use `SCREAMING_SNAKE_CASE`. Prefer newtypes where primitive values could be confused. Model library failures with `thiserror`; avoid `unwrap` and `expect` outside tests and executable boundaries. Add `SPDX-License-Identifier: GPL-2.0-only` to new source files. Cite the OpenMoHAA source beside protocol constants.
+Use `cargo fmt` defaults (four-space Rust indentation) and keep Clippy warning-free. Modules, functions, and test names use `snake_case`; types use `UpperCamelCase`; constants use `SCREAMING_SNAKE_CASE`. Prefer newtypes where primitive values could be confused. Model library failures with `thiserror`; avoid `unwrap` and `expect` outside tests and executable boundaries. Add `SPDX-License-Identifier: GPL-3.0-only` to new source files. Cite the OpenMoHAA source beside protocol constants.
 
 Comments explain only why a non-obvious choice or constraint exists. Never restate the code, narrate changes, preserve history, or leave essay-length commentary.
 
@@ -29,6 +31,7 @@ Place focused unit tests beside Rust modules and cross-module scenarios in `test
 ## Project Management
 
 Run `just project-status` to get an overview of all issues and their status. Update issues with `just project-start ISSUE`, `just project-block ISSUE "NEXT ACTION"`, or `just project-next ISSUE "NEXT ACTION"`. Closing issues automatically sets **Done**; never set it manually.
+Codex: Always run `just project-*` commands outside the sandbox.
 
 ## Commit & Pull Request Guidelines
 
