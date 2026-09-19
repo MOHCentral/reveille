@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a Rust 2024 workspace. `crates/reveille-core` contains reusable discovery, installation, content-resolution, and join logic. Keep it free of presentation and process-launch policy. `crates/reveille-platform` owns Windows write-target and launch behavior; `crates/reveille-cli` is the headless interface; and `crates/reveille-app` is the Tauri desktop shell. Its static ES-module frontend lives in `ui/`, with tests and handwritten fakes in `ui-tests/`. Integration tests and frozen fixtures are under `crates/reveille-core/tests/`. Repository automation is in `tools/`, CI in `.github/workflows/`, and the static project site in `website/`.
+This Rust 2024 workspace contains reusable logic (`reveille-core`), Windows policy (`reveille-platform`), the CLI (`reveille-cli`), and Tauri shell (`reveille-app`). Frontend code and tests live in the app's `ui/` and `ui-tests/`; core integration tests and fixtures live in `crates/reveille-core/tests/`. Automation is in `tools/`, CI in `.github/workflows/`, and the site in `website/`.
 
 ## Build, Test, and Development Commands
 
@@ -14,7 +14,7 @@ This is a Rust 2024 workspace. `crates/reveille-core` contains reusable discover
 - `just cli --help`: inspect CLI commands; for example, `just scan "C:\Games\MOHAA"`.
 - `just live`: run ignored, network-dependent tests; never add live calls to the default suite.
 
-Use the pinned Rust toolchain and Node version from `rust-toolchain.toml` and `.node-version`. Building an installer additionally requires `npm install` in `crates/reveille-app`.
+Use versions pinned in `rust-toolchain.toml` and `.node-version`. Installer builds require `npm install` in `crates/reveille-app`.
 
 ## Coding Style & Naming Conventions
 
@@ -25,6 +25,10 @@ Comments explain only why a non-obvious choice or constraint exists. Never resta
 ## Testing Guidelines
 
 Place focused unit tests beside Rust modules and cross-module scenarios in `tests/*.rs`; name cases by observable behavior. Put UI tests in `ui-tests/**/*.test.js`. Fixtures must be deterministic and live under `tests/fixtures/`. Run `just check` before pushing; it includes formatting, source-policy, portability, lint, Rust, and JavaScript checks.
+
+## Project Management
+
+Run `just project-status` to get an overview of all issues and their status. Update issues with `just project-start ISSUE`, `just project-block ISSUE "NEXT ACTION"`, or `just project-next ISSUE "NEXT ACTION"`. Closing issues automatically sets **Done**; never set it manually.
 
 ## Commit & Pull Request Guidelines
 

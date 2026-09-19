@@ -19,6 +19,7 @@ engine_source := "../openmohaa"
 # The GitHub Project linked to this repository.
 project_owner := "MOHCentral"
 project_number := "2"
+project_repository := "MOHCentral/reveille"
 
 # List the recipes.
 default:
@@ -134,6 +135,19 @@ live-catalogue:
 # List every project item with the fields used to plan and sequence the work.
 project-status:
     gh project item-list {{ project_number }} --owner {{ project_owner }} --limit 1000 --field Status --field Priority --field Size --field Area --field "Next action"
+
+# Make active work visible before changing code.
+project-start ISSUE:
+    gh project item-edit {{ project_number }} --owner {{ project_owner }} --url "https://github.com/{{ project_repository }}/issues/{{ ISSUE }}" --field Status --value "In Progress"
+
+# Keep the board's handoff instruction current.
+project-next ISSUE NEXT_ACTION:
+    gh project item-edit {{ project_number }} --owner {{ project_owner }} --url "https://github.com/{{ project_repository }}/issues/{{ ISSUE }}" --field "Next action" --text "{{ NEXT_ACTION }}"
+
+# Preserve the next actionable step whenever work cannot continue.
+project-block ISSUE NEXT_ACTION:
+    gh project item-edit {{ project_number }} --owner {{ project_owner }} --url "https://github.com/{{ project_repository }}/issues/{{ ISSUE }}" --field "Next action" --text "{{ NEXT_ACTION }}"
+    gh project item-edit {{ project_number }} --owner {{ project_owner }} --url "https://github.com/{{ project_repository }}/issues/{{ ISSUE }}" --field Status --value Blocked
 
 # ---------------------------------------------------------------------------
 # Running the thing.
