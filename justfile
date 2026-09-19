@@ -93,9 +93,11 @@ js-parse:
 # are deliberately outside `just check`. CI runs them in the dedicated security workflow.
 # ---------------------------------------------------------------------------
 
-# Fetch RustSec and enforce the dependency source, duplicate, and licence baselines.
+# Fetch RustSec and enforce the dependency source, duplicate, and licence baselines. The feature
+# flag matches what the security workflow's action passes, so the two cannot disagree about a
+# duplicate or licence that only a feature reaches.
 dependency-security:
-    cargo deny check advisories bans sources licenses
+    cargo deny --all-features check advisories bans sources licenses
 
 # Check workflow security plus YAML, expression, and embedded-shell correctness. The ignore is
 # temporary: actionlint 1.7.12 predates GitHub's self-repository (`$/...`) syntax.
