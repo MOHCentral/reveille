@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+# Read by Clippy when it compiles this crate only. The lookup starts at `CARGO_MANIFEST_DIR` and
+# walks up, and the first file found wins — so this does not merge with a workspace-root config,
+# and there is deliberately none.
+#
+# AGENTS.md: "Keep `reveille-core` policy-free: no terminal output, process spawning, or exit
+# codes." The terminal half is denied by the lint attributes in `src/lib.rs`; no attribute can
+# express the other two, so they are named here. Both lints are warn-by-default members of
+# `clippy::all` that fire only once configured, which is why `-D warnings` denies them with no
+# further change to the gate (issue #9).
+#
+# Caveat worth knowing before debugging a surprise: Clippy does not always invalidate its cache
+# when this file changes. After editing it, touch `src/lib.rs` or the next run may serve a clean
+# result from before the edit. It also resolves paths, so a dependency that shells out internally
+# is out of scope — this guards what this crate's own source says.
+
+disallowed-types = [
+    { path = "std::process::Command", reason = "reveille-core must not spawn processes; launching is reveille-platform's job" },
+    { path = "std::process::Child", reason = "reveille-core must not own a spawned process; launching is reveille-platform's job" },
+]
+
+disallowed-methods = [
+    { path = "std::process::exit", reason = "reveille-core must not set an exit code; only reveille-cli's main may" },
+    { path = "std::process::abort", reason = "reveille-core must not end the process; return an error instead" },
+]

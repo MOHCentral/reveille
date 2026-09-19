@@ -237,7 +237,10 @@ pub fn activate(
         let source = root.join(MANAGED_DIRECTORY).join(match choice {
             EngineChoice::Original => "original",
             EngineChoice::Reborn => "reborn",
-            EngineChoice::Openmohaa => unreachable!(),
+            // Returned above; it is side-by-side and has no managed canonical copy. Written as a
+            // return rather than an `unreachable!()` so this arm is a statement about the engine
+            // rather than a panic path the reader has to prove unreachable.
+            EngineChoice::Openmohaa => return Ok(()),
         });
         let files = RETAIL_EXECUTABLES
             .iter()
