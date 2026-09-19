@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! Hostile-package inspection, BSP confirmation, and no-clobber installation.
 

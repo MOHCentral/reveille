@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: GPL-3.0-only
 
 # The only statement of which compiler this project uses. `rustup` reads it on every `cargo`
 # invocation in this directory, so a fresh checkout selects the same toolchain locally and in CI

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! Headless join preparation: honest compatibility states, launch arguments, and post-hoc
 //! rejection explanations.

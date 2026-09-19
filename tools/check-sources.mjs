@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Six gates nothing else covers.
 //
@@ -10,8 +10,8 @@
 //    exercising `api.js`'s error normaliser — because the frontend had no test runner and there
 //    was nowhere else to put them. There is now: `crates/reveille-app/ui-tests`, run by
 //    `just ui-test` (issue #12). Behaviour goes there. This script is source policy.
-// 2. CLAUDE.md requires `SPDX-License-Identifier: GPL-2.0-only` in every source file; the
-//    repository licence is GPL-2.0-only and a missing header is a licensing defect, not a style
+// 2. CLAUDE.md requires `SPDX-License-Identifier: GPL-3.0-only` in every source file; the
+//    repository licence is GPL-3.0-only and a missing header is a licensing defect, not a style
 //    one.
 // 3. Rule S3 forbids every elevation path, including setup-time helpers. A code review can miss
 //    one verb or manifest change; the source gate must not.
@@ -34,7 +34,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const SPDX = "SPDX-License-Identifier: GPL-2.0-only";
+const SPDX = "SPDX-License-Identifier: GPL-3.0-only";
 // Extensions that carry a comment syntax and belong to us. JSON has no comments, and the
 // frozen fixtures under tests/fixtures are captured wire data that must stay byte-faithful.
 const NEEDS_HEADER = [".rs", ".js", ".mjs", ".css", ".html", ".yml", ".yaml"];

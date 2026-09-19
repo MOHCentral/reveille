@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 
 // `lib/store.js`: the persisted preferences, the session identity, and the derived list.
 //
