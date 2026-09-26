@@ -22,6 +22,7 @@
 //   browse_servers(session)                    -> BrowserPayload
 //   cancel_browse()                            -> void
 //   check_server(session, address, queryPort)  -> CheckResult
+//   probe_player_count(address, queryPort, game) -> number | null
 //   preview_join(session, address)             -> JoinPreview
 //   install_server_files(session, address)     -> ServerFilesResult
 //   install_and_launch(session, address, selectedCandidateIds, acceptIncomplete) -> JoinResult
@@ -89,6 +90,22 @@ export const cancelBrowse = () => invoke("cancel_browse");
  */
 export const checkServer = (session, address, queryPort) =>
   invoke("check_server", { session, address, queryPort });
+
+export const probePlayerCount = ({ address, queryPort, game }) =>
+  invoke("probe_player_count", { address, queryPort, game });
+
+export const canNotify = () => tauri.notification.isPermissionGranted();
+
+export const notificationPermission = async () => {
+  if (await canNotify()) return true;
+  return (await tauri.notification.requestPermission()) === "granted";
+};
+
+export const sendPlayerNotification = (entry, count) =>
+  tauri.notification.sendNotification({
+    title: `${count} ${count === 1 ? "player" : "players"} on ${entry.hostname}`,
+    body: "A server you follow is no longer empty.",
+  });
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });
 

@@ -33,6 +33,7 @@ import {
   stateName,
 } from "../lib/format.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.js";
+import { hasPlayerAlert } from "../lib/player-alerts.js";
 import {
   GAME_LABELS,
   canRecheck,
@@ -42,7 +43,7 @@ import {
   update,
 } from "../lib/store.js";
 
-export function joinView(root, { onInstallServerFiles, onJoin, onRecheck }) {
+export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert }) {
   const scroll = el("div", { className: "detail-pane__scroll" });
   const actions = el("div", { className: "actions" });
   fill(root, scroll, actions);
@@ -60,7 +61,7 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck }) {
     }
     actions.classList.remove("hidden");
     preserveFocus(root, () => {
-      fill(scroll, row ? body(row, onRecheck) : gonePane(state.selected, gone));
+      fill(scroll, row ? body(row, onRecheck, onTogglePlayerAlert) : gonePane(state.selected, gone));
       fill(
         actions,
         ...(row
@@ -82,7 +83,7 @@ function idlePlaceholder() {
   );
 }
 
-function body(row, onRecheck) {
+function body(row, onRecheck, onTogglePlayerAlert) {
   const { server, compatibility } = row;
   const preview = state.preview?.address === row.address ? state.preview : null;
   const assessment = preview?.assessment ?? compatibility;
@@ -90,7 +91,7 @@ function body(row, onRecheck) {
   const result = state.joinResult?.address === row.address ? state.joinResult : null;
 
   return frag(
-    header(row, server, onRecheck),
+    header(row, server, onRecheck, onTogglePlayerAlert),
     facts(server),
     result ? outcomeSection(result) : null,
     run ? installSection(run) : null,
@@ -98,8 +99,9 @@ function body(row, onRecheck) {
   );
 }
 
-function header(row, server, onRecheck) {
+function header(row, server, onRecheck, onTogglePlayerAlert) {
   const starred = isFavorite(row.address);
+  const alerted = hasPlayerAlert(state.game, row.address);
   const launched = launchedLabel(historyByAddress().get(row.address));
   return el(
     "div",
@@ -109,21 +111,32 @@ function header(row, server, onRecheck) {
       "div",
       { className: "detail__title-row" },
       el("h2", { className: "detail__title" }, server.hostname || "(unnamed server)"),
-      el(
-        "button",
-        {
-          type: "button",
-          className: "star star--lg",
-          dataset: { focusKey: "detail-star" },
-          "aria-pressed": starred ? "true" : "false",
-          "aria-label": `Favorite ${server.hostname || row.address}`,
-          title: starred ? "Remove from favorites" : "Add to favorites",
-          onclick: () => {
-            toggleFavorite(row);
-            update(() => {});
+      el("div", { className: "detail__server-controls" },
+        el(
+          "button",
+          {
+            type: "button",
+            className: "star star--lg",
+            dataset: { focusKey: "detail-star" },
+            "aria-pressed": starred ? "true" : "false",
+            "aria-label": `Favorite ${server.hostname || row.address}`,
+            title: starred ? "Remove from favorites" : "Add to favorites",
+            onclick: () => {
+              toggleFavorite(row);
+              update(() => {});
+            },
           },
-        },
-        starred ? "★" : "☆",
+          starred ? "★" : "☆",
+        ),
+        el("button", {
+          type: "button",
+          className: "star star--lg player-alert-bell",
+          dataset: { focusKey: "detail-player-alert" },
+          "aria-pressed": alerted ? "true" : "false",
+          "aria-label": `${alerted ? "Turn off" : "Turn on"} player alerts for ${server.hostname || row.address}`,
+          title: alerted ? "Turn off player alerts" : "Notify me when players join",
+          onclick: () => void onTogglePlayerAlert(row),
+        }, "🔔"),
       ),
     ),
     el("p", { className: "data quiet selectable" }, row.address),
