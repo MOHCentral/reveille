@@ -153,7 +153,8 @@ async function togglePlayerAlert(row) {
 
 function openPlayerAlerts() {
   const entries = playerAlerts();
-  openDialog("Player alerts",
+  openDialog("Settings",
+    el("h3", null, "Player alerts"),
     el("p", { className: "quiet" },
       "Reveille checks these servers while it is running and tells you when players arrive."),
     alertDeliveryError && el("p", { className: "error", role: "alert" }, alertDeliveryError),
