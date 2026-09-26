@@ -1424,6 +1424,27 @@ async fn check_server(
     })
 }
 
+/// Read only the player count for an explicitly monitored endpoint. Unlike `check_server`, this
+/// does not index maps or alter the browse list behind a pending join.
+#[tauri::command]
+async fn probe_player_count(address: String, query_port: u16, game: TargetGame) -> Option<u32> {
+    let address = address.parse::<SocketAddrV4>().ok()?;
+    if query_port == 0 {
+        return None;
+    }
+    let endpoint = MasterEndpoint {
+        address: *address.ip(),
+        query_port: QueryPort::new(query_port),
+    };
+    let server = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT).await.server?;
+    if answered_for_another_game(&server, game).is_some()
+        || SocketAddrV4::new(server.endpoint.address, server.game_port.get()) != address
+    {
+        return None;
+    }
+    server.occupancy.clients_reported.map(discovery::ClientsReported::get)
+}
+
 /// The family a checked server belongs to, when it is not this session's.
 ///
 /// A bookmark is an address, so it outlives the game it was starred under. A server that answers
@@ -2381,6 +2402,7 @@ fn main() {
     )]
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_updater::Builder::new()
@@ -2422,6 +2444,7 @@ fn main() {
             cancel_browse,
             browse_servers,
             check_server,
+            probe_player_count,
             preview_join,
             install_server_files,
             install_and_launch,

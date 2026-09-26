@@ -13,6 +13,7 @@ import {
   browseServers,
   cancelBrowse,
   cancelReveilleUpdate,
+  canNotify,
   checkReveilleUpdate,
   checkServer,
   errorText,
@@ -23,10 +24,20 @@ import {
   onInstallProgress,
   onPreviewProgress,
   onSelfUpdateProgress,
+  notificationPermission,
   openExternalUrl,
   previewJoin,
+  probePlayerCount,
+  sendPlayerNotification,
 } from "./lib/api.js";
 import { favorites, recordLaunch, toggleFavorite } from "./lib/bookmarks.js";
+import {
+  addPlayerAlert,
+  hasPlayerAlert,
+  playerAlerts,
+  removePlayerAlert,
+  startPlayerAlertMonitor,
+} from "./lib/player-alerts.js";
 import { clockTime, displayPath } from "./lib/format.js";
 import {
   GAME_LABELS,
@@ -70,6 +81,7 @@ const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
   onJoin: getAndJoin,
   onRecheck: recheck,
+  onTogglePlayerAlert: togglePlayerAlert,
 });
 const setup = setupView(setupRoot, {
   onReady: enterServers,
@@ -85,6 +97,7 @@ document.body.append(servers.live);
 $("#install-chip").addEventListener("click", leaveServers);
 $("#reveille-update-btn").addEventListener("click", openReveilleUpdate);
 $("#bug-report-btn").addEventListener("click", () => void openBugReport());
+$("#player-alerts-btn").addEventListener("click", openPlayerAlerts);
 $("#info-dialog-close").addEventListener("click", closeDialog);
 $("#reveille-update-later").addEventListener("click", dismissReveilleUpdate);
 $("#reveille-update-install").addEventListener("click", startReveilleUpdate);
@@ -95,6 +108,79 @@ $("#reveille-update-dialog").addEventListener("cancel", (event) => {
 void onSelfUpdateProgress(receiveReveilleUpdateProgress);
 
 subscribe(render);
+
+let alertDeliveryError = null;
+const alertMonitor = startPlayerAlertMonitor(probePlayerCount, async (entry, count) => {
+  if (!(await canNotify())) {
+    alertDeliveryError = "Notifications are disabled for Reveille in your system settings.";
+    return;
+  }
+  try {
+    await sendPlayerNotification(entry, count);
+    alertDeliveryError = null;
+  } catch {
+    alertDeliveryError = "Reveille could not show a system notification.";
+  }
+});
+
+async function togglePlayerAlert(row) {
+  const game = state.game;
+  if (hasPlayerAlert(game, row.address)) {
+    removePlayerAlert(game, row.address);
+    alertMonitor.forget(game, row.address);
+    update(() => {});
+    return;
+  }
+  try {
+    if (!(await notificationPermission())) {
+      openDialog("Player alerts", el("p", null,
+        "Allow notifications for Reveille in your system settings to receive player alerts."));
+      return;
+    }
+  } catch {
+    openDialog("Player alerts", el("p", null,
+      "Reveille could not request notification permission. Check your system settings."));
+    return;
+  }
+  if (!addPlayerAlert(row, game)) {
+    openDialog("Player alerts", el("p", null,
+      "Reveille could not save this server's alert. Try again after restarting the app."));
+    return;
+  }
+  update(() => {});
+  alertMonitor.checkNow();
+}
+
+function openPlayerAlerts() {
+  const entries = playerAlerts();
+  openDialog("Player alerts",
+    el("p", { className: "quiet" },
+      "Reveille checks these servers while it is running and tells you when players arrive."),
+    alertDeliveryError && el("p", { className: "error", role: "alert" }, alertDeliveryError),
+    entries.length === 0
+      ? el("p", null, "No player alerts yet. Select a server and turn on its bell to add one.")
+      : el("div", { className: "player-alert-list" }, entries.map((entry) =>
+          el("div", { className: "player-alert-entry" },
+            el("div", null,
+              el("strong", null, entry.hostname),
+              el("p", { className: "quiet data" },
+                `${GAME_LABELS[entry.game] ?? entry.game} · ${entry.address}`),
+            ),
+            el("button", {
+              type: "button",
+              className: "btn btn--sm",
+              "aria-label": `Turn off player alerts for ${entry.hostname}`,
+              onclick: () => {
+                removePlayerAlert(entry.game, entry.address);
+                alertMonitor.forget(entry.game, entry.address);
+                update(() => {});
+                openPlayerAlerts();
+              },
+            }, "Remove"),
+          ),
+        )),
+  );
+}
 
 function render() {
   const ready = Boolean(state.install);

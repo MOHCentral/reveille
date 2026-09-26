@@ -502,6 +502,21 @@
   gap: var(--space-3);
 }
 
+.detail__server-controls {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.player-alert-bell {
+  font-size: 18px;
+  filter: grayscale(1);
+}
+
+.player-alert-bell[aria-pressed="true"] {
+  filter: none;
+}
+
 .detail__title {
   font-family: var(--face-display);
   font-size: var(--text-lg);
