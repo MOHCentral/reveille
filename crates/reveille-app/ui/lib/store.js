@@ -93,11 +93,9 @@ export const state = {
   /**
    * View state.
    *
-   * `notEmpty` was called `hasPeople` until 27 Aug 2026. A client count is occupied slots and
-   * cannot distinguish a person from a bot or a parked connection, so the old name asserted in the
-   * toolbar exactly what the status bar four inches away says is not verified (rule H1,
-   * docs/design-review.md F7). The identifier moved with the label, because a name that reads as a
-   * claim is how the claim gets back onto the screen.
+   * `notEmpty` keeps its persisted name: the filter asks whether at least one human connection
+   * occupies a slot, including someone still downloading or idle. The old `hasPeople` key is
+   * accepted below so existing preferences survive.
    *
    * `maxPing` gates on the one round trip this sweep measured, not on the in-game ping — see
    * `roundTrip` in lib/format.js. Null means no gate.
