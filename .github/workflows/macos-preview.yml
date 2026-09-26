@@ -37,6 +37,9 @@ jobs:
         working-directory: crates/reveille-app
         run: npm ci
 
+      - name: Write the third-party notices
+        run: node tools/third-party-notices.mjs aarch64-apple-darwin
+
       - name: Check preview identity
         if: startsWith(github.ref, 'refs/tags/macos-preview-v')
         run: |
@@ -52,7 +55,7 @@ jobs:
 
       - name: Build the unsigned universal DMG
         working-directory: crates/reveille-app
-        run: npx -- tauri build --target universal-apple-darwin -- --locked
+        run: npx -- tauri build --target universal-apple-darwin --config notices.conf.json -- --locked
 
       - name: Verify the universal bundle and unsigned-preview boundary
         id: bundle

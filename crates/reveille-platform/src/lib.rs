@@ -279,7 +279,7 @@ fn tasklist_command() -> Command {
 #[cfg(target_os = "macos")]
 fn ps_command() -> Command {
     let mut command = Command::new("/bin/ps");
-    command.args(["-axo", "comm="]);
+    command.args(["-ww", "-axo", "comm="]);
     command
 }
 
@@ -301,10 +301,7 @@ pub fn openmohaa_activity() -> OpenMohaaActivity {
         if !output.status.success() {
             return OpenMohaaActivity::unknown();
         }
-        let Ok(stdout) = std::str::from_utf8(&output.stdout) else {
-            return OpenMohaaActivity::unknown();
-        };
-        tasklist_release_activity(stdout)
+        tasklist_release_activity_bytes(&output.stdout)
     }
     #[cfg(target_os = "macos")]
     {
@@ -334,6 +331,11 @@ pub fn openmohaa_activity() -> OpenMohaaActivity {
 /// `launch_openmohaa_*.exe` shims, and a running dedicated server locks `game.dll` just as a
 /// running client does. Naming only `openmohaa.exe` would report `ConfirmedStopped` and then
 /// fail part-way through the apply on a sharing violation.
+#[cfg(any(windows, test))]
+fn tasklist_release_activity_bytes(output: &[u8]) -> OpenMohaaActivity {
+    tasklist_release_activity(&String::from_utf8_lossy(output))
+}
+
 #[cfg(any(windows, test))]
 fn tasklist_release_activity(output: &str) -> OpenMohaaActivity {
     let mut activity = OpenMohaaActivity::checked();
@@ -836,6 +838,16 @@ mod tests {
             ]
         );
         assert_eq!(activity.client_activity(), ClientActivity::Running);
+    }
+
+    #[test]
+    fn tasklist_activity_ignores_non_utf8_text_outside_image_names() {
+        let output = b"\"openmohaa.exe\",\"1\",\"Console\",\"1\",\"1 K\"\n\xff unrelated";
+
+        assert_eq!(
+            tasklist_release_activity_bytes(output).client_activity(),
+            ClientActivity::Running
+        );
     }
 
     #[test]

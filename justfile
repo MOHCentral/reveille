@@ -202,7 +202,8 @@ notices:
 
 # Build the universal macOS 11+ app and DMG. Run on macOS after `npm install`.
 bundle-macos:
-    cd crates/reveille-app && REVEILLE_UPDATER_TARGET=darwin-universal npm run tauri build -- --target universal-apple-darwin
+    node tools/third-party-notices.mjs aarch64-apple-darwin
+    cd crates/reveille-app && REVEILLE_UPDATER_TARGET=darwin-universal npm run tauri build -- --target universal-apple-darwin --config notices.conf.json
 
 # Generate the updater key once; an empty password is valid, and the private key needs backup.
 updater-key-generate KEY:

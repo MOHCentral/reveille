@@ -215,6 +215,9 @@ jobs:
         working-directory: crates/reveille-app
         run: npm ci
 
+      - name: Write the third-party notices
+        run: node tools/third-party-notices.mjs aarch64-apple-darwin
+
       - name: Require the signing, notarization and updater identities
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -249,7 +252,7 @@ jobs:
         run: |
           set -euo pipefail
           updater_config=$(jq -cn --arg key "$REVEILLE_UPDATER_PUBKEY" '{bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey:$key}}}')
-          npx -- tauri build --target universal-apple-darwin --config "$updater_config" -- --locked
+          npx -- tauri build --target universal-apple-darwin --config "$updater_config" --config notices.conf.json -- --locked
 
       - name: Validate architectures, signature, notarization and stapling
         id: macos
