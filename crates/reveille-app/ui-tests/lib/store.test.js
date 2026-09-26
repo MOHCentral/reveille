@@ -184,7 +184,7 @@ test("the ping ceiling never hides a server that published no round trip", () =>
   assert.deepEqual(addresses, ["a:1", "c:1"]);
 });
 
-test("Not empty gates on the reported client count, and a missing count is not people", () => {
+test("Not empty gates on the reported human connection count", () => {
   reset();
   store.state.servers = [row("a:1", { clients: 3 }), row("b:1", { clients: 0 })];
   store.state.filters.notEmpty = true;
@@ -206,8 +206,7 @@ test("filtering() reports whether anything is narrowing the list", () => {
 /* Saved-preference migrations ----------------------------------------------- */
 
 test("the pre-rename filter key and scope value are still read", () => {
-  // `hasPeople` asserted in the toolbar exactly what the status bar says is not verified, so the
-  // identifier moved with the label (rule H1). An existing player's toggle has to survive that.
+  // An existing player's toggle has to survive the change from `hasPeople` to `notEmpty`.
   reset({
     "reveille.filters": JSON.stringify({
       hasPeople: true,
