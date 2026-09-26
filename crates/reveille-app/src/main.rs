@@ -1436,13 +1436,18 @@ async fn probe_player_count(address: String, query_port: u16, game: TargetGame) 
         address: *address.ip(),
         query_port: QueryPort::new(query_port),
     };
-    let server = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT).await.server?;
+    let server = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT)
+        .await
+        .server?;
     if answered_for_another_game(&server, game).is_some()
         || SocketAddrV4::new(server.endpoint.address, server.game_port.get()) != address
     {
         return None;
     }
-    server.occupancy.clients_reported.map(discovery::ClientsReported::get)
+    server
+        .occupancy
+        .clients_reported
+        .map(discovery::ClientsReported::get)
 }
 
 /// The family a checked server belongs to, when it is not this session's.
