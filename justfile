@@ -36,9 +36,9 @@ default:
 # ---------------------------------------------------------------------------
 
 # The whole gate, in the order that fails cheapest first.
-check: fmt-check ci-sources ci-portable ci-windows
+check: fmt-check ci-sources ci-portable ci-windows ci-macos ci-macos-intel
 
-# --- The three CI jobs ------------------------------------------------------
+# --- The CI jobs -------------------------------------------------------------
 
 # Repository-wide source policy and the frontend's own tests. Seconds long, platform-independent.
 ci-sources: sources ui-test
@@ -48,6 +48,13 @@ ci-portable: portable-test portable-lint fmt-check
 
 # The whole workspace, including the Tauri shell, plus a real parse of what the webview loads.
 ci-windows: test lint js-parse
+
+# The Apple Silicon runner: the same desktop gate as Windows, on the other supported host.
+ci-macos: test lint fmt-check js-parse
+
+# The Intel half of the universal binary. Proof it builds and passes is enough; the arm64 leg
+# already covers lint, formatting and the frontend parse.
+ci-macos-intel: test
 
 # --- The legs themselves ----------------------------------------------------
 
@@ -192,6 +199,11 @@ bundle: notices
 # bundle. Offline: it reads the locked graph and the licence files already in the cargo registry.
 notices:
     node tools/third-party-notices.mjs
+
+# Build the universal macOS 11+ app and DMG. Run on macOS after `npm install`.
+bundle-macos:
+    node tools/third-party-notices.mjs aarch64-apple-darwin
+    cd crates/reveille-app && REVEILLE_UPDATER_TARGET=darwin-universal npm run tauri build -- --target universal-apple-darwin --config notices.conf.json
 
 # Generate the updater key once; an empty password is valid, and the private key needs backup.
 updater-key-generate KEY:

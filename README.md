@@ -3,11 +3,12 @@
 # Reveille
 
 Reveille is a newcomer-first launcher for Medal of Honor: Allied Assault and its two
-expansions, Spearhead and Breakthrough. The current Windows v1 identifies an existing
-installation, browses servers answering now, checks their map rotations, safely installs exact
-missing-map matches, and launches Original, OpenMoHAA, or Reborn. The reusable pipeline lives in
-`reveille-core`; both the CLI proof and Tauri desktop shell call it directly, while
-`reveille-platform` holds their shared Windows write-target and process-launch policy.
+expansions, Spearhead and Breakthrough. The Windows app launches Original, OpenMoHAA, or Reborn;
+the macOS 11+ app launches native OpenMoHAA. Both identify existing player-owned game data,
+browse servers answering now, check their map rotations, and safely install exact missing-map
+matches. The reusable pipeline lives in `reveille-core`; both the CLI proof and Tauri desktop
+shell call it directly, while `reveille-platform` holds host capabilities, write targets, process
+checks, and launch policy.
 
 Each game has its own server list and its own content directory: Allied Assault reads `main`,
 Spearhead reads `main` and then `mainta`, Breakthrough reads `main` and then `maintt`. The app
@@ -24,6 +25,29 @@ That runs the development build. A packaged Windows installer is built by
 installer and attaches it to a draft release, and a manual run leaves the same installer as a
 workflow artifact. It installs for the current user, so it needs no Administrator, and it fetches
 the WebView2 runtime on machines that lack it.
+
+## Run or package the macOS app
+
+The development command is the same on a Mac:
+
+```console
+cargo run -p reveille-app
+```
+
+`just bundle-macos` builds the universal Apple Silicon/Intel `.app` and `.dmg`, targeting macOS
+11.0 and later. Setup shows OpenMoHAA only and uses the bare native `openmohaa` executable. A
+`macos-preview-v*` tag creates an explicitly unsigned GitHub prerelease; it does not replace the
+website's normal latest release and is never offered through self-update.
+
+Regular `v*` macOS artifacts require a Developer ID certificate and Apple notarization
+credentials. The release workflow signs, notarizes and staples the universal DMG, validates all
+three, and adds its signed updater archive under the `darwin-universal` manifest target. General
+availability remains blocked until the physical-Mac journey in `docs/plan.md` passes.
+
+The regular release job expects the base64-encoded Developer ID certificate in
+`APPLE_CERTIFICATE`, its password in `APPLE_CERTIFICATE_PASSWORD`, a temporary-keychain password
+in `KEYCHAIN_PASSWORD`, and Apple's notarization values in `APPLE_ID`, `APPLE_PASSWORD`, and
+`APPLE_TEAM_ID`.
 
 Published releases are also offered inside installed copies of Reveille. The updater uses Tauri's
 mandatory release signatures, shows **Update and restart** and **Later**, and never installs from a
@@ -62,7 +86,7 @@ non-increasing semantic version and stops if the existing release identities alr
 for it directly to validate a version (`--dry-run`) or when the bump belongs in a commit of its own
 making rather than in a tagged release commit.
 
-**Builds are not code-signed yet.** Windows names no publisher for them and SmartScreen may hold
+**Windows builds are not code-signed yet.** Windows names no publisher for them and SmartScreen may hold
 the download. The signing route is decided — SignPath Foundation's free certificate for open-source
 projects — but the application follows the first release rather than preceding it; `docs/plan.md`
 records why, and what the certificate does and does not change. winget manifests remain shipping

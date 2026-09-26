@@ -22,6 +22,7 @@ const ENDPOINT: &str =
     "https://github.com/MOHCentral/reveille/releases/latest/download/latest.json";
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_EVENT_STRIDE: u64 = 256 * 1024;
+const CUSTOM_TARGET: Option<&str> = option_env!("REVEILLE_UPDATER_TARGET");
 
 #[derive(Default)]
 pub struct SelfUpdateState {
@@ -90,9 +91,11 @@ pub async fn check_reveille_update(
     let endpoint = ENDPOINT
         .parse::<tauri::Url>()
         .map_err(|error| SelfUpdateError::InvalidEndpoint(error.to_string()))?;
-    let update = app
-        .updater_builder()
-        .target("windows-x86_64")
+    let mut updater = app.updater_builder();
+    if let Some(target) = CUSTOM_TARGET.filter(|target| !target.trim().is_empty()) {
+        updater = updater.target(target);
+    }
+    let update = updater
         .pubkey(PUBLIC_KEY)
         .timeout(CHECK_TIMEOUT)
         .endpoints(vec![endpoint])?

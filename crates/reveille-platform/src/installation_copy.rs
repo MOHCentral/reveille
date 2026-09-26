@@ -469,6 +469,21 @@ where
             path: target.to_path_buf(),
             source,
         })?;
+    #[cfg(unix)]
+    {
+        let permissions = fs::metadata(source)
+            .map_err(|source_error| InstallationCopyError::Filesystem {
+                path: source.to_path_buf(),
+                source: source_error,
+            })?
+            .permissions();
+        fs::set_permissions(target, permissions).map_err(|source| {
+            InstallationCopyError::Filesystem {
+                path: target.to_path_buf(),
+                source,
+            }
+        })?;
+    }
     copied.copied_files += 1;
     progress(*copied);
     Ok(())
@@ -759,6 +774,38 @@ mod tests {
         assert!(probe_writable(&destination.join("maintt")).is_ok());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn copy_preserves_executable_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temporary = TempDir::new().expect("temporary directory");
+        let source = temporary.path().join("protected");
+        fixture(&source);
+        let executable = source.join("MOHAA.exe");
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755))
+            .expect("executable permissions");
+        let destination = temporary.path().join("Games/MOHAA");
+
+        copy_installation_with_space(
+            &source,
+            &destination,
+            |_| Ok(u64::MAX),
+            &mut || false,
+            &mut |_| {},
+        )
+        .expect("validated copy");
+
+        assert_eq!(
+            fs::metadata(destination.join("MOHAA.exe"))
+                .expect("copied executable metadata")
+                .permissions()
+                .mode()
+                & 0o111,
+            0o111
+        );
+    }
+
     #[test]
     #[expect(
         clippy::too_many_lines,
@@ -817,11 +864,13 @@ mod tests {
                 bytes: reborn_bytes.clone(),
             })
             .collect::<Vec<_>>();
+        let capabilities = crate::HostCapabilities::for_platform(crate::HostPlatform::Windows);
         engine::install_reborn(
             &destination,
             &reborn_package,
             &executables,
             EngineActivity::ConfirmedStopped,
+            &capabilities,
         )
         .expect("Reborn installs into copy");
         for filename in ["MOHAA.exe", "moh_spearhead.exe", "moh_breakthrough.exe"] {

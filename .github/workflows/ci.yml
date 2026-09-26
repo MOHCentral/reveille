@@ -43,9 +43,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The portable half. `reveille-core` and `reveille-cli` must keep building and
-  # passing on a non-Windows target, which is what makes the deferred Linux and
-  # macOS builds deferred rather than precluded.
+  # The portable crates must keep building and passing on a non-desktop target. Linux remains
+  # unsupported by the app, but it exercises the shared policy without host-only dependencies.
   portable:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -111,3 +110,38 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: just ci-windows
+
+  # The supported Mac host. GitHub's standard macos-14 image is an Apple Silicon M1 runner. The
+  # universal-bundle smoke build and its `lipo` architecture check live in `macos-preview.yml`,
+  # which already builds and verifies the universal binary on every preview publish.
+  macos-arm64:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+        with:
+          just-version: 1.58.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: just ci-macos
+
+  # Compile and run the same workspace on the other half of the universal binary.
+  macos-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+        with:
+          just-version: 1.58.0
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: just ci-macos-intel
