@@ -121,8 +121,8 @@ cargo run -p reveille-cli -- browse --path /path/to/MOHAA
 
 Use `--limit N` for a smaller sample, `--game spearhead` or `--game breakthrough` for an
 expansion, and `--format json` for the complete structured report and per-server compatibility
-assessments. Displayed client counts are the server's non-free slots; Reveille never labels them
-players or humans.
+assessments. Displayed player counts come from the server's reported human connections; bots are
+reported separately. A connection may still be downloading or idle.
 
 ## Prepare a join
 
