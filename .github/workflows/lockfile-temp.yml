@@ -4,6 +4,7 @@ name: Player alerts lockfile
 on:
   push:
     branches: [feat/player-alerts-30]
+  pull_request:
 permissions:
   contents: read
 jobs:
