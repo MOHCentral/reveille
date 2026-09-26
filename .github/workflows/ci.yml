@@ -112,8 +112,8 @@ jobs:
       - run: just ci-windows
 
   # The supported Mac host. GitHub's standard macos-14 image is an Apple Silicon M1 runner. The
-  # universal-bundle smoke build and its `lipo` architecture check live in `macos-preview.yml`,
-  # which already builds and verifies the universal binary on every preview publish.
+  # universal-bundle smoke build and its `lipo` architecture check live in `release.yml`'s
+  # macos-universal job, which builds and verifies the universal binary on every tagged release.
   macos-arm64:
     runs-on: macos-14
     timeout-minutes: 45
