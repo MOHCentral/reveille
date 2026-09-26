@@ -2,15 +2,9 @@
 
 // Every string the player reads that is derived from pipeline data is built here.
 //
-// Two of these rules are product contracts, not preferences (AGENTS.md,
-// docs/engine-facts.md §5):
-//
-//   * A client count is never called "players" or "humans". It is the number of
-//     occupied slots and cannot distinguish a person from a bot or a parked
-//     connection.
-//   * Bots are a disjoint quantity. They are shown additively and never folded
-//     into the client count, and free slots are never implied, because
-//     capacity - clients is not observable.
+// The player count comes from `numplayers` (`SV_NumClients()`), which excludes bots.
+// Bots are reported separately. A connection may still be downloading or idle,
+// and capacity minus players does not reliably give the number of free slots.
 
 /** Bytes as a short human size. Sub-MB values keep a decimal so 0.4 MB is not "0 MB". */
 export function bytes(value) {
