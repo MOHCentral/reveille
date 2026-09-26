@@ -87,9 +87,9 @@ to try again when the cause is permanent is a false promise.
 
 ### 4. Consistency
 
-The same thing must have the same name everywhere. Reveille says **clients**, never "players" or
-"humans". It says **did not answer**, never "offline". Where two strings name one concept
-differently, report it; a beginner reads them as two concepts.
+The same thing must have the same name everywhere. The server table calls human connections
+**players** and counts bots separately. It says **did not answer**, never "offline". Where two
+strings name one concept differently, report it; a beginner reads them as two concepts.
 
 ## What you never do
 
