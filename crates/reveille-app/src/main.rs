@@ -1063,7 +1063,8 @@ fn openmohaa_client_path(root: &Path, target: ReleaseTarget) -> PathBuf {
 /// Probe setup-time write access and measure the source only when a writable copy may be needed.
 #[tauri::command]
 async fn installation_storage(path: String) -> Result<InstallationStorageStatus, String> {
-    tokio::task::spawn_blocking(move || {
+    // Use the same runtime dispatch as the notification plugin's previously working toast.
+    tauri::async_runtime::spawn(async move {
         let installation = install::identify(&path).map_err(|error| error.to_string())?;
         let probe = platform::installation_copy::probe_installation_write_access(&installation)
             .map_err(|error| error.to_string())?;
