@@ -1478,13 +1478,13 @@ async fn send_player_notification(
     #[cfg(windows)]
     {
         let _ = event_id;
-        return app
+        app
             .notification()
             .builder()
             .title(title)
             .body("A server you follow is no longer empty.")
             .show()
-            .map_err(|error| error.to_string());
+            .map_err(|error| error.to_string())
     }
     #[cfg(not(windows))]
     tokio::task::spawn_blocking(move || {
