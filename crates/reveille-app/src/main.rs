@@ -63,6 +63,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+#[cfg(windows)]
+use tauri_plugin_notification::NotificationExt as _;
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::{info, warn};
@@ -75,6 +77,7 @@ const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
 const INSTALLATION_COPY_EVENT: &str = "reveille://installation-copy";
+#[cfg(not(windows))]
 const PLAYER_ALERT_OPEN_EVENT: &str = "reveille://player-alert-open";
 const APP_LOG_FILENAME: &str = "reveille.log";
 const PREVIOUS_APP_LOG_FILENAME: &str = "reveille.previous.log";
@@ -1063,8 +1066,7 @@ fn openmohaa_client_path(root: &Path, target: ReleaseTarget) -> PathBuf {
 /// Probe setup-time write access and measure the source only when a writable copy may be needed.
 #[tauri::command]
 async fn installation_storage(path: String) -> Result<InstallationStorageStatus, String> {
-    // Use the same runtime dispatch as the notification plugin's previously working toast.
-    tauri::async_runtime::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         let installation = install::identify(&path).map_err(|error| error.to_string())?;
         let probe = platform::installation_copy::probe_installation_write_access(&installation)
             .map_err(|error| error.to_string())?;
@@ -1452,6 +1454,7 @@ async fn probe_player_count(address: String, query_port: u16, game: TargetGame) 
         .map(discovery::ClientsReported::get)
 }
 
+#[cfg(not(windows))]
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PlayerAlertOpen {
@@ -1468,28 +1471,28 @@ async fn send_player_notification(
     if event_id.len() > 64 || event_id.is_empty() || count == 0 || hostname.len() > 256 {
         return Err("Invalid player alert".into());
     }
+    let title = format!(
+        "{count} {} on {hostname}",
+        if count == 1 { "player" } else { "players" }
+    );
+    #[cfg(windows)]
+    {
+        let _ = event_id;
+        return app
+            .notification()
+            .builder()
+            .title(title)
+            .body("A server you follow is no longer empty.")
+            .show()
+            .map_err(|error| error.to_string());
+    }
+    #[cfg(not(windows))]
     tokio::task::spawn_blocking(move || {
-        let title = format!(
-            "{count} {} on {hostname}",
-            if count == 1 { "player" } else { "players" }
-        );
         let mut notification = notify_rust::Notification::new();
         notification
             .summary(&title)
             .body("A server you follow is no longer empty.")
             .auto_icon();
-        #[cfg(windows)]
-        {
-            let exe = tauri::utils::platform::current_exe().map_err(|error| error.to_string())?;
-            let directory = exe.parent().ok_or("Cannot locate Reveille executable")?;
-            let path = directory.display().to_string();
-            let separator = std::path::MAIN_SEPARATOR;
-            if !path.ends_with(&format!("{separator}target{separator}debug"))
-                && !path.ends_with(&format!("{separator}target{separator}release"))
-            {
-                notification.app_id(&app.config().identifier);
-            }
-        }
         #[cfg(target_os = "macos")]
         {
             let _ = notify_rust::set_application(if tauri::is_dev() {
