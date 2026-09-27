@@ -278,6 +278,29 @@
   margin: 3px 0 0;
 }
 
+.arrival-entry {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.arrival-entry:hover,
+.arrival-entry:focus-visible {
+  border-color: var(--brass);
+}
+
+.arrival-unread {
+  display: inline-block;
+  min-width: 1.35em;
+  padding: 0 3px;
+  border-radius: 1em;
+  background: var(--brass);
+  color: var(--void);
+  text-align: center;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

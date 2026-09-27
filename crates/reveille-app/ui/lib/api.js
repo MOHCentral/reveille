@@ -94,6 +94,17 @@ export const checkServer = (session, address, queryPort) =>
 export const probePlayerCount = ({ address, queryPort, game }) =>
   invoke("probe_player_count", { address, queryPort, game });
 
+export const onPlayerNotificationClick = (handler) =>
+  on("reveille://player-alert-open", handler);
+
+export const focusReveille = () => tauri.window.getCurrentWindow().setFocus();
+
+export const requestPlayerAlertAttention = () =>
+  tauri.window.getCurrentWindow().requestUserAttention(tauri.window.UserAttentionType.Informational);
+
+export const clearPlayerAlertAttention = () =>
+  tauri.window.getCurrentWindow().requestUserAttention(null);
+
 export const canNotify = () => tauri.notification.isPermissionGranted();
 
 export const notificationPermission = async () => {
@@ -101,10 +112,11 @@ export const notificationPermission = async () => {
   return (await tauri.notification.requestPermission()) === "granted";
 };
 
-export const sendPlayerNotification = (entry, count) =>
-  tauri.notification.sendNotification({
-    title: `${count} ${count === 1 ? "player" : "players"} on ${entry.hostname}`,
-    body: "A server you follow is no longer empty.",
+export const sendPlayerNotification = (event) =>
+  invoke("send_player_notification", {
+    eventId: event.id,
+    hostname: event.hostname,
+    count: event.count,
   });
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });
