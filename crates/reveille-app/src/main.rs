@@ -1472,15 +1472,35 @@ async fn send_player_notification(
             "{count} {} on {hostname}",
             if count == 1 { "player" } else { "players" }
         );
-        let handle = notify_rust::Notification::new()
-            .appname("Reveille")
+        let mut notification = notify_rust::Notification::new();
+        notification
             .summary(&title)
             .body("A server you follow is no longer empty.")
-            .show()
-            .map_err(|error| error.to_string())?;
+            .auto_icon();
+        #[cfg(windows)]
+        {
+            let exe = tauri::utils::platform::current_exe().map_err(|error| error.to_string())?;
+            let directory = exe.parent().ok_or("Cannot locate Reveille executable")?;
+            let path = directory.display().to_string();
+            let separator = std::path::MAIN_SEPARATOR;
+            if !path.ends_with(&format!("{separator}target{separator}debug"))
+                && !path.ends_with(&format!("{separator}target{separator}release"))
+            {
+                notification.app_id(&app.config().identifier);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = notify_rust::set_application(if tauri::is_dev() {
+                "com.apple.Terminal"
+            } else {
+                &app.config().identifier
+            });
+        }
+        let handle = notification.show().map_err(|error| error.to_string())?;
         std::thread::spawn(move || {
-            handle.wait_for_action(|action| {
-                if action != "default" {
+            let _ = handle.wait_for_response(|response: &notify_rust::NotificationResponse| {
+                if !matches!(response, notify_rust::NotificationResponse::Default) {
                     return;
                 }
                 if let Some(window) = app.get_webview_window("main") {
