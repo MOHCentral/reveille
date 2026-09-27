@@ -1478,8 +1478,7 @@ async fn send_player_notification(
     #[cfg(windows)]
     {
         let _ = event_id;
-        app
-            .notification()
+        app.notification()
             .builder()
             .title(title)
             .body("A server you follow is no longer empty.")
