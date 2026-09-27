@@ -521,6 +521,15 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     listPane,
     statusbar,
     live,
+    reveal: (address) => {
+      selectScope("all");
+      update((next) => {
+        next.filters.query = address;
+        next.filters.notEmpty = false;
+        next.filters.maxPing = null;
+        saveFilters();
+      });
+    },
     focusSearch: () => search.focus(),
     // The grid's one tab stop, wherever `syncSelection` put it.
     focusFirstRow: () => tabbableRow(tbody)?.focus(),

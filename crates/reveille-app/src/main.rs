@@ -75,6 +75,7 @@ const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
 const INSTALLATION_COPY_EVENT: &str = "reveille://installation-copy";
+const PLAYER_ALERT_OPEN_EVENT: &str = "reveille://player-alert-open";
 const APP_LOG_FILENAME: &str = "reveille.log";
 const PREVIOUS_APP_LOG_FILENAME: &str = "reveille.previous.log";
 
@@ -1450,6 +1451,51 @@ async fn probe_player_count(address: String, query_port: u16, game: TargetGame) 
         .map(discovery::ClientsReported::get)
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlayerAlertOpen {
+    event_id: String,
+}
+
+#[tauri::command]
+async fn send_player_notification(
+    app: tauri::AppHandle,
+    event_id: String,
+    hostname: String,
+    count: u32,
+) -> Result<(), String> {
+    if event_id.len() > 64 || event_id.is_empty() || count == 0 || hostname.len() > 256 {
+        return Err("Invalid player alert".into());
+    }
+    tokio::task::spawn_blocking(move || {
+        let title = format!(
+            "{count} {} on {hostname}",
+            if count == 1 { "player" } else { "players" }
+        );
+        let handle = notify_rust::Notification::new()
+            .appname("Reveille")
+            .summary(&title)
+            .body("A server you follow is no longer empty.")
+            .show()
+            .map_err(|error| error.to_string())?;
+        std::thread::spawn(move || {
+            handle.wait_for_action(|action| {
+                if action != "default" {
+                    return;
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let _ = app.emit(PLAYER_ALERT_OPEN_EVENT, PlayerAlertOpen { event_id });
+            });
+        });
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// The family a checked server belongs to, when it is not this session's.
 ///
 /// A bookmark is an address, so it outlives the game it was starred under. A server that answers
@@ -2450,6 +2496,7 @@ fn main() {
             browse_servers,
             check_server,
             probe_player_count,
+            send_player_notification,
             preview_join,
             install_server_files,
             install_and_launch,

@@ -16,20 +16,31 @@ import {
   canNotify,
   checkReveilleUpdate,
   checkServer,
+  clearPlayerAlertAttention,
   errorText,
+  focusReveille,
   installAndLaunch,
   installServerFiles,
   installReveilleUpdate,
   onBrowseProgress,
   onInstallProgress,
+  onPlayerNotificationClick,
   onPreviewProgress,
   onSelfUpdateProgress,
   notificationPermission,
   openExternalUrl,
   previewJoin,
   probePlayerCount,
+  requestPlayerAlertAttention,
   sendPlayerNotification,
 } from "./lib/api.js";
+import {
+  arrivalById,
+  arrivalEvents,
+  markArrivalsRead,
+  recordArrival,
+  unreadArrivalCount,
+} from "./lib/arrival-events.js";
 import { favorites, recordLaunch, toggleFavorite } from "./lib/bookmarks.js";
 import {
   addPlayerAlert,
@@ -97,6 +108,7 @@ document.body.append(servers.live);
 $("#install-chip").addEventListener("click", leaveServers);
 $("#reveille-update-btn").addEventListener("click", openReveilleUpdate);
 $("#bug-report-btn").addEventListener("click", () => void openBugReport());
+$("#arrival-events-btn").addEventListener("click", openArrivalFeed);
 $("#player-alerts-btn").addEventListener("click", openPlayerAlerts);
 $("#info-dialog-close").addEventListener("click", closeDialog);
 $("#reveille-update-later").addEventListener("click", dismissReveilleUpdate);
@@ -110,18 +122,114 @@ void onSelfUpdateProgress(receiveReveilleUpdateProgress);
 subscribe(render);
 
 let alertDeliveryError = null;
+let pendingArrival = null;
+let openingArrival = false;
+let attentionRequested = false;
+window.addEventListener("focus", () => {
+  attentionRequested = false;
+  void clearPlayerAlertAttention().catch(() => {});
+});
+void onPlayerNotificationClick(({ eventId }) => {
+  const event = arrivalById(eventId);
+  if (event) requestOpenArrival(event);
+});
 const alertMonitor = startPlayerAlertMonitor(probePlayerCount, async (entry, count) => {
+  const event = recordArrival(entry, count);
+  renderArrivalBadge();
+  if (!document.hasFocus() && !attentionRequested) {
+    attentionRequested = true;
+    void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
+  }
   if (!(await canNotify())) {
     alertDeliveryError = "Notifications are disabled for Reveille in your system settings.";
     return;
   }
   try {
-    await sendPlayerNotification(entry, count);
+    if (event) await sendPlayerNotification(event);
     alertDeliveryError = null;
   } catch {
     alertDeliveryError = "Reveille could not show a system notification.";
   }
 });
+
+function renderArrivalBadge() {
+  const count = unreadArrivalCount();
+  const badge = $("#arrival-unread");
+  badge.classList.toggle("hidden", count === 0);
+  badge.textContent = count > 0 ? String(count) : "";
+  $("#arrival-events-btn").setAttribute("aria-label",
+    count ? `Alerts, ${count} unread` : "Alerts");
+}
+
+function openArrivalFeed() {
+  const events = arrivalEvents();
+  markArrivalsRead();
+  renderArrivalBadge();
+  openDialog("Alerts",
+    events.length === 0
+      ? el("p", null, "No player arrivals yet.")
+      : el("div", { className: "player-alert-list" }, events.map((event) =>
+          el("button", {
+            type: "button",
+            className: "player-alert-entry arrival-entry",
+            onclick: () => requestOpenArrival(event),
+          },
+          el("strong", null, `${event.count} ${event.count === 1 ? "player" : "players"} on ${event.hostname}`),
+          el("p", { className: "quiet data" },
+            `${GAME_LABELS[event.game]} · ${event.address} · ${new Date(event.at).toLocaleString()}`),
+          ),
+        )),
+  );
+}
+
+function requestOpenArrival(event) {
+  pendingArrival = event;
+  closeDialog();
+  void focusReveille().catch(() => {});
+  void openPendingArrival();
+}
+
+async function openPendingArrival() {
+  if (openingArrival || !pendingArrival || state.browse.running || state.joining) return;
+  openingArrival = true;
+  const event = pendingArrival;
+  pendingArrival = null;
+  try {
+    if (!state.install || !playableGames(state.install).includes(event.game)) {
+      openDialog("Server unavailable", el("p", null,
+        `${event.hostname} (${event.address}) requires ${GAME_LABELS[event.game]}.`));
+      return;
+    }
+    if (state.game !== event.game) await selectGame(event.game);
+    if (state.browse.running) await browseFinished();
+    if (state.game !== event.game || state.joining) {
+      pendingArrival = event;
+      return;
+    }
+    await check({ address: event.address, queryPort: event.queryPort });
+    if (state.servers.some((row) => row.address === event.address)) {
+      servers.reveal(event.address);
+      select(event.address);
+    } else {
+      openDialog("Server unavailable", el("p", null,
+        `${event.hostname} (${event.address}) is no longer answering.`));
+    }
+  } finally {
+    openingArrival = false;
+    if (pendingArrival) queueMicrotask(() => void openPendingArrival());
+  }
+}
+
+function browseFinished() {
+  if (!state.browse.running) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = subscribe(() => {
+      if (state.browse.running) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
 
 async function togglePlayerAlert(row) {
   const game = state.game;
@@ -184,6 +292,10 @@ function openPlayerAlerts() {
 }
 
 function render() {
+  renderArrivalBadge();
+  if (pendingArrival && !openingArrival && !state.browse.running && !state.joining) {
+    queueMicrotask(() => void openPendingArrival());
+  }
   const ready = Boolean(state.install);
   shell.classList.toggle("hidden", !ready);
   setupRoot.classList.toggle("hidden", ready);
@@ -438,7 +550,7 @@ function selectGame(game) {
     next.joining = false;
   });
   rememberGame(state.install.root, game);
-  refresh();
+  return refresh();
 }
 
 /* Browsing ----------------------------------------------------------------- */

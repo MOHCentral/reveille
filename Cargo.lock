@@ -3210,6 +3210,7 @@ dependencies = [
 name = "reveille-app"
 version = "0.3.0"
 dependencies = [
+ "notify-rust",
  "reveille-core",
  "reveille-platform",
  "serde",
