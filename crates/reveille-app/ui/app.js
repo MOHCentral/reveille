@@ -206,8 +206,9 @@ async function openPendingArrival() {
       pendingArrival = event;
       return;
     }
-    await check({ address: event.address, queryPort: event.queryPort });
-    if (state.servers.some((row) => row.address === event.address)) {
+    const checked = await check({ address: event.address, queryPort: event.queryPort });
+    if (pendingArrival) return;
+    if (checked?.address === event.address && state.game === event.game) {
       servers.reveal(event.address);
       select(event.address);
     } else {
@@ -846,6 +847,7 @@ let checkGeneration = 0;
 async function check(subject) {
   const entries = Array.isArray(subject) ? subject : [subject];
   const generation = checkGeneration;
+  let checked = null;
 
   for (const entry of entries) {
     if (generation !== checkGeneration) return;
@@ -871,8 +873,10 @@ async function check(subject) {
       if (result.row) applyCheckedRow(next, entry, result, dropped, clockTime());
       else applyCheckNonResult(next, entry, result, dropped);
     });
+    checked = result.row;
     if (entry.address === state.selected) resettle(before, result.row);
   }
+  return checked;
 }
 
 /**
