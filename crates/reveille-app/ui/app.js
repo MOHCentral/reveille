@@ -1017,7 +1017,7 @@ document.addEventListener("contextmenu", (event) => {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target?.isContentEditable === true ||
-    Boolean(target?.closest?.(".selectable, .data, .server-address"));
+    Boolean(target?.closest?.(".selectable, .data"));
   if (!editable) event.preventDefault();
 });
 
