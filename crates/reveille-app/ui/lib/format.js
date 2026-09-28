@@ -6,6 +6,8 @@
 // Bots are reported separately. A connection may still be downloading or idle,
 // and capacity minus players does not reliably give the number of free slots.
 
+import { preferences } from "./preferences.js";
+
 /** Bytes as a short human size. Sub-MB values keep a decimal so 0.4 MB is not "0 MB". */
 export function bytes(value) {
   if (value === null || value === undefined) return "—";
@@ -86,17 +88,16 @@ export function occupancyText({ clients, bots, capacity }) {
  * The server's own `sv_minPing`/`sv_maxPing` gate is a different number and is
  * never rendered here.
  */
-/** Upper bounds, in milliseconds, of a good and a fair ping. */
-export const PING_BANDS = { good: 80, fair: 150 };
-
+/** The dot beside a ping: green below one bound, amber up to the other, both set in Settings. */
 export function roundTrip(server) {
   const value = server.status_round_trip;
   if (value === null || value === undefined) return { text: "—", title: null };
   const millis = Number(value);
   if (!Number.isFinite(millis)) return { text: "—", title: null };
+  const { pingGood, pingFair } = preferences();
   return {
     text: `${millis} ms`,
-    band: millis < PING_BANDS.good ? "good" : millis <= PING_BANDS.fair ? "fair" : "poor",
+    band: millis < pingGood ? "good" : millis <= pingFair ? "fair" : "poor",
     title:
       "Time for one status request to this server and back, measured once during this check. Not the in-game ping.",
   };

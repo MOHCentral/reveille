@@ -23,6 +23,7 @@
 //   cancel_browse()                            -> void
 //   check_server(session, address, queryPort)  -> CheckResult
 //   read_watched_server(address, queryPort, game) -> { clients, bots, map, mode, round_trip } | null
+//   game_client_running()                      -> boolean | null
 //   preview_join(session, address)             -> JoinPreview
 //   install_server_files(session, address)     -> ServerFilesResult
 //   install_and_launch(session, address, selectedCandidateIds, acceptIncomplete) -> JoinResult
@@ -93,6 +94,8 @@ export const checkServer = (session, address, queryPort) =>
 
 export const readWatchedServer = ({ address, queryPort, game }) =>
   invoke("read_watched_server", { address, queryPort, game });
+
+export const gameClientRunning = () => invoke("game_client_running");
 
 export const onPlayerNotificationClick = (handler) =>
   on("reveille://player-alert-open", handler);

@@ -22,6 +22,7 @@ import {
   clearPlayerAlertAttention,
   errorText,
   focusReveille,
+  gameClientRunning,
   installAndLaunch,
   installServerFiles,
   installReveilleUpdate,
@@ -49,7 +50,6 @@ import {
   addPlayerAlert,
   alertId,
   hasPlayerAlert,
-  playerAlerts,
   removePlayerAlert,
   startPlayerAlertMonitor,
 } from "./lib/player-alerts.js";
@@ -76,6 +76,8 @@ import {
   update,
 } from "./lib/store.js";
 import { autoDetect, setupView } from "./views/setup.js";
+import { openSettings } from "./views/settings.js";
+import { preferences } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
 
@@ -120,7 +122,7 @@ $("#more-btn").append(icon("dots"));
 $("#game-switch").addEventListener("click", openGameMenu);
 $("#reveille-update-btn").addEventListener("click", openReveilleUpdate);
 $("#arrival-events-btn").addEventListener("click", toggleArrivals);
-$("#settings-btn").addEventListener("click", openPlayerAlerts);
+$("#settings-btn").addEventListener("click", () => void openAppSettings());
 $("#more-btn").addEventListener("click", openMoreMenu);
 $("#info-dialog-close").addEventListener("click", closeDialog);
 $("#reveille-update-later").addEventListener("click", dismissReveilleUpdate);
@@ -144,13 +146,19 @@ void onPlayerNotificationClick(({ eventId }) => {
   const event = arrivalById(eventId);
   if (event) requestOpenArrival(event);
 });
-const alertMonitor = startPlayerAlertMonitor(readWatchedServer, deliverArrival, (id, reading) =>
-  update((next) => next.watchReadings.set(id, reading)),
+const alertMonitor = startPlayerAlertMonitor(
+  readWatchedServer,
+  deliverArrival,
+  (id, reading) => update((next) => next.watchReadings.set(id, reading)),
+  () => preferences().cooldownMinutes * 60_000,
 );
 
 async function deliverArrival(entry, count, reading) {
+  if (!preferences().alertsEnabled) return;
   const event = recordArrival(entry, count, Date.now(), alertDetail(reading));
   renderArrivalBadge();
+  // Kept under the bell, but no toast and no flashing taskbar over a game in progress.
+  if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) return;
   if (!document.hasFocus() && !attentionRequested) {
     attentionRequested = true;
     void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
@@ -352,7 +360,7 @@ async function togglePlayerAlert(row) {
       "Reveille could not request notification permission. Check your system settings."));
     return;
   }
-  if (!addPlayerAlert(row, game)) {
+  if (!addPlayerAlert(row, game, preferences().defaultThreshold)) {
     openDialog("Player alerts", el("p", null,
       "Reveille could not save this server's alert. Try again after restarting the app."));
     return;
@@ -361,34 +369,30 @@ async function togglePlayerAlert(row) {
   alertMonitor.checkNow();
 }
 
-function openPlayerAlerts() {
-  const entries = playerAlerts();
-  openDialog("Settings",
-    el("h3", null, "Player alerts"),
-    el("p", { className: "quiet" },
-      "Reveille checks these servers while it is running and tells you when players arrive."),
-    state.alertError && el("p", { className: "error", role: "alert" }, state.alertError),
-    entries.length === 0
-      ? el("p", null, "No player alerts yet. Select a server and turn on its bell to add one.")
-      : el("div", { className: "player-alert-list" }, entries.map((entry) =>
-          el("div", { className: "player-alert-entry" },
-            el("div", null,
-              el("strong", null, entry.hostname),
-              el("p", { className: "quiet data" },
-                `${GAME_LABELS[entry.game] ?? entry.game} · ${entry.address}`),
-            ),
-            el("button", {
-              type: "button",
-              className: "btn btn--sm",
-              "aria-label": `Turn off player alerts for ${entry.hostname}`,
-              onclick: () => {
-                forgetWatch(entry.game, entry.address);
-                openPlayerAlerts();
-              },
-            }, "Remove"),
-          ),
-        )),
-  );
+async function openAppSettings() {
+  const version = await appVersion().catch(() => null);
+  openSettings({
+    engine: engineLabel(state.engine),
+    version,
+    onChangeInstall: () => {
+      closeDialog();
+      leaveServers();
+    },
+    onOpenWatching: () => {
+      closeDialog();
+      servers.selectScope("watching");
+    },
+    onUpdate: () => {
+      closeDialog();
+      openReveilleUpdate();
+    },
+    onCheckUpdate: async () => {
+      const offer = await checkReveilleUpdate();
+      if (offer) update((next) => (next.selfUpdate.offer = offer));
+      return offer;
+    },
+    onReportBug: () => void openBugReport(),
+  });
 }
 
 function render() {
