@@ -428,7 +428,12 @@ function sortRows(rows) {
 export function watchedEntries() {
   return playerAlerts()
     .filter((entry) => entry.game === state.game)
-    .map((entry) => ({ address: entry.address, queryPort: entry.queryPort, hostname: entry.hostname ?? "" }));
+    .map((entry) => ({
+      address: entry.address,
+      queryPort: entry.queryPort,
+      hostname: entry.hostname ?? "",
+      threshold: entry.threshold,
+    }));
 }
 
 /** What the monitor last read for a watched address in this game, or null before its first probe. */

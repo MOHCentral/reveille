@@ -30,8 +30,16 @@ const RESULTS = {
     non_result: { stage: "status", reason: "timeout" },
   }),
   // The monitor sees what the list saw, so Watching can be compared with it.
-  probe_player_count: ({ address }) =>
-    browsePayload().servers.find((row) => row.address === address)?.server.occupancy.clients_reported ?? 3,
+  read_watched_server: ({ address }) => {
+    const server = browsePayload().servers.find((row) => row.address === address)?.server;
+    return {
+      clients: server?.occupancy.clients_reported ?? 3,
+      bots: server?.occupancy.bots_reported ?? 0,
+      map: server?.current_map ?? "obj/obj_team1",
+      mode: server?.game_type ?? "Objective-Match",
+      round_trip: server?.status_round_trip ?? 48,
+    };
+  },
 };
 
 window.__TAURI__ = {
@@ -101,6 +109,7 @@ if (watched > 0) {
     queryPort: alerts[0].queryPort,
     hostname: alerts[0].hostname,
     count: 2,
+    detail: "dm/chantilly · Team-Match · 25 ms",
     at: Date.now() - 2 * 3_600_000,
     read: false,
   }]));

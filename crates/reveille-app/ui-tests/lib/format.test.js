@@ -373,3 +373,17 @@ test("the watch line says what the monitor last saw and when it last alerted", (
     "1 player just now · alerted 2h ago",
   );
 });
+
+test("a toast's second line names the round players arrived for", () => {
+  assert.equal(
+    format.alertDetail({ clients: 4, map: "dm/mohdm6", mode: "Team-Match", round_trip: 21 }),
+    "dm/mohdm6 · Team-Match · 21 ms",
+  );
+  assert.equal(format.alertDetail({ clients: 4, map: null, mode: null, round_trip: 30 }), "30 ms");
+  assert.equal(format.alertDetail(null), null);
+});
+
+test("the watch line states a threshold above one", () => {
+  assert.equal(format.watchLine({ count: 2, checkedAt: Date.now() }, null, 4), "2 players just now · notify at 4+");
+  assert.equal(format.watchLine(null, null, 1), "Not checked yet");
+});

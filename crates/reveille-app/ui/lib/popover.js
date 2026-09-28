@@ -62,7 +62,12 @@ export function closePopover({ restoreFocus = false } = {}) {
   anchor.setAttribute("aria-expanded", "false");
   const returning = restoreFocus || panel.contains(document.activeElement);
   panel.remove();
-  if (returning) anchor.focus?.();
+  if (!returning) return;
+  // The pane an anchor lives in may have repainted while the popover was open; its replacement
+  // carries the same focus key.
+  const key = anchor.dataset?.focusKey;
+  const target = anchor.isConnected || !key ? anchor : document.querySelector(`[data-focus-key="${key}"]`);
+  target?.focus?.();
 }
 
 /** Whether a popover is open, and which control it belongs to. */

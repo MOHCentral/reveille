@@ -310,11 +310,22 @@ export function playedLabel(entry) {
   return when ? `${when}${times}` : `×${entry.launches}`;
 }
 
+/** A toast's second line: the round players arrived for, from what the monitor read. */
+export function alertDetail(reading) {
+  if (!reading) return null;
+  const parts = [
+    reading.map ? mapName(reading.map) : null,
+    reading.mode ? gameType({ game_type: reading.mode }).text : null,
+    Number.isInteger(reading.round_trip) ? `${reading.round_trip} ms` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 /**
  * What the watch monitor last saw on one server, for the Watching view. `lastAlertAt` comes from
  * the stored arrivals rather than the monitor, so it survives a restart.
  */
-export function watchLine(reading, lastAlertAt) {
+export function watchLine(reading, lastAlertAt, threshold = 1) {
   const parts = [];
   if (!reading) parts.push("Not checked yet");
   else {
@@ -329,6 +340,7 @@ export function watchLine(reading, lastAlertAt) {
   }
   const alerted = timeAgo(lastAlertAt);
   if (alerted) parts.push(`alerted ${alerted}`);
+  if (threshold > 1) parts.push(`notify at ${threshold}+`);
   return parts.join(" · ");
 }
 

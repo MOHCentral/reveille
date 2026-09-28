@@ -40,7 +40,8 @@ import {
 } from "../lib/format.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.js";
 import { icon } from "../lib/icons.js";
-import { hasPlayerAlert } from "../lib/player-alerts.js";
+import { THRESHOLDS, playerAlert, setAlertThreshold } from "../lib/player-alerts.js";
+import { closePopover, openPopover } from "../lib/popover.js";
 import {
   GAME_LABELS,
   canRecheck,
@@ -131,7 +132,8 @@ function body(row, actions, onRecheck, onTogglePlayerAlert) {
 
 function header(row, server, onTogglePlayerAlert) {
   const starred = isFavorite(row.address);
-  const watched = hasPlayerAlert(state.game, row.address);
+  const watch = playerAlert(state.game, row.address);
+  const watched = Boolean(watch);
   const name = server.hostname || "(unnamed server)";
   return el(
     "div",
@@ -161,6 +163,75 @@ function header(row, server, onTogglePlayerAlert) {
           : "Notify me when players join this server",
         onclick: () => void onTogglePlayerAlert(row),
       }),
+      watched &&
+        el(
+          "button",
+          {
+            type: "button",
+            className: "mark-toggle mark-toggle--rule",
+            dataset: { focusKey: "detail-watch-rule" },
+            "aria-haspopup": "dialog",
+            "aria-expanded": "false",
+            "aria-label": `Watch rule: notify at ${watch.threshold} ${watch.threshold === 1 ? "player" : "players"}`,
+            title: "When to notify",
+            onclick: (event) => openWatchRule(event.currentTarget, row, watch, onTogglePlayerAlert),
+          },
+          `${watch.threshold}+`,
+          el("span", { className: "mark-toggle__caret", "aria-hidden": "true" }, "▾"),
+        ),
+    ),
+  );
+}
+
+/** The watch's one rule: how many players make it worth a notification. Bots never count. */
+function openWatchRule(anchor, row, watch, onTogglePlayerAlert) {
+  const choose = (threshold) => {
+    setAlertThreshold(state.game, row.address, threshold);
+    closePopover({ restoreFocus: true });
+    update(() => {});
+  };
+  openPopover(
+    anchor,
+    "Watch rule",
+    el("div", { className: "popover__head" }, el("h2", { className: "popover__title" }, "Notify me when")),
+    el(
+      "div",
+      { className: "watch-rule" },
+      el("p", { className: "watch-rule__label" }, "players reach"),
+      el(
+        "div",
+        { className: "watch-rule__choices", role: "radiogroup", "aria-label": "Players needed" },
+        THRESHOLDS.map((threshold) =>
+          el(
+            "button",
+            {
+              type: "button",
+              role: "radio",
+              className: "watch-rule__choice",
+              "aria-checked": String(threshold === watch.threshold),
+              onclick: () => choose(threshold),
+            },
+            String(threshold),
+          ),
+        ),
+      ),
+      el("p", { className: "quiet" }, "Bots are not counted."),
+    ),
+    el(
+      "div",
+      { className: "popover__foot" },
+      el(
+        "button",
+        {
+          type: "button",
+          className: "btn btn--sm btn--utility",
+          onclick: () => {
+            closePopover();
+            void onTogglePlayerAlert(row);
+          },
+        },
+        "Stop watching",
+      ),
     ),
   );
 }
