@@ -38,6 +38,7 @@ function reset(seed = {}) {
   store.state.listSession = null;
   store.state.filters = { query: "", maxPing: null };
   store.state.showEmpty = false;
+  store.state.detailCollapsed = false;
   store.state.sort = { column: "clients", direction: "desc" };
   store.state.scope = "all";
   store.state.showAbsent = false;
@@ -297,6 +298,16 @@ test("the search box is deliberately not persisted", () => {
   store.saveFilters();
   assert.equal(storage.json("reveille.filters").query, "");
   assert.equal(storage.json("reveille.filters").showEmpty, true);
+});
+
+test("a hidden detail pane stays hidden after a restart", () => {
+  const storage = reset();
+  store.state.detailCollapsed = true;
+  store.saveFilters();
+  store.state.detailCollapsed = false;
+  reset({ "reveille.filters": storage.getItem("reveille.filters") });
+  store.loadFilters();
+  assert.equal(store.state.detailCollapsed, true);
 });
 
 /* Scoped rows and the disclosure (H15) -------------------------------------- */

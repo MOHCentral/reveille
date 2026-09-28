@@ -63,6 +63,7 @@ import {
   recallInstall,
   rememberGame,
   rememberReadyJoin,
+  saveFilters,
   selectedRow,
   session,
   state,
@@ -89,6 +90,7 @@ const servers = serversView({
   onCheck: check,
   onGame: selectGame,
   onToggleWatch: togglePlayerAlert,
+  onToggleDetail: toggleDetail,
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
@@ -309,8 +311,16 @@ function render() {
     `${GAME_LABELS[state.game] ?? state.game} · ${engineLabel(state.engine)}`;
   $("#reveille-update-btn").classList.toggle("hidden", !state.selfUpdate.offer);
   $("#reveille-update-btn").disabled = state.joining;
+  const collapsed = state.detailCollapsed;
+  $("main.split").classList.toggle("split--wide", collapsed);
+  $("#detail-slot").classList.toggle("hidden", collapsed);
   servers.render();
-  join.render();
+  if (!collapsed) join.render();
+}
+
+function toggleDetail() {
+  update((next) => (next.detailCollapsed = !next.detailCollapsed));
+  saveFilters();
 }
 
 /* Bug reports -------------------------------------------------------------- */
@@ -707,8 +717,13 @@ function activate(address) {
   if (!row) return;
   const ready = row.compatibility.state.state === "compatible";
   const idle = !state.joining && state.checks.get(address)?.status !== "checking";
-  if (ready && idle) void getAndJoin(row, false);
-  else join.focusJoin(address);
+  if (ready && idle) {
+    void getAndJoin(row, false);
+    return;
+  }
+  // The price and the consent live in the pane, so a hidden pane opens for them.
+  if (state.detailCollapsed) toggleDetail();
+  join.focusJoin(address);
 }
 
 async function resolvePreview(address, token) {
@@ -1065,6 +1080,9 @@ document.addEventListener("keydown", (event) => {
     // stays for the players who learned it here.
     event.preventDefault();
     servers.focusSearch();
+  } else if (findOrRefreshModifier && (event.key === "d" || event.key === "D")) {
+    event.preventDefault();
+    toggleDetail();
   } else if (event.key === "/" && !typing) {
     event.preventDefault();
     servers.focusSearch();
