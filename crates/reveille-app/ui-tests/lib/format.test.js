@@ -74,6 +74,34 @@ test("zero bots are null so nothing draws a +0", () => {
   assert.equal(counts.bots, null);
 });
 
+test("the occupancy bar puts players before bots and never overruns capacity", () => {
+  const fill = format.occupancyFill({ clients: 1, bots: 30, capacity: 24 });
+  assert.equal(fill.players, 1 / 24);
+  assert.equal(fill.bots, 23 / 24);
+  assert.equal(fill.activity, "players");
+  assert.equal(fill.full, false);
+});
+
+test("a server is full on players alone and nearly full from 85 percent", () => {
+  assert.equal(format.occupancyFill({ clients: 32, bots: null, capacity: 32 }).full, true);
+  assert.equal(format.occupancyFill({ clients: 28, bots: null, capacity: 32 }).nearlyFull, true);
+  assert.equal(format.occupancyFill({ clients: 27, bots: null, capacity: 32 }).nearlyFull, false);
+  assert.equal(format.occupancyFill({ clients: 32, bots: null, capacity: 32 }).nearlyFull, false);
+});
+
+test("a row's activity separates people, bots only and nobody", () => {
+  assert.equal(format.occupancyFill({ clients: 0, bots: 8, capacity: 16 }).activity, "bots");
+  assert.equal(format.occupancyFill({ clients: 0, bots: null, capacity: 16 }).activity, "empty");
+  assert.equal(format.occupancyFill({ clients: null, bots: null, capacity: null }).activity, "empty");
+});
+
+test("the occupancy text names players and bots separately", () => {
+  assert.equal(format.occupancyText({ clients: 12, bots: 8, capacity: 32 }), "12 players of 32, plus 8 bots");
+  assert.equal(format.occupancyText({ clients: 1, bots: null, capacity: 16 }), "1 player of 16");
+  assert.equal(format.occupancyText({ clients: 32, bots: null, capacity: 32 }), "32 players of 32, full");
+  assert.equal(format.occupancyText({ clients: null, bots: null, capacity: 16 }), "Player count not published");
+});
+
 test("occupancy returns nulls rather than guessing zero", () => {
   assert.deepEqual(format.occupancy({}), { clients: null, bots: null, capacity: null });
 });

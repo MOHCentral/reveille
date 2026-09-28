@@ -20,6 +20,7 @@
 // pane, where the decision is made and there is room to explain them.
 
 import { el, fill, preserveFocus } from "../lib/dom.js";
+import { icon } from "../lib/icons.js";
 import { openMenu } from "../lib/menu.js";
 import {
   browseFailureText,
@@ -28,6 +29,8 @@ import {
   mapName,
   nonResultReason,
   occupancy,
+  occupancyFill,
+  occupancyText,
   roundTrip,
   shortVersion,
   sweepProgressText,
@@ -663,8 +666,61 @@ function nameCell(hostname, address, launched, remembered) {
   );
 }
 
+/**
+ * Players, a bar and bots, laid out on a fixed grid so the three line up down the column. The bar
+ * is how busy a server is at a glance: players in brass, bots hatched after them, capacity as the
+ * track. Bots stay a separate figure and are never added to the player count.
+ */
+function occupancyCell(counts) {
+  const { clients, bots, capacity } = counts;
+  const fill = occupancyFill(counts);
+  const bar =
+    capacity !== null &&
+    el(
+      "span",
+      {
+        className: [
+          "occupancy__bar",
+          fill.full ? "occupancy__bar--full" : null,
+          fill.nearlyFull ? "occupancy__bar--busy" : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        "aria-hidden": "true",
+      },
+      segment("occupancy__players", fill.players),
+      segment("occupancy__botfill", fill.bots),
+    );
+  const extra = fill.full
+    ? el("span", { className: "occupancy__full" }, "Full")
+    : bots !== null && el("span", { className: "occupancy__bots" }, icon("bot"), String(bots));
+  const text = occupancyText(counts);
+  return el(
+    "td",
+    { role: "gridcell", className: "col-clients", title: text, "aria-label": text },
+    el(
+      "span",
+      { className: "occupancy", "aria-hidden": "true" },
+      el(
+        "span",
+        { className: "occupancy__count" },
+        el("span", { className: "occupancy__clients" }, clients === null ? "—" : String(clients)),
+        capacity !== null && el("span", { className: "occupancy__capacity" }, `/${capacity}`),
+      ),
+      bar || el("span"),
+      extra || el("span"),
+    ),
+  );
+}
+
+function segment(className, share) {
+  const node = el("span", { className });
+  node.style.width = `${(share * 100).toFixed(1)}%`;
+  return node;
+}
+
 function row(item, starred, launches, onSelect) {
-  const { clients, bots, capacity } = occupancy(item.server);
+  const counts = occupancy(item.server);
   const ping = roundTrip(item.server);
   const mode = gameType(item.server);
   const launched = launches ? launchedLabel(launches.get(item.address)) : null;
@@ -677,6 +733,7 @@ function row(item, starred, launches, onSelect) {
       role: "row",
       // The address doubles as the focus key: rows are rebuilt on every paint, and without it a
       // keyboard player loses the caret whenever a probe lands.
+      className: `row-live row--${occupancyFill(counts).activity}`,
       dataset: { address: item.address, focusKey: item.address },
       // Set by `syncSelection`, which owns the single tab stop. Never 0 here.
       tabIndex: -1,
@@ -689,18 +746,7 @@ function row(item, starred, launches, onSelect) {
     },
     starCell(item, item.address, item.server.hostname, starred),
     nameCell(item.server.hostname, item.address, launched, false),
-    el(
-      "td",
-      { role: "gridcell", className: "num col-clients" },
-      el(
-        "span",
-        { className: "occupancy" },
-        el("span", { className: "occupancy__clients" }, clients === null ? "—" : String(clients)),
-        capacity !== null && el("span", { className: "occupancy__capacity" }, `/${capacity}`),
-      ),
-      // Bots are a disjoint quantity and are never folded into the client count.
-      bots !== null && el("span", { className: "occupancy__bots" }, `+${bots} bots`),
-    ),
+    occupancyCell(counts),
     el(
       "td",
       { role: "gridcell", className: "col-map" },

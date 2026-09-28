@@ -573,3 +573,13 @@ dialog::backdrop {
   font-size: var(--text-xs);
   color: var(--faint);
 }
+
+/* Icons ------------------------------------------------------------------- */
+
+.icon {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}
