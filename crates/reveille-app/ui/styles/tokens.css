@@ -65,6 +65,7 @@
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 13px;
+  --text-name: 14px;
   --text-md: 15px;
   --text-lg: 19px;
   --text-xl: 25px;
@@ -85,5 +86,6 @@
   --lift: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
 
   --titlebar-height: 38px;
+  --row-height: 34px;
   --detail-width: 384px;
 }

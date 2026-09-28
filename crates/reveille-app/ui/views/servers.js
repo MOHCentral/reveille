@@ -638,6 +638,31 @@ function starCell(subject, address, hostname, starred) {
   );
 }
 
+/**
+ * The server name on one line. The address is in the tooltip, the detail pane and the context
+ * menu: a second line under every name halved how many servers fit on screen for a detail almost
+ * nobody scans.
+ */
+function nameCell(hostname, address, launched, remembered) {
+  return el(
+    "td",
+    { role: "gridcell", className: "col-name" },
+    el(
+      "span",
+      { className: "name-line" },
+      el(
+        "span",
+        {
+          className: remembered ? "server-name server-name--remembered" : "server-name",
+          title: hostname ? `${hostname}\n${address}` : address,
+        },
+        hostname || "(unnamed server)",
+      ),
+      launched && el("span", { className: "history-line" }, launched),
+    ),
+  );
+}
+
 function row(item, starred, launches, onSelect) {
   const { clients, bots, capacity } = occupancy(item.server);
   const ping = roundTrip(item.server);
@@ -663,19 +688,7 @@ function row(item, starred, launches, onSelect) {
       onfocus: choose,
     },
     starCell(item, item.address, item.server.hostname, starred),
-    el(
-      "td",
-      { role: "gridcell", className: "col-name" },
-      el(
-        "span",
-        { className: "server-name", title: item.server.hostname },
-        item.server.hostname || "(unnamed server)",
-      ),
-      el("span", { className: "server-address" }, item.address),
-      // "Launched", never "joined": Reveille started the game and saw it start. Whether the
-      // server let the player in is decided at connect time and never observed (H12).
-      launched && el("span", { className: "history-line" }, launched),
-    ),
+    nameCell(item.server.hostname, item.address, launched, false),
     el(
       "td",
       { role: "gridcell", className: "num col-clients" },
@@ -814,17 +827,7 @@ function absentRow(entry, starred, launches, columns, onCheck, onGame) {
       dataset: { remembered: entry.address, focusKey: `absent-${entry.address}` },
     },
     starCell(entry, entry.address, entry.hostname, starred),
-    el(
-      "td",
-      { role: "gridcell", className: "col-name" },
-      el(
-        "span",
-        { className: "server-name server-name--remembered", title: entry.hostname },
-        entry.hostname || "(unnamed server)",
-      ),
-      el("span", { className: "server-address" }, entry.address),
-      launched && el("span", { className: "history-line" }, launched),
-    ),
+    nameCell(entry.hostname, entry.address, launched, true),
     el(
       "td",
       // The star and the name keep their own cells; the note and its button take everything left.

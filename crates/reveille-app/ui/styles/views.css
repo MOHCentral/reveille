@@ -251,7 +251,8 @@
 }
 
 .servers tbody td {
-  padding: 7px var(--space-4);
+  height: var(--row-height);
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
@@ -261,11 +262,15 @@
 }
 
 .servers tbody tr[aria-selected="true"] td {
-  background: color-mix(in srgb, var(--brass) 9%, transparent);
+  background: color-mix(in srgb, var(--brass) 7%, var(--rise));
 }
 
 .servers tbody tr[aria-selected="true"] td:first-child {
-  box-shadow: inset 2px 0 0 var(--brass);
+  box-shadow: inset 3px 0 0 var(--brass);
+}
+
+.servers tbody tr[aria-selected="true"] .server-name {
+  font-weight: 600;
 }
 
 .servers tbody tr:focus-visible {
@@ -274,12 +279,21 @@
   box-shadow: none;
 }
 
+.name-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .server-name {
-  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-size: var(--text-name);
+  font-weight: 500;
 }
 
 /* A name recalled from a past check, not reported by this one. Set apart from a live name so
@@ -290,20 +304,11 @@
   color: var(--dim);
 }
 
-.server-address {
-  display: block;
-  margin-top: 1px;
-  font-family: var(--face-data);
-  font-size: var(--text-xs);
-  color: var(--faint);
-  user-select: text;
-}
-
 .history-line {
-  display: block;
-  margin-top: 1px;
+  flex: none;
   font-size: var(--text-xs);
   color: var(--faint);
+  white-space: nowrap;
 }
 
 /* The head of the absent block. It is a control, not a measurement, so it takes the text face and
@@ -364,7 +369,7 @@
 }
 
 .occupancy__bots {
-  display: block;
+  margin-left: var(--space-2);
   font-size: var(--text-xs);
   color: var(--faint);
 }
