@@ -6,15 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Reveille is a Windows server browser and launcher for Medal of Honor: Allied Assault, Spearhead and Breakthrough."
+      content="Already have Medal of Honor: Allied Assault? Reveille finds a server, gets its custom maps and joins you in. Free and open source for Windows."
     />
     <meta name="theme-color" content="#090b0e" />
     <meta property="og:title" content="Reveille — Find a server. Get the maps. Play." />
     <meta
       property="og:description"
-      content="A newcomer-first launcher for Medal of Honor: Allied Assault and its expansions."
+      content="Already have MOHAA? Reveille finds a server, gets its maps and joins you in."
     />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://mohcentral.github.io/reveille/assets/social.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <title>Reveille — Medal of Honor server browser and launcher</title>
     <link rel="icon" href="assets/icon.ico" sizes="any" />
     <link rel="preload" href="assets/reveille-hero.png" as="image" />
@@ -47,7 +49,7 @@
         <nav class="primary-nav" id="primary-nav" aria-label="Primary" data-nav>
           <a href="#features">Features</a>
           <a href="#how-it-works">How it works</a>
-          <a href="#games">Games</a>
+          <a href="#admins">Server admins</a>
           <a href="#faq">FAQ</a>
           <a href="https://github.com/MOHCentral/reveille" rel="noreferrer">GitHub</a>
         </nav>
@@ -76,9 +78,10 @@
               Less hunting.<br />
               <em>More MOHAA.</em>
             </h1>
+            <p class="hero-promise">Already have MOHAA? Reveille finds a server, gets its maps and joins you in.</p>
             <p class="hero-lede">
-              Reveille finds your game, sets up the engine you choose, shows servers that answer,
-              and gets matching custom maps from moh-db before launch.
+              Played it twenty years ago? The servers are still running. Reveille handles the engine,
+              the server list and the custom maps, so getting back in takes a minute, not an evening.
             </p>
 
             <div class="hero-actions">
@@ -100,7 +103,7 @@
             <div class="trust-row" aria-label="Release facts">
               <span>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-2.8 8-7 10-4.2-2-7-5.5-7-10V6zM9 12l2 2 4-5" /></svg>
-                GPL-2.0 open source
+                Free, GPL-3.0 open source
               </span>
               <span>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M8 7h8M8 17h8" /></svg>
@@ -112,87 +115,113 @@
               </span>
             </div>
           </div>
-
         </div>
 
         <div class="shell preview-wrap">
-          <div class="feature-rail">
-            <article>
-              <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3l10 4v8c0 6-4 11-10 14C10 26 6 21 6 15V7zM11 11h10m-10 5h10m-7 5h4" /></svg>
-              <div><strong>Engine setup</strong><span>Choose Original, OpenMoHAA or Reborn. Reveille installs what your choice needs.</span></div>
-            </article>
-            <article>
-              <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" /><path d="M16 7v4m0 10v4M7 16h4m10 0h4M11 11l3 3m4 4 3 3m0-10-3 3m-4 4-3 3" /></svg>
-              <div><strong>Answering servers</strong><span>Browse, search and filter servers that replied.</span></div>
-            </article>
-            <article>
-              <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 27s-9-5.3-9-13a5 5 0 019-3 5 5 0 019 3c0 7.7-9 13-9 13zM8 27h16M11 23v6m10-6v6" /></svg>
-              <div><strong>Favorites &amp; history</strong><span>Save favorites and return to past launches.</span></div>
-            </article>
-            <article>
-              <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10 23H8a6 6 0 010-12 9 9 0 0117-2 6 6 0 01-1 12h-2M16 14v14m0 0-5-5m5 5 5-5" /></svg>
-              <div><strong>Auto map download</strong><span>Gets matching maps from moh-db before launch.</span></div>
-            </article>
-            <article>
-              <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12" /><path d="M13 10l9 6-9 6z" /></svg>
-              <div><strong>Launch from the list</strong><span>Starts your chosen engine on that server.</span></div>
-            </article>
+          <figure class="clip" aria-labelledby="clip-caption">
+            <div class="clip__frames">
+              <img src="assets/clip-1-pick.webp" width="1920" height="1140" alt="" />
+              <img src="assets/clip-2-needs.webp" width="1920" height="1140" alt="" />
+              <img src="assets/clip-3-fetch.webp" width="1920" height="1140" alt="" />
+              <img src="assets/clip-4-launch.webp" width="1920" height="1140" alt="" />
+            </div>
+            <figcaption id="clip-caption">
+              <span class="sr-only">Joining a server with Reveille, in four steps:</span>
+              <ol class="clip__steps">
+                <li><b>1</b>Pick a server</li>
+                <li><b>2</b>See what it needs: 2 maps, 13.6 MB</li>
+                <li><b>3</b>Reveille gets them from moh-db</li>
+                <li><b>4</b>The game starts on that server</li>
+              </ol>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section--then" aria-labelledby="then-title">
+        <div class="shell">
+          <div class="section-heading section-heading--center">
+            <p class="kicker">Why Reveille exists</p>
+            <h2 id="then-title">It used to be two clicks.</h2>
+            <p>The in-game browser went dark with GameSpy. The community kept the game alive, but the way back in got long.</p>
           </div>
 
-          <figure class="app-screenshot">
-            <a href="assets/reveille-app-preview.png" target="_blank" rel="noreferrer">
-              <img
-                src="assets/reveille-app-preview.png"
-                width="1197"
-                height="760"
-                alt="Reveille showing an Allied Assault server list beside the selected server's map check and download choices"
-              />
-              <span>Open full preview <b aria-hidden="true">↗</b></span>
-            </a>
-          </figure>
+          <ol class="then-now">
+            <li>
+              <span class="then-now__year">2002</span>
+              <h3>MOHAA</h3>
+              <p class="chain"><span>Server browser</span><span class="chain__go">Join</span></p>
+            </li>
+            <li class="then-now--long">
+              <span class="then-now__year">Today</span>
+              <h3>Without Reveille</h3>
+              <p class="chain">
+                <span>Patch to 1.11</span><span>Pick an engine</span><span>Find a server list</span><span>Ask on Discord</span><span>Hunt for the map</span><span>Wrong folder</span><span class="chain__fail">Try again</span>
+              </p>
+            </li>
+            <li class="then-now--reveille">
+              <span class="then-now__year">Today</span>
+              <h3>With Reveille</h3>
+              <p class="chain"><span>Pick a server</span><span class="chain__go">Join</span></p>
+            </li>
+          </ol>
         </div>
       </section>
 
       <section class="section section--features" id="features" aria-labelledby="features-title">
         <div class="shell">
           <div class="section-heading">
-            <p class="kicker">Built around the blockers</p>
+            <p class="kicker">What it does</p>
             <h2 id="features-title">From installed game<br />to launched server.</h2>
-            <p>Reveille brings engine setup, server discovery and missing maps into one place.</p>
+            <p>Engine setup, the server list, missing maps and the launch, in one window.</p>
           </div>
 
           <div class="feature-grid">
-            <article class="feature-card feature-card--wide">
+            <article class="feature-card feature-card--wide feature-card--shot">
               <div class="feature-number">01</div>
               <div>
                 <span class="label">Server browser</span>
-                <h3>Find the servers that answer.</h3>
-                <p>Reveille checks registered servers and lists the replies. Search and filter the results, star favorites, or return to servers from your launch history.</p>
+                <h3>See where the players are.</h3>
+                <p>Busy servers come first, with how full each one is, its ping and whether it is full. Filter by mode or ping, or show only servers you can join right now without downloading anything.</p>
               </div>
-              <div class="radar" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
+              <img class="shot" src="assets/crop-filters.webp" width="1096" height="304" loading="lazy" alt="The Mode, Ping and Ready to join filters, with the ping limit choices open" />
             </article>
             <article class="feature-card">
               <div class="feature-number">02</div>
-              <span class="label">Know before launch</span>
+              <span class="label">Know before you join</span>
               <h3>See what the server needs.</h3>
-              <p>Reveille compares your install with the map running now and any published rotation, then shows what is missing and how much there is to download.</p>
-              <div class="mini-list" aria-hidden="true"><span><i class="on-disk"></i>dm/mohdm6 <b>on disk</b></span><span><i class="to-get"></i>obj/final_objective <b>4.8 MB</b></span><span><i class="to-get"></i>dm/ravine <b>13.6 MB</b></span></div>
+              <p>Reveille compares your game with the map running now and the server's map list, then shows what is missing and how big the download is.</p>
+              <div class="mini-list" aria-hidden="true"><span><i class="on-disk"></i>dm/mohdm6 <b>on disk</b></span><span><i class="to-get"></i>dm/snipertown <b>9.0 MB</b></span><span><i class="to-get"></i>dm/sniper_alley <b>4.6 MB</b></span></div>
             </article>
             <article class="feature-card">
               <div class="feature-number">03</div>
               <span class="label">Get missing maps</span>
               <h3>Maps from moh-db, without the hunt.</h3>
-              <p>Reveille finds matching packages on moh-db, checks each archive and installs unambiguous matches where the game loads them. If several files could match, you choose.</p>
-              <div class="package" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 10l11-6 11 6-11 6zM5 10v12l11 6 11-6V10M16 16v12" /></svg><span>2 maps · 18.4 MB</span><i></i></div>
+              <p>Reveille finds matching packages on moh-db, checks each archive and puts it where the game loads it. If several files could match, you choose.</p>
+              <div class="package" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 10l11-6 11 6-11 6zM5 10v12l11 6 11-6V10M16 16v12" /></svg><span>Get 13.6 MB &amp; join</span><i></i></div>
             </article>
-            <article class="feature-card feature-card--wide feature-card--launch">
+            <article class="feature-card feature-card--wide feature-card--shot">
               <div class="feature-number">04</div>
               <div>
-                <span class="label">Engine setup and launch</span>
-                <h3>Choose an engine. Reveille sets it up.</h3>
-                <p>Keep the Original game or choose OpenMoHAA or Reborn. Reveille installs the current supported build when needed, remembers your choice and starts it with the selected server.</p>
+                <span class="label">Watching and alerts</span>
+                <h3>Get told when your server fills up.</h3>
+                <p>Watch a server and choose how many players make it worth joining. Reveille notifies you when they arrive, and can keep watching from the notification area after you close the window.</p>
               </div>
+              <img class="shot" src="assets/crop-alerts.webp" width="678" height="312" loading="lazy" alt="A player alert: 2 players on [DSB]Clan DM, with Show and Join buttons" />
+            </article>
+            <article class="feature-card feature-card--launch">
+              <div class="feature-number">05</div>
+              <span class="label">Engine setup and launch</span>
+              <h3>Choose an engine. Reveille sets it up.</h3>
+              <p>Keep the Original game or choose OpenMoHAA or Reborn. Reveille installs the supported build when needed, remembers your choice and starts it on the server you picked.</p>
               <span class="launch-button" aria-hidden="true">Join <b>▶</b></span>
+            </article>
+            <article class="feature-card feature-card--menu">
+              <div class="feature-number">06</div>
+              <span class="label">Quick to drive</span>
+              <h3>Right-click, or never touch the mouse.</h3>
+              <p>Favorites, History of the servers you played, and a shortcut for everything: Enter to join, F to favorite, W to watch, ? for the full list.</p>
+              <img class="shot shot--float" src="assets/crop-row-menu.webp" width="744" height="384" loading="lazy" alt="A server's right-click menu: Join, Add to favorites, Check this server, Watch for players, Copy address" />
             </article>
           </div>
         </div>
@@ -213,24 +242,75 @@
           <ol class="steps">
             <li><span>1</span><div><h3>Find your game</h3><p>Reveille checks common Windows locations. If it misses yours, choose the folder.</p></div></li>
             <li><span>2</span><div><h3>Choose your engine</h3><p>Keep Original or choose OpenMoHAA or Reborn. Reveille installs the supported build when needed and remembers your choice.</p></div></li>
-            <li><span>3</span><div><h3>Pick a server</h3><p>Browse servers that answered. Search, filter, star favorites, or use History to return to a previous launch.</p></div></li>
-            <li><span>4</span><div><h3>Get the maps and launch</h3><p>Reveille checks the current map and any published rotation, shows the download size, gets matching moh-db packages where available, then starts the game.</p></div></li>
+            <li><span>3</span><div><h3>Pick a server</h3><p>See who is playing where. Filter to servers that are ready to join, star favorites, or watch a quiet server until players show up.</p></div></li>
+            <li><span>4</span><div><h3>Get the maps and join</h3><p>Reveille shows what the server needs and the download size, gets the matching moh-db packages, then starts the game on that server.</p></div></li>
           </ol>
         </div>
       </section>
 
-      <section class="section section--games" id="games" aria-labelledby="games-title">
+      <section class="section section--works" aria-labelledby="works-title">
         <div class="shell">
           <div class="section-heading section-heading--center">
-            <p class="kicker">All three games</p>
-            <h2 id="games-title">One launcher. Three server lists.</h2>
-            <p>Allied Assault, Spearhead and Breakthrough are scanned separately, and missing maps go to the folder each game uses.</p>
+            <p class="kicker">Works with</p>
+            <h2 id="works-title">Built on what the community keeps alive.</h2>
+            <p>Reveille does not replace any of these. It connects them, so a player gets from “I want to play” to “I’m in a server” without stitching them together by hand.</p>
           </div>
-          <div class="game-grid">
-            <article><span>2002</span><div class="game-stripes"></div><h3>Allied Assault</h3><p>The original release, with its own server scan and map check.</p></article>
-            <article><span>2002</span><div class="game-stripes"></div><h3>Spearhead</h3><p>The first expansion, scanned and checked separately.</p></article>
-            <article><span>2003</span><div class="game-stripes"></div><h3>Breakthrough</h3><p>The second expansion, scanned and checked separately.</p></article>
+
+          <ul class="works-grid">
+            <li>
+              <span class="label">Games</span>
+              <h3>Allied Assault, Spearhead, Breakthrough</h3>
+              <p>Each has its own server list, and maps go to the folder that game reads.</p>
+            </li>
+            <li>
+              <span class="label">Engine</span>
+              <h3><a href="https://github.com/openmoh/openmohaa" rel="noreferrer">OpenMoHAA</a></h3>
+              <p>The open-source engine. Reveille installs the current supported build.</p>
+            </li>
+            <li>
+              <span class="label">Engine</span>
+              <h3>Reborn</h3>
+              <p>The community patch for the original game, installed on request.</p>
+            </li>
+            <li>
+              <span class="label">Maps</span>
+              <h3><a href="https://moh-db.com" rel="noreferrer">moh-db</a></h3>
+              <p>The custom map archive Reveille searches for what a server runs.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section section--admins" id="admins" aria-labelledby="admins-title">
+        <div class="shell admins-layout">
+          <div class="section-heading">
+            <p class="kicker">Run a server?</p>
+            <h2 id="admins-title">Let players arrive with your maps.</h2>
+            <p>A missing custom map is an easy way to lose a new player. Reveille reads what your server already publishes and fetches the maps before it connects them.</p>
           </div>
+          <ul class="admin-list">
+            <li>
+              <b>01</b>
+              <div>
+                <h3>Publish your map list</h3>
+                <p>Set <code>sv_maplist</code> to your full rotation. Reveille checks every map in it, not only the one running now, so a map change does not leave new players behind.</p>
+              </div>
+            </li>
+            <li>
+              <b>02</b>
+              <div>
+                <h3>Put custom maps on moh-db</h3>
+                <p>If your maps are on moh-db under the names your server uses, Reveille can match and install them.</p>
+              </div>
+            </li>
+            <li>
+              <b>03</b>
+              <div>
+                <h3>Or host them yourself</h3>
+                <p>Servers that publish a PakRadar list through <code>pr_downloads</code> can hand players their own files. Reveille checks each one against its published checksum.</p>
+              </div>
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -251,11 +331,15 @@
             </details>
             <details>
               <summary>Where do the missing maps come from?</summary>
-              <p>Reveille searches moh-db.com for matching packages. It installs an unambiguous match when you approve the download, asks you when several files could fit, and says when no download is listed.</p>
+              <p>From moh-db.com, or from the server itself when it publishes its own download list. Reveille installs an exact match when you approve the download, asks you when several files could fit, and says when no download is listed.</p>
             </details>
             <details>
-              <summary>Can I save a server?</summary>
-              <p>Yes. Star servers as Favorites, search and filter the current list, or use History to revisit servers Reveille previously launched.</p>
+              <summary>What does “Ready to join” mean?</summary>
+              <p>The server answered just now and you already have the map it is running, so there is nothing to download. Reveille starts the game with the server’s address; the server still decides whether you get in, for example when it is full or has a ping limit.</p>
+            </details>
+            <details>
+              <summary>How do player alerts work?</summary>
+              <p>Watch a server and pick how many players you want. While Reveille is open, or waiting in the notification area if you turn that on in Settings, it checks the server and sends a Windows notification when enough players are on.</p>
             </details>
             <details>
               <summary>Does it need Administrator rights?</summary>
@@ -266,12 +350,8 @@
               <p>The current release is not code-signed, so Windows names no publisher and SmartScreen may hold the download. The release page publishes the installer’s SHA-256 for checking download integrity.</p>
             </details>
             <details>
-              <summary>Does “answered” mean I can get in?</summary>
-              <p>It means the server replied to a fresh status check. Reveille can check the map information it publishes and launch the game with its address, but the server still decides whether you get in.</p>
-            </details>
-            <details>
               <summary>Is it open source?</summary>
-              <p>Yes. Reveille is licensed GPL-3.0-only. The source, issue tracker and release history are public on GitHub.</p>
+              <p>Yes. Reveille is free and licensed GPL-3.0-only. The source, issue tracker and release history are public on GitHub.</p>
             </details>
           </div>
         </div>
@@ -281,9 +361,9 @@
         <div class="final-cta__grid" aria-hidden="true"></div>
         <div class="shell final-cta__inner">
           <svg class="final-mark" viewBox="0 0 42 42" aria-hidden="true"><path d="M4 7l15 7v7L4 14zM38 7l-15 7v7l15-7zM7 18l12 6v7L7 25zM35 18l-12 6v7l12-6zM17 7l4 2 4-2-4 28z" /></svg>
-          <p class="kicker">Everything between install and launch</p>
+          <p class="kicker">Your old game is still alive</p>
           <h2 id="final-title">Get back to MOHAA.</h2>
-          <p>Choose an engine, find a server that answers and get matching maps from one launcher.</p>
+          <p>Find a server, get its maps and join, from one launcher.</p>
           <a class="button button--large" href="https://github.com/MOHCentral/reveille/releases/latest" data-release-download>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" /></svg>
             <span><strong>Download Reveille</strong><small data-release-detail>64-bit Windows installer</small></span>
@@ -302,7 +382,7 @@
         <nav aria-label="Footer">
           <a href="https://github.com/MOHCentral/reveille">Source</a>
           <a href="https://github.com/MOHCentral/reveille/issues">Issues</a>
-          <a href="https://github.com/MOHCentral/reveille/blob/main/LICENSE">GPL-2.0</a>
+          <a href="https://github.com/MOHCentral/reveille/blob/main/LICENSE">GPL-3.0</a>
         </nav>
       </div>
     </footer>

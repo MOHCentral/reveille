@@ -5,8 +5,9 @@
 The landing page is a dependency-free static site. Open `index.html` directly or serve this
 directory with any static file server.
 
-The product preview is a captured application screenshot. Its server figures are a past snapshot,
-not a live server list.
+The hero clip is four frames captured from the app's preview harness
+(`crates/reveille-app/ui-tests/preview/`) and cross-faded in CSS, so it needs no video codec and
+shows a still frame under reduced motion. Its servers are fixture data, not a live server list.
 
 No version is written into the page. Release buttons link to `releases/latest`, which is correct
 whatever the current release is, and `script.js` asks the GitHub API for the latest release to fill
