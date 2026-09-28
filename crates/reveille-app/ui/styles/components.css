@@ -278,38 +278,6 @@
 
 /* Chips -------------------------------------------------------------------- */
 
-.player-alert-list {
-  display: grid;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.player-alert-entry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2);
-  border: 1px solid var(--line);
-}
-
-.player-alert-entry p {
-  margin: 3px 0 0;
-}
-
-.arrival-entry {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.arrival-entry:hover,
-.arrival-entry:focus-visible {
-  border-color: var(--brass);
-}
-
 .arrival-unread {
   display: inline-block;
   min-width: 1.35em;
@@ -545,6 +513,64 @@ dialog::backdrop {
   color: var(--bad-text);
   font-size: var(--text-sm);
   line-height: 1.5;
+}
+
+/* Settings ------------------------------------------------------------------ */
+
+.settings__section {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings__section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings__section p {
+  margin: 0;
+}
+
+.settings__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings__toggle input {
+  accent-color: var(--brass);
+}
+
+.settings__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings__choice select {
+  padding: 4px 24px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--rise);
+}
+
+.settings__toggle:has(input:disabled),
+.settings__choice:has(select:disabled) {
+  color: var(--faint);
+}
+
+.settings__hint {
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 /* Context menu --------------------------------------------------------------

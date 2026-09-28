@@ -325,6 +325,76 @@ pub fn openmohaa_activity() -> OpenMohaaActivity {
     }
 }
 
+/// Executable stems of the clients that play the game, retail and `OpenMoHAA` alike, lowercased.
+/// The retail names are those `default_client_for_platform` launches.
+#[cfg(any(windows, target_os = "macos", test))]
+const GAME_CLIENT_STEMS: [&str; 7] = [
+    "mohaa",
+    "moh_spearhead",
+    "moh_breakthrough",
+    "openmohaa",
+    "launch_openmohaa_base",
+    "launch_openmohaa_spearhead",
+    "launch_openmohaa_breakthrough",
+];
+
+/// Whether a Medal of Honor client is running, read from the process list.
+///
+/// `None` when the list cannot be read, which a caller must not take for "not running".
+#[must_use]
+pub fn game_client_running() -> Option<bool> {
+    #[cfg(windows)]
+    {
+        let output = tasklist_command().output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        tasklist_game_running(&String::from_utf8_lossy(&output.stdout))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = ps_command().output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        ps_game_running(std::str::from_utf8(&output.stdout).ok()?)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        None
+    }
+}
+
+#[cfg(any(windows, test))]
+fn tasklist_game_running(output: &str) -> Option<bool> {
+    let images: Vec<String> = output.lines().filter_map(tasklist_image_name).collect();
+    if images.is_empty() && !output.trim().is_empty() {
+        return None;
+    }
+    Some(images.iter().any(|image| {
+        image
+            .strip_suffix(".exe")
+            .is_some_and(|stem| GAME_CLIENT_STEMS.contains(&stem))
+    }))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn ps_game_running(output: &str) -> Option<bool> {
+    let mut running = false;
+    for command in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if command.chars().any(char::is_control) {
+            return None;
+        }
+        let basename = Path::new(command).file_name().and_then(OsStr::to_str)?;
+        running |= GAME_CLIENT_STEMS.contains(&basename.to_ascii_lowercase().as_str());
+    }
+    Some(running)
+}
+
 /// Does any listed process hold one of the executables a release archive overwrites?
 ///
 /// The client is not the only lock: an archive also replaces `omohaaded.exe` and the three
@@ -820,6 +890,37 @@ mod tests {
                 ClientActivity::Unknown
             );
         }
+    }
+
+    #[test]
+    fn a_running_retail_or_openmohaa_client_is_seen_and_an_unreadable_list_is_unknown() {
+        for image in [
+            "MOHAA.exe",
+            "moh_spearhead.exe",
+            "moh_breakthrough.exe",
+            "openmohaa.exe",
+        ] {
+            let row = format!("\"{image}\",\"8120\",\"Console\",\"1\",\"42,000 K\"");
+            assert_eq!(tasklist_game_running(&row), Some(true), "{image}");
+        }
+        assert_eq!(
+            tasklist_game_running("\"explorer.exe\",\"1\",\"Console\",\"1\",\"1 K\""),
+            Some(false)
+        );
+        assert_eq!(
+            tasklist_game_running("\"mohaa.exe.bak\",\"1\",\"Console\",\"1\",\"1 K\""),
+            Some(false)
+        );
+        assert_eq!(
+            tasklist_game_running("Information : aucune tâche en cours."),
+            None
+        );
+        assert_eq!(
+            ps_game_running("/Applications/OpenMoHAA/openmohaa\n/usr/bin/login"),
+            Some(true)
+        );
+        assert_eq!(ps_game_running("/usr/bin/login"), Some(false));
+        assert_eq!(ps_game_running("/bin/\u{7}bell"), None);
     }
 
     #[test]

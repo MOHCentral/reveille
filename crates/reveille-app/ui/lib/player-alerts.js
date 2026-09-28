@@ -105,7 +105,12 @@ export function nextReading(previous, count, now, cooldownMs = COOLDOWN_MS, thre
  * `onReading(id, reading)` hears every probe, answered or not, so the Watching view can show what
  * the monitor last saw without probing again.
  */
-export function startPlayerAlertMonitor(probe, deliver, onReading = () => {}) {
+export function startPlayerAlertMonitor(
+  probe,
+  deliver,
+  onReading = () => {},
+  cooldownMs = () => COOLDOWN_MS,
+) {
   const readings = new Map();
   let stopped = false;
   let running = false;
@@ -129,7 +134,7 @@ export function startPlayerAlertMonitor(probe, deliver, onReading = () => {}) {
         readings.delete(id);
         continue;
       }
-      const result = nextReading(readings.get(id), count, Date.now(), COOLDOWN_MS, entry.threshold);
+      const result = nextReading(readings.get(id), count, Date.now(), cooldownMs(), entry.threshold);
       readings.set(id, result.state);
       onReading(id, result.state);
       if (result.alert) {

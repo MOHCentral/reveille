@@ -1428,6 +1428,15 @@ async fn check_server(
     })
 }
 
+/// Whether a game client is running now; null when the process list cannot be read.
+#[tauri::command]
+async fn game_client_running() -> Option<bool> {
+    tokio::task::spawn_blocking(platform::game_client_running)
+        .await
+        .ok()
+        .flatten()
+}
+
 /// What one probe of a watched server saw: enough to decide an alert and to word its toast.
 #[derive(Serialize)]
 struct WatchReading {
@@ -2547,6 +2556,7 @@ fn main() {
             browse_servers,
             check_server,
             read_watched_server,
+            game_client_running,
             send_player_notification,
             preview_join,
             install_server_files,

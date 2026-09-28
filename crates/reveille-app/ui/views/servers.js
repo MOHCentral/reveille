@@ -22,6 +22,7 @@
 import { el, fill, preserveFocus } from "../lib/dom.js";
 import { icon } from "../lib/icons.js";
 import { lastArrivals } from "../lib/arrival-events.js";
+import { preferences } from "../lib/preferences.js";
 import { openMenu } from "../lib/menu.js";
 import {
   browseFailureText,
@@ -1509,7 +1510,9 @@ function signature(items) {
     state.scope === "watching"
       ? [...state.watchReadings].map(([id, reading]) => `${id}${reading.count}@${reading.checkedAt}`).join(",")
       : "";
-  return `${state.scope}:${state.sort.column}:${state.sort.direction}:${state.staleAt}:${rows}:${checks}:${readings}`;
+  // The ping dots are drawn against the bands in Settings.
+  const { pingGood, pingFair } = preferences();
+  return `${state.scope}:${state.sort.column}:${state.sort.direction}:${state.staleAt}:${pingGood}/${pingFair}:${rows}:${checks}:${readings}`;
 }
 
 /** Every control inside one row, in visual order. */
