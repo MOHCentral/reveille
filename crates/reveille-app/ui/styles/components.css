@@ -195,9 +195,11 @@
   background: var(--void);
 }
 
+/* Label and count share a baseline: they are set in different faces and sizes, so centring their
+   boxes leaves the smaller count sitting low. */
 .scope__option {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   padding: 4px 10px;
   border: 0;
@@ -218,6 +220,7 @@
 }
 
 .scope__icon {
+  align-self: center;
   color: var(--faint);
 }
 
