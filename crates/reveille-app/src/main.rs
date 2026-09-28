@@ -3680,7 +3680,9 @@ mod tests {
         assert!(capability.contains("opener:allow-open-url"));
         assert!(capability.contains("https://github.com/MOHCentral/reveille/issues/new*"));
         assert!(setup.contains("btn btn--sm btn--utility"));
-        assert!(index.contains("btn btn--sm btn--utility"));
+        // In the shell it lives in the titlebar's More menu.
+        assert!(index.contains(r#"id="more-btn""#));
+        assert!(shell.contains(r#"label: "Report a bug", onSelect: () => void openBugReport()"#));
         assert!(styles.contains(".btn--utility"));
     }
 }
