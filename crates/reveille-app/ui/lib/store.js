@@ -106,6 +106,8 @@ export const state = {
    * on the first screen.
    */
   showEmpty: false,
+  /** Whether the detail pane is hidden, giving the list the whole window. */
+  detailCollapsed: false,
   /** Which population the table lists: every answering server, the starred ones, or the launched ones. */
   scope: "all",
   /**
@@ -301,6 +303,7 @@ export function saveFilters() {
         scope: state.scope,
         showAbsent: state.showAbsent,
         showEmpty: state.showEmpty,
+        detailCollapsed: state.detailCollapsed,
         query: "",
       }),
     );
@@ -324,6 +327,7 @@ export function loadFilters() {
     if (SCOPES.includes(scope)) state.scope = scope;
     state.showAbsent = !!saved.showAbsent;
     state.showEmpty = !!saved.showEmpty;
+    state.detailCollapsed = !!saved.detailCollapsed;
   } catch {
     // Ignore a corrupt preference rather than refusing to start.
   }

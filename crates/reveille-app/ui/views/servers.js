@@ -161,6 +161,7 @@ export function serversView({
   onCheck,
   onGame,
   onToggleWatch,
+  onToggleDetail,
 }) {
   const search = el("input", {
     id: "server-search",
@@ -274,7 +275,17 @@ export function serversView({
     refreshLabel,
     refreshAge,
   );
-  const actionSlot = el("div", { className: "toolbar__action" }, progress, refresh);
+  const detailToggle = el(
+    "button",
+    {
+      type: "button",
+      className: "btn btn--icon toolbar__pane",
+      dataset: { focusKey: "detail-toggle" },
+      onclick: onToggleDetail,
+    },
+    el("span", { className: "toolbar__pane-glyph", "aria-hidden": "true" }),
+  );
+  const actionSlot = el("div", { className: "toolbar__action" }, progress, refresh, detailToggle);
   const toolbar = el(
     "div",
     { className: "toolbar" },
@@ -393,6 +404,11 @@ export function serversView({
     const age = listed ? timeAgo(state.browse.finishedAt) : null;
     refreshAge.textContent = age ?? "";
     refreshAge.classList.toggle("hidden", !age);
+    const collapsed = state.detailCollapsed;
+    detailToggle.setAttribute("aria-pressed", collapsed ? "false" : "true");
+    detailToggle.setAttribute("aria-label", "Server details");
+    detailToggle.title = collapsed ? "Show server details (Ctrl+D)" : "Hide server details (Ctrl+D)";
+    table.classList.toggle("servers--inline-join", collapsed);
     if (!running) return;
     // The sweep spawns no further probes once stopped, but the ones already in
     // flight still have to time out. Say so rather than leaving Stop looking inert.
@@ -674,7 +690,7 @@ function setMark(button, kind, on) {
  * menu: a second line under every name halved how many servers fit on screen for a detail almost
  * nobody scans.
  */
-function nameCell(hostname, address, launched, remembered) {
+function nameCell(hostname, address, launched, remembered, join = null) {
   return el(
     "td",
     { role: "gridcell", className: "col-name" },
@@ -690,7 +706,32 @@ function nameCell(hostname, address, launched, remembered) {
         hostname || "(unnamed server)",
       ),
       launched && el("span", { className: "history-line" }, launched),
+      join,
     ),
+  );
+}
+
+/**
+ * The row's own Join, for when the detail pane is hidden. Drawn on every live row and shown by CSS
+ * on the hovered or selected one, so hiding the pane repaints nothing. A server that needs
+ * downloads says so with the arrow; pressing it opens the pane on the priced button rather than
+ * fetching anything.
+ */
+function inlineJoin(item, onActivate) {
+  const ready = item.compatibility?.state?.state === "compatible";
+  const downloads = item.compatibility?.state?.state === "needs_maps";
+  return el(
+    "button",
+    {
+      type: "button",
+      className: "row-join",
+      tabIndex: -1,
+      title: ready ? "Join this server" : "See what joining needs",
+      "aria-label": `Join ${item.server.hostname || item.address}`,
+      onclick: () => onActivate(item.address),
+    },
+    downloads ? icon("download") : null,
+    "Join",
   );
 }
 
@@ -789,7 +830,7 @@ function row(item, starred, watched, launches, onSelect, onActivate, onToggleWat
       onfocus: choose,
     },
     marksCell(item, item.address, item.server.hostname, starred, watched, onToggleWatch),
-    nameCell(item.server.hostname, item.address, launched, false),
+    nameCell(item.server.hostname, item.address, launched, false, inlineJoin(item, onActivate)),
     occupancyCell(counts),
     el(
       "td",
