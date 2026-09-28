@@ -97,6 +97,8 @@ export const probePlayerCount = ({ address, queryPort, game }) =>
 export const onPlayerNotificationClick = (handler) =>
   on("reveille://player-alert-open", handler);
 
+export const appVersion = async () => tauri.app.getVersion();
+
 export const focusReveille = () => tauri.window.getCurrentWindow().setFocus();
 
 export const requestPlayerAlertAttention = () =>

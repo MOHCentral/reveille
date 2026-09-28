@@ -21,7 +21,8 @@ let open = null;
 /**
  * Open a menu.
  *
- * `items` are `{ label, hint?, disabled?, onSelect }`. `event` supplies the pointer position when
+ * `items` are `{ label, hint?, disabled?, checked?, onSelect }`, or `{ separator: true }` and
+ * `{ note }` for a rule and a line of text the arrow keys pass over. `event` supplies the pointer position when
  * there is one; `anchor` is the element the menu belongs to, used to place it for a keyboard and
  * to take focus back when the menu closes.
  */
@@ -30,13 +31,16 @@ export function openMenu(items, event, anchor = null) {
   if (!items.length) return;
 
   const list = el("div", { className: "menu", role: "menu", tabIndex: -1 });
-  const buttons = items.map((item) =>
-    el(
+  const nodes = items.map((item) => {
+    if (item.separator) return el("div", { className: "menu__separator", role: "separator" });
+    if (item.note) return el("div", { className: "menu__note", title: item.note }, item.note);
+    return el(
       "button",
       {
         type: "button",
         className: "menu__item",
-        role: "menuitem",
+        role: item.checked === undefined ? "menuitem" : "menuitemradio",
+        "aria-checked": item.checked === undefined ? null : String(item.checked),
         tabIndex: -1,
         // `aria-disabled`, not `disabled`, for the same reason as everywhere else in this
         // interface: a disabled element cannot hold focus, and a menu the arrow keys skip past
@@ -50,9 +54,10 @@ export function openMenu(items, event, anchor = null) {
       },
       el("span", { className: "menu__label" }, item.label),
       item.hint ? el("span", { className: "menu__hint" }, item.hint) : null,
-    ),
-  );
-  fill(list, ...buttons);
+    );
+  });
+  const buttons = nodes.filter((node) => node.tagName === "BUTTON");
+  fill(list, ...nodes);
   document.body.append(list);
 
   place(list, event, anchor);

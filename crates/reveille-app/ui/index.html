@@ -14,28 +14,35 @@
     <div class="shell hidden" id="shell">
       <header class="titlebar">
         <span class="wordmark">Reveille</span>
+        <button type="button" id="game-switch" class="game-switch" aria-haspopup="menu">
+          <span class="game-switch__game" id="game-switch-game"></span>
+          <span class="game-switch__engine" id="game-switch-engine"></span>
+          <span class="game-switch__caret" aria-hidden="true">▾</span>
+        </button>
         <span class="titlebar__spacer"></span>
         <button type="button" id="reveille-update-btn" class="btn btn--sm btn--primary hidden">
           Update Reveille
         </button>
-        <button type="button" id="bug-report-btn" class="btn btn--sm btn--utility">
-          Report a bug
-        </button>
-        <button type="button" id="arrival-events-btn" class="btn btn--sm btn--utility" aria-label="Alerts">
-          Alerts <span id="arrival-unread" class="arrival-unread hidden"></span>
-        </button>
-        <button type="button" id="player-alerts-btn" class="btn btn--sm btn--utility">
-          Settings
-        </button>
         <button
           type="button"
-          id="install-chip"
-          class="install-chip"
-          title="Game folder, selected game, and active engine"
+          id="arrival-events-btn"
+          class="titlebar__icon"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          aria-label="Player alerts"
+          title="Player alerts"
         >
-          <span class="install-chip__path" id="install-chip-path"></span>
-          <span class="install-chip__engine" id="install-chip-engine"></span>
+          <span id="arrival-unread" class="arrival-unread hidden"></span>
         </button>
+        <button type="button" id="settings-btn" class="titlebar__icon" aria-label="Settings" title="Settings"></button>
+        <button
+          type="button"
+          id="more-btn"
+          class="titlebar__icon"
+          aria-haspopup="menu"
+          aria-label="More"
+          title="More"
+        ></button>
       </header>
 
       <div id="toolbar-slot"></div>

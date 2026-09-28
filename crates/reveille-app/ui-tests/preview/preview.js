@@ -13,13 +13,22 @@ const OVERVIEW = {
   selection_error: null,
 };
 
+const GAMES = ["allied_assault", "spearhead", "breakthrough"];
+const install = params.has("games")
+  ? { ...INSTALL, products: GAMES, playable: GAMES.slice(0, Number(params.get("games"))) }
+  : INSTALL;
+
 const RESULTS = {
-  detect_install: INSTALL,
+  detect_install: install,
   engine_overview: OVERVIEW,
   select_engine: OVERVIEW,
   installation_storage: { status: "writable" },
   check_reveille_update: null,
   browse_servers: browsePayload(),
+  check_server: ({ address }) => ({
+    row: browsePayload().servers.find((row) => row.address === address) ?? null,
+    non_result: { stage: "status", reason: "timeout" },
+  }),
   // The monitor sees what the list saw, so Watching can be compared with it.
   probe_player_count: ({ address }) =>
     browsePayload().servers.find((row) => row.address === address)?.server.occupancy.clients_reported ?? 3,

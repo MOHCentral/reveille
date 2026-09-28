@@ -6,7 +6,9 @@
 
 import { $, el } from "./lib/dom.js";
 import { closeDialog, openDialog } from "./lib/dialog.js";
-import { closeMenu, menuIsOpen } from "./lib/menu.js";
+import { closeMenu, menuIsOpen, openMenu } from "./lib/menu.js";
+import { icon } from "./lib/icons.js";
+import { closePopover, openPopover, popoverAnchor } from "./lib/popover.js";
 import {
   appLogFiles,
   browseFailure,
@@ -14,6 +16,7 @@ import {
   cancelBrowse,
   cancelReveilleUpdate,
   canNotify,
+  appVersion,
   checkReveilleUpdate,
   checkServer,
   clearPlayerAlertAttention,
@@ -50,7 +53,7 @@ import {
   removePlayerAlert,
   startPlayerAlertMonitor,
 } from "./lib/player-alerts.js";
-import { clockTime, displayPath } from "./lib/format.js";
+import { clockTime, displayPath, plural, timeAgo } from "./lib/format.js";
 import {
   GAME_LABELS,
   SCOPES,
@@ -111,11 +114,14 @@ $("#list-slot").replaceWith(servers.listPane);
 $("#status-slot").replaceWith(servers.statusbar);
 document.body.append(servers.live);
 
-$("#install-chip").addEventListener("click", leaveServers);
+$("#arrival-events-btn").prepend(icon("bell"));
+$("#settings-btn").append(icon("gear"));
+$("#more-btn").append(icon("dots"));
+$("#game-switch").addEventListener("click", openGameMenu);
 $("#reveille-update-btn").addEventListener("click", openReveilleUpdate);
-$("#bug-report-btn").addEventListener("click", () => void openBugReport());
-$("#arrival-events-btn").addEventListener("click", openArrivalFeed);
-$("#player-alerts-btn").addEventListener("click", openPlayerAlerts);
+$("#arrival-events-btn").addEventListener("click", toggleArrivals);
+$("#settings-btn").addEventListener("click", openPlayerAlerts);
+$("#more-btn").addEventListener("click", openMoreMenu);
 $("#info-dialog-close").addEventListener("click", closeDialog);
 $("#reveille-update-later").addEventListener("click", dismissReveilleUpdate);
 $("#reveille-update-install").addEventListener("click", startReveilleUpdate);
@@ -173,33 +179,70 @@ function renderArrivalBadge() {
   badge.classList.toggle("hidden", count === 0);
   badge.textContent = count > 0 ? String(count) : "";
   $("#arrival-events-btn").setAttribute("aria-label",
-    count ? `Alerts, ${count} unread` : "Alerts");
+    count ? `Player alerts, ${count} unread` : "Player alerts");
 }
 
-function openArrivalFeed() {
-  const events = arrivalEvents();
+/**
+ * The bell's popover: the latest arrivals, newest first, each with Show and Join. Opening it marks
+ * them read, but the ones that were unread keep their edge until it closes.
+ */
+function toggleArrivals() {
+  const anchor = $("#arrival-events-btn");
+  if (popoverAnchor() === anchor) {
+    closePopover();
+    return;
+  }
+  const events = arrivalEvents().slice(0, 12);
   markArrivalsRead();
   renderArrivalBadge();
-  openDialog("Alerts",
+  openPopover(anchor, "Player alerts",
+    el("div", { className: "popover__head" },
+      el("h2", { className: "popover__title" }, "Player alerts"),
+      state.alertError && el("span", { className: "error", role: "alert" }, state.alertError),
+    ),
     events.length === 0
-      ? el("p", null, "No player arrivals yet.")
-      : el("div", { className: "player-alert-list" }, events.map((event) =>
-          el("button", {
-            type: "button",
-            className: "player-alert-entry arrival-entry",
-            onclick: () => requestOpenArrival(event),
-          },
-          el("strong", null, `${event.count} ${event.count === 1 ? "player" : "players"} on ${event.hostname}`),
-          el("p", { className: "quiet data" },
-            `${GAME_LABELS[event.game]} · ${event.address} · ${new Date(event.at).toLocaleString()}`),
-          ),
-        )),
+      ? el("p", { className: "popover__empty" },
+          "No alerts yet. Turn on a server's bell and Reveille tells you here when players join it.")
+      : el("div", null, events.map(arrivalEntry)),
+    el("div", { className: "popover__foot" },
+      el("button", {
+        type: "button",
+        className: "btn btn--sm btn--utility",
+        onclick: () => {
+          closePopover();
+          servers.selectScope("watching");
+        },
+      }, "Open Watching"),
+    ),
   );
 }
 
-function requestOpenArrival(event) {
-  pendingArrival = event;
+function arrivalEntry(event) {
+  const where = playableGames(state.install).length > 1 ? `${GAME_LABELS[event.game]} · ` : "";
+  return el("div", { className: `arrival${event.read ? "" : " arrival--unread"}` },
+    el("span", { className: "arrival__title", title: event.hostname },
+      el("strong", null, plural(event.count, "player")), ` on ${event.hostname}`),
+    el("span", { className: "arrival__meta" },
+      `${where}${timeAgo(new Date(event.at).toISOString()) ?? ""}`),
+    el("span", { className: "arrival__actions" },
+      el("button", {
+        type: "button",
+        className: "btn btn--sm",
+        onclick: () => requestOpenArrival(event),
+      }, "Show"),
+      el("button", {
+        type: "button",
+        className: "btn btn--sm btn--primary",
+        onclick: () => requestOpenArrival(event, { join: true }),
+      }, "Join"),
+    ),
+  );
+}
+
+function requestOpenArrival(event, { join = false } = {}) {
+  pendingArrival = { event, join };
   closeDialog();
+  closePopover();
   void focusReveille().catch(() => {});
   void openPendingArrival();
 }
@@ -207,7 +250,8 @@ function requestOpenArrival(event) {
 async function openPendingArrival() {
   if (openingArrival || !pendingArrival || state.browse.running || state.joining) return;
   openingArrival = true;
-  const event = pendingArrival;
+  const pending = pendingArrival;
+  const { event } = pending;
   pendingArrival = null;
   try {
     if (!state.install || !playableGames(state.install).includes(event.game)) {
@@ -218,7 +262,7 @@ async function openPendingArrival() {
     if (state.game !== event.game) await selectGame(event.game);
     if (state.browse.running) await browseFinished();
     if (state.game !== event.game || state.joining) {
-      pendingArrival = event;
+      pendingArrival = pending;
       return;
     }
     const checked = await check({ address: event.address, queryPort: event.queryPort });
@@ -226,6 +270,9 @@ async function openPendingArrival() {
     if (checked?.address === event.address && state.game === event.game) {
       servers.reveal(event.address);
       select(event.address);
+      // Join goes through the same path as a double-click, so a server that needs downloads
+      // stops on its priced button rather than fetching anything.
+      if (pending.join) activate(event.address);
     } else {
       openDialog("Server unavailable", el("p", null,
         `${event.hostname} (${event.address}) is no longer answering.`));
@@ -234,6 +281,47 @@ async function openPendingArrival() {
     openingArrival = false;
     if (pendingArrival) queueMicrotask(() => void openPendingArrival());
   }
+}
+
+/* Titlebar menus ------------------------------------------------------------ */
+
+/**
+ * The game and engine this session plays, and the way to change either. It replaced the toolbar's
+ * Game select and the folder chip: both answer "what am I browsing for", so they sit together.
+ */
+function openGameMenu(event) {
+  const anchor = $("#game-switch");
+  const games = playableGames(state.install);
+  const busy = state.browse.running || state.joining;
+  openMenu([
+    ...(games.length > 1
+      ? games.map((game) => ({
+          label: GAME_LABELS[game] ?? game,
+          checked: game === state.game,
+          disabled: busy && game !== state.game,
+          onSelect: () => void selectGame(game),
+        }))
+      : []),
+    games.length > 1 && { separator: true },
+    { label: "Change folder or engine…", disabled: state.joining, onSelect: leaveServers },
+    { note: displayPath(state.install.root) },
+  ].filter(Boolean), event, anchor);
+}
+
+function openMoreMenu(event) {
+  openMenu([
+    { label: "Report a bug", onSelect: () => void openBugReport() },
+    { label: "About Reveille", onSelect: () => void openAbout() },
+  ], event, $("#more-btn"));
+}
+
+async function openAbout() {
+  const version = await appVersion().catch(() => null);
+  openDialog("About Reveille",
+    el("p", null, "A server browser and launcher for Medal of Honor: Allied Assault, Spearhead and Breakthrough."),
+    version && el("p", { className: "data" }, `Version ${version}`),
+    el("p", { className: "quiet" }, "Free software under the GNU General Public License, version 3."),
+  );
 }
 
 function browseFinished() {
@@ -313,9 +401,9 @@ function render() {
   setupRoot.classList.toggle("hidden", ready);
   if (!ready) return;
 
-  $("#install-chip-path").textContent = displayPath(state.install.root);
-  $("#install-chip-engine").textContent =
-    `${GAME_LABELS[state.game] ?? state.game} · ${engineLabel(state.engine)}`;
+  $("#game-switch-game").textContent = GAME_LABELS[state.game] ?? state.game;
+  $("#game-switch-engine").textContent = engineLabel(state.engine);
+  $("#game-switch").title = `${displayPath(state.install.root)}\nChange game, engine or folder`;
   $("#reveille-update-btn").classList.toggle("hidden", !state.selfUpdate.offer);
   $("#reveille-update-btn").disabled = state.joining;
   const collapsed = state.detailCollapsed;
@@ -1076,7 +1164,7 @@ document.addEventListener("keydown", (event) => {
     event.target instanceof HTMLSelectElement ||
     event.target instanceof HTMLTextAreaElement ||
     event.target.isContentEditable === true ||
-    Boolean(event.target.closest?.("dialog[open]"));
+    Boolean(event.target.closest?.("dialog[open], .popover"));
   const plain = !event.ctrlKey && !event.altKey && !event.metaKey;
   const findOrRefreshModifier = (event.ctrlKey || event.metaKey) && !event.altKey;
   if (event.key === "F6") {
@@ -1096,6 +1184,8 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "/" && !typing) {
     event.preventDefault();
     servers.focusSearch();
+  } else if (event.key === "Escape" && popoverAnchor()) {
+    closePopover({ restoreFocus: true });
   } else if (event.key === "Escape" && menuIsOpen()) {
     closeMenu();
   } else if (event.key === "Escape" && typing) {
