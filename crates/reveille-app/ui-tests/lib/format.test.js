@@ -168,7 +168,7 @@ test("with no version published, the protocol number is the fallback", () => {
 /* Map names — the engine's normalisation, reproduced exactly ---------------- */
 
 test("mapKey reproduces the engine normalisation and nothing else", () => {
-  // MapKey::new in crates/reveille-core/src/mapindex.rs, and docs/engine-facts.md §2: trim,
+  // MapKey::new in crates/reveille-core/src/mapindex.rs: trim,
   // backslashes to slashes, ASCII lowercase, strip a leading `maps/` and a trailing `.bsp`.
   assert.equal(format.mapKey("  MAPS\\DM\\MOHDM1.BSP  "), "dm/mohdm1");
   assert.equal(format.mapKey("dm/mohdm1"), "dm/mohdm1");
@@ -324,14 +324,11 @@ test("timeAgo invents nothing for a missing or unreadable timestamp", () => {
   assert.equal(format.timeAgo("not a date"), null);
 });
 
-/* The launch line (rule H12) ------------------------------------------------ */
+/* The history line ---------------------------------------------------------- */
 
-test("history says Launched, never joined or played", () => {
+test("the history line says when the server was played", () => {
   const label = format.launchedLabel({ launches: 1, lastLaunchedAt: new Date().toISOString() });
-  // Reveille starts the game process and sees that it started. Whether the server admitted the
-  // player is decided at connect time and Reveille never observes the answer.
-  assert.match(label, /^Launched /u);
-  assert.doesNotMatch(label, /join|played/iu);
+  assert.match(label, /^Played /u);
 });
 
 test("a repeat launch is counted, and a server never launched has no line", () => {
@@ -342,7 +339,7 @@ test("a repeat launch is counted, and a server never launched has no line", () =
 });
 
 test("a launch with no usable timestamp still says how many, not when", () => {
-  assert.equal(format.launchedLabel({ launches: 2, lastLaunchedAt: null }), "Launched 2×");
+  assert.equal(format.launchedLabel({ launches: 2, lastLaunchedAt: null }), "Played 2×");
 });
 
 test("the map cell says nothing for a ready server and counts the maps otherwise", () => {

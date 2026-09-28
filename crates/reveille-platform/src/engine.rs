@@ -547,7 +547,7 @@ pub enum EngineError {
 
 impl EngineError {
     /// A failure to *write*. Separate a refused permission from every other I/O failure, so the
-    /// one case a player can act on reads as itself (docs/friction.md F3) rather than as a bare
+    /// one case a player can act on reads as itself rather than as a bare
     /// path.
     fn write_failure(path: impl Into<PathBuf>, source: io::Error) -> Self {
         let path = path.into();
@@ -570,7 +570,7 @@ impl EngineError {
 
     /// Carry a refused overlay write out at the same grain as every other one. Without this, the
     /// only thing a protected installation sees for the engine switch itself is "engine overlay
-    /// failed" (docs/rules.md S3).
+    /// failed".
     fn from_apply(error: package_io::ApplyError) -> Self {
         match error {
             package_io::ApplyError::Filesystem { path, source }

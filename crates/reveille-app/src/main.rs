@@ -153,12 +153,12 @@ struct BrowserServer {
 /// What checking one remembered server found.
 ///
 /// Never an error and never an empty success: either the server answered and is now joinable, or
-/// the reason it did not is recorded (H9).
+/// the reason it did not is recorded.
 #[derive(Serialize)]
 struct CheckResult {
     row: Option<BrowserServer>,
     non_result: Option<NonResultGroup>,
-    /// The server answered, but for another of the three games (H14).
+    /// The server answered, but for another of the three games.
     other_game: Option<TargetGame>,
 }
 
@@ -383,7 +383,7 @@ enum OpenMohaaInstalledBuild {
 /// The interface may not call every replacement an update. The channel selector can legitimately
 /// offer a *lower* version than the one installed - a player on preview holding `v0.83.0-rc.2`
 /// who switches to stable is offered `v0.82.1` - and naming that "update" would turn a rollback
-/// into a word the player did not choose (H10, H17). A receipt written before semver tags
+/// into a word the player did not choose. A receipt written before semver tags
 /// (`Development build 2026-08-20`) has no place in that ordering and takes `Incomparable`, so the
 /// shell offers a plain install rather than inventing a direction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -548,7 +548,7 @@ impl OpenMohaaFailure {
 /// resets its TCP connection, and a master whose reply is truncated are different observations,
 /// and all three used to reach the status bar as one raw
 /// `error.to_string()` -- "master reply body has 42 bytes; expected a multiple of 6" -- with no
-/// cause and no next action (docs/design-review.md F6).
+/// cause and no next action.
 ///
 /// `detail` carries the original message for diagnosis. The shell chooses its wording from `kind`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -1388,7 +1388,7 @@ async fn check_server(
         //
         // The entry goes with it. This list is what `find_server` prepares a join from, and a check
         // that ran and got no answer is evidence about now that outranks whatever the sweep saw —
-        // the same reason the shell drops the row (docs/rules.md H12). Leaving it would keep a join
+        // the same reason the shell drops the row. Leaving it would keep a join
         // preparable from figures the interface has already withdrawn.
         forget_checked_server(&state, address)?;
         return Ok(CheckResult {
@@ -1634,7 +1634,7 @@ fn session_search_path(session: &Session) -> Result<Vec<PathBuf>, String> {
 /// Resolve where downloaded content goes for this session, and nothing else.
 ///
 /// Called exactly once, and only after a shopping list proves this join will write a file. The
-/// returned destination is retained through installation and reporting (rules H8 and S3).
+/// returned destination is retained through installation and reporting.
 fn install_destination(session: &Session) -> Result<platform::InstallTarget, String> {
     let installation = session_installation(session)?;
     platform::resolve_install_target(
@@ -1812,7 +1812,7 @@ async fn install_and_launch(
     // Re-index the whole search path, not just the directory written to: the gate below asks
     // whether the engine can now find the map, and the engine reads all of it. The destination is
     // the preview's, not a fresh probe — the files went where the download put them, and that is
-    // what gets reported (H8).
+    // what gets reported.
     let index = installed_maps(&session)?;
     let assessment = reveille_core::join::classify_server(&index, &server, catalogue.as_ref());
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
@@ -2045,8 +2045,8 @@ async fn install_shopping_list(
 /// Why one catalogue lookup produced nothing, in a sentence a player can read.
 ///
 /// This rendered with `{:?}` until 27 Aug 2026, which put `HttpStatus { status: 503 }` in the
-/// detail pane of a launcher aimed at people who have never seen a Rust enum
-/// (docs/design-review.md F6). The wording lives here rather than in `reveille-core` because how
+/// detail pane of a launcher aimed at people who have never seen a Rust enum.
+/// The wording lives here rather than in `reveille-core` because how
 /// a non-result is presented is policy, and the core stays free of it (AGENTS.md).
 fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
     match reason {
@@ -3109,7 +3109,7 @@ mod tests {
     }
 
     /// The interface takes its word for the action from this ordering, so a channel switch that
-    /// offers a lower version cannot be called an update (H10, H17).
+    /// offers a lower version cannot be called an update.
     #[test]
     fn the_offered_release_is_ordered_against_the_installed_one() {
         let temporary = TempDir::new().expect("temporary directory");
@@ -3222,7 +3222,7 @@ mod tests {
     fn the_shell_sweeps_again_when_the_session_the_list_was_swept_for_changed() {
         // A text check, and it is what is available: the shell has no test runner, and the failure
         // it guards is invisible — the wrong game's servers under the right heading, with no error
-        // and nothing on screen to contradict them (H12). The regression it catches is a real one
+        // and nothing on screen to contradict them. The regression it catches is a real one
         // that shipped: `enterServers` swept only when the table was empty, so returning from setup
         // with a different game kept the list from the game just left.
         let app = include_str!("../ui/app.js");
@@ -3244,14 +3244,14 @@ mod tests {
 
     #[test]
     fn folded_remembered_entries_always_state_their_count() {
-        // H15's *rendering* half. That `scopedRows` emits the disclosure with its count whether
+        // The fold's *rendering* half. That `scopedRows` emits the disclosure with its count whether
         // the block is open or shut is asserted behaviourally in `ui-tests/lib/store.test.js`;
         // what stays here is the wording and the ARIA state, which need a real DOM with real
         // attribute reflection. `ui-tests/fakes/dom.js` deliberately does not model that, because
         // a fake that approximated it would hand back confidence it had not earned.
         let servers = include_str!("../ui/views/servers.js");
         assert!(
-            servers.contains("`${count} ${savedNoun(count)} not in ${check}`"),
+            servers.contains("`${count} offline`"),
             "ui/views/servers.js: the disclosure must say how many entries it is folding away"
         );
         assert!(
@@ -3283,7 +3283,7 @@ mod tests {
             "ui/views/setup.js: the Reborn card must offer its action whatever is installed"
         );
 
-        // H10: the label states the direction the Rust comparison found, and never guesses one.
+        // The label states the direction the Rust comparison found, and never guesses one.
         for wording in [
             "if (build.relation === \"newer\") return `Update to ${version}`;",
             "if (build.relation === \"older\") return `Go back to ${version}`;",
@@ -3295,7 +3295,7 @@ mod tests {
             );
         }
 
-        // S2: the install can legitimately write nothing, and that is not a success.
+        // The install can legitimately write nothing, and that is not a success.
         assert!(
             setup.contains("if (result.outcome?.outcome === \"deferred\")"),
             "ui/views/setup.js: a deferred install must be reported as having changed nothing"
@@ -3583,8 +3583,7 @@ mod tests {
 
     #[test]
     fn a_ready_server_adds_nothing_to_the_detail_pane() {
-        // docs/ui.md §9: a ready server says nothing — silence is the correct rendering of
-        // "nothing to do". `needsSection` returns null when there is no explanation to give, no
+        // A ready server says nothing — silence is the correct rendering of "nothing to do". `needsSection` returns null when there is no explanation to give, no
         // cost, no choice pending and no caveat true of this server, which is the ordinary case
         // and the one a player is trying to pick out of the list.
         let join = include_str!("../ui/views/join.js");
@@ -3636,7 +3635,7 @@ mod tests {
     fn the_self_update_offer_is_explicit_and_keeps_the_checked_release() {
         // A background response may reveal an offer, but only the player's labelled action may
         // install it. The Rust side retains Tauri's checked Update object so the frontend cannot
-        // swap its URL or signature between those two moments (rules H16 and S6).
+        // swap its URL or signature between those two moments.
         let updater = include_str!("self_update.rs");
         let shell = include_str!("../ui/app.js");
         let setup = include_str!("../ui/views/setup.js");

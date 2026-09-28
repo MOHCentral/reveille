@@ -705,9 +705,9 @@ async function refresh() {
   const swept = session();
   // What is on screen now, kept only so a sweep that fails outright has something honest to fall
   // back to. Blanking the table on a failed sweep left the centre of the window reading "Nothing
-  // has been checked yet" under an error about the check that had just run (docs/design-review.md
-  // F6). Only a list swept for *this* session qualifies: rows from another game or another folder
-  // are not a stale answer to this question, they are an answer to a different one.
+  // has been checked yet" under an error about the check that had just run. Only a list swept for
+  // *this* session qualifies: rows from another game or another folder are not a stale answer to
+  // this question, they are an answer to a different one.
   const previous = listIsForCurrentSession() ? state.servers : [];
   // A server that was in the last list but not in this one keeps no count to compare against.
   const previousCounts = countsByAddress(previous);
@@ -802,7 +802,7 @@ let previewTimer = null;
  *
  * Selection follows focus in the grid, which is what makes the arrow keys useful — but it also
  * means holding Down through twenty rows used to fire twenty `preview_join` calls at moh-db, one
- * per row passed over (docs/design-review.md F4). The pane still updates on every step; only the
+ * per row passed over. The pane still updates on every step; only the
  * third-party request waits. Long enough that scrolling costs nothing, short enough that a
  * deliberate selection does not feel delayed.
  */
@@ -944,7 +944,7 @@ async function getAndJoin(row, acceptIncomplete) {
       acceptIncomplete,
     );
     // Only a launched outcome is remembered. A refusal means Reveille did not start the game,
-    // so there is nothing that happened to record (docs/rules.md H12). The launch is recorded even
+    // so there is nothing that happened to record. The launch is recorded even
     // if the session moved on — it really did happen — but its result is not rendered into a
     // session it is no longer about.
     if (result.outcome?.launch === "launched") recordLaunch(row);
@@ -1144,7 +1144,7 @@ function showNonResults() {
  *
  * F6 is the Windows convention for moving between the panes of one window, and without it a
  * keyboard player crossing from the list to the detail pane has to arrow through the list to its
- * end first (docs/design-review.md F22).
+ * end first.
  */
 const REGIONS = [
   { root: () => document.querySelector(".toolbar"), enter: () => servers.focusSearch() },
@@ -1175,7 +1175,7 @@ function cycleRegion(backwards) {
  * WebView2's own context menu never reaches a row, a button or a heading.
  *
  * Back, Reload and Inspect on a right-click is the loudest tell that a desktop window is a web
- * page in a costume (docs/ux-standards.md §7.3). It is left alone over anything the player can
+ * page in a costume. It is left alone over anything the player can
  * select text in, because there the browser menu is genuinely the right one — Copy is what a
  * right-click on an address is for.
  */

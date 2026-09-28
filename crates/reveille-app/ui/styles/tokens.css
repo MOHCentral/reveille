@@ -3,16 +3,10 @@
 /* ============================================================================
    Reveille design tokens.
 
-   Two rules govern this palette, and both come from docs/ui.md:
-
-   1. Period flavour lives in the chrome, never in the data. The brass accent,
-      the condensed uppercase labels and the near-black ground carry the
-      identity. Tables, numbers and forms stay quiet.
-
-   2. Colour is meaning, not decoration. Green and amber are absent from the
-      server list on purpose: a status traffic light teaches people to click
-      only green, and "needs maps" is the one thing this launcher exists to
-      fix, not a defect.
+   Period flavour lives in the chrome, never in the data. The brass accent,
+   the condensed uppercase labels and the near-black ground carry the
+   identity. Tables, numbers and forms stay quiet, and colour in them always
+   means something: ping, occupancy, a map with no download.
 
    Every text token below clears WCAG AA (4.5:1) against every surface it is
    allowed on. The measured ratios are in the comments; --faint-deco is the

@@ -7,12 +7,12 @@
 // maps, No download for N maps, Map list not published — because this is where
 // the decision is made. The list deliberately does not repeat them as badges.
 // Each name states what Reveille measured rather than how confident it feels
-// about it (lib/format.js `stateName`, docs/ux-standards.md §1.1).
+// about it (lib/format.js `stateName`).
 //
 // The fourth, Compatible, is rendered nowhere. A ready server has nothing to
 // qualify, and a heading reading `Compatible` above a button reading `Join`
 // restates the control beneath it. Silence is the correct rendering of "nothing
-// to do" (docs/ui.md §9).
+// to do".
 //
 // The join gate is about the map running *now*, not the whole rotation. A server
 // with one unobtainable map later in its rotation is perfectly playable until it
@@ -433,13 +433,12 @@ function freshness(row, onRecheck) {
   );
 }
 
-// Reveille saw the game start; whether the server let the player in is never observed.
 function launchedLine(address) {
   const launched = launchedLabel(historyByAddress().get(address));
   if (!launched) return null;
   return el(
     "p",
-    { className: "quiet", title: "Reveille started the game connecting to this server." },
+    { className: "quiet", title: "Last time Reveille started the game on this server." },
     launched,
   );
 }
@@ -468,7 +467,7 @@ function checkedLine(address) {
  * The selected server, after a check that ran and found it no longer there.
  *
  * The row has left the list, because a check that got no answer is evidence about now and the
- * client count, map and round trip it replaced are not (docs/rules.md H12). Emptying the pane
+ * client count, map and round trip it replaced are not. Emptying the pane
  * instead would lose the player's place and say nothing about why, so what is left is the name it
  * had, the address, what the check found, and the one thing that can change the answer.
  *
@@ -520,7 +519,7 @@ function goneDetail(check, address) {
     return `It now publishes ${check.movedTo} as its game address, which is in the list.`;
   }
   if (check.nonResult) return `This server ${nonResultReason(check.nonResult)}.`;
-  return "This server did not answer.";
+  return "This server is offline.";
 }
 
 /**
@@ -531,9 +530,8 @@ function goneDetail(check, address) {
  * every map already on disk included, under headings that were mostly empty. A ready server —
  * the ordinary case, and the one a player is trying to pick out of the list — drew two headings,
  * a state name and a paragraph of maps it already has, and pushed the address and the freshness
- * line below the fold to do it. docs/ui.md §9 had already ruled on this: *a ready server says
- * nothing; silence is the correct rendering of "nothing to do"*, and an explanation earns a
- * paragraph only if it changes the next click.
+ * line below the fold to do it. A ready server says nothing; silence is the correct rendering of
+ * "nothing to do", and an explanation earns a paragraph only if it changes the next click.
  *
  * So this returns `null` outright for a compatible server with nothing to qualify. What survives
  * is what changes the click: the state and how it was reached, what it costs, and the one choice
@@ -570,7 +568,7 @@ function needsSection(assessment, preview, server) {
     // already reads `Join` is a heading restating the control beneath it.
     explanation ? el("h3", { className: "display heading-sm" }, stateName(assessment.state)) : null,
     // Persistent, not a tooltip: this sentence is what makes the name above it a decision, and a
-    // title is unreachable by keyboard and by touch (docs/ux-standards.md §3.1).
+    // title is unreachable by keyboard and by touch.
     explanation ? el("p", { className: "verdict-note" }, explanation) : null,
     resolving ? resolvingMeter() : null,
     totals?.serverFiles > 0

@@ -168,7 +168,7 @@ test("the search box matches the address as well as the name", () => {
   assert.equal(store.visibleServers().length, 1);
 
   // Pasting an IP used to say "Nothing matches" in All while finding it in Favorites, because the
-  // two code paths matched different fields (docs/design-review.md F13).
+  // two code paths matched different fields.
   store.state.filters.query = "10.0.0.1";
   assert.equal(store.visibleServers().length, 1);
 

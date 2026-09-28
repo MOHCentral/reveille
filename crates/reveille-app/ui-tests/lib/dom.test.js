@@ -9,7 +9,7 @@
 // The `String()` coercion in `append` is the escape boundary, and the tests below exercise it with
 // a hostname that would be a script tag if it were ever interpolated.
 //
-// **Re-rendering must not steal the caret** (`docs/ui.md` §7). Replacing a subtree detaches
+// **Re-rendering must not steal the caret**. Replacing a subtree detaches
 // whatever had focus, which silently breaks typing and arrow-key navigation. `preserveFocus` is
 // the whole of the defence and had no test before this one.
 //
@@ -103,7 +103,7 @@ test("frag returns siblings without a wrapper element", () => {
   assert.equal(node.text, "ab");
 });
 
-/* Re-rendering must not steal the caret (docs/ui.md §7) --------------------- */
+/* Re-rendering must not steal the caret ------------------------------------ */
 
 /** A region holding one focusable control, as a repaint would rebuild it. */
 function region(focusKey) {

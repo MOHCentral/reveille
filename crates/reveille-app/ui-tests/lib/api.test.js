@@ -97,8 +97,8 @@ test("the join command passes the chosen candidates and the consent flag through
   await api.installAndLaunch(SESSION, "10.0.0.1:12203", [11, 22], true);
   const { args } = bridge.calls[0];
   assert.deepEqual(args.selectedCandidateIds, [11, 22]);
-  // Consent is the click on the primary button, and this flag is what carries it. A silent
-  // inference from the compatibility state is exactly the bug docs/ui.md §5 records.
+  // Consent is the click on the primary button, and this flag is what carries it, never an
+  // inference from the compatibility state.
   assert.equal(args.acceptIncomplete, true);
 });
 

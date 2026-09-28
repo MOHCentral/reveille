@@ -191,7 +191,7 @@ function rebornDetails(install, render) {
  * this button can change — and it used to be drawn only when nothing was installed at all, which
  * left a folder holding another known build, or files Reveille did not write, with the evidence
  * line and no way to act on it. A build proved to be the pinned one keeps its secondary
- * reinstall and no primary action (rule H10).
+ * reinstall and no primary action.
  */
 function rebornAction(install, info, build, render) {
   const state = build?.state ?? "absent";
@@ -238,12 +238,12 @@ function knownOtherText(build) {
  * This button used to be drawn only while nothing was installed, which left a player who already
  * had OpenMoHAA no way to change the version at all: choosing Preview showed the newer release,
  * and Continue to servers then recorded the engine choice and installed nothing, so the binaries
- * in the folder never moved (docs/friction.md F2).
+ * in the folder never moved.
  *
  * The wording comes from the receipt comparison in Rust, never from comparing version strings
  * here. The channel selector can legitimately offer a *lower* version — preview holds
  * `v0.83.0-rc.2`, stable offers `v0.82.1` — and calling that an update would name a rollback
- * something the player did not choose (rule H10). A build Reveille can prove is the offered one
+ * something the player did not choose. A build Reveille can prove is the offered one
  * gets no primary action, only a secondary reinstall, for the same reason.
  */
 function openAction(install, status, render) {
@@ -265,7 +265,7 @@ function openActionLabel(build, version) {
 /**
  * Said before the download rather than after it.
  *
- * Reveille will not write over files a running program is using (rule S2), and it proves that
+ * Reveille will not write over files a running program is using, and it proves that
  * only once the archive has arrived — a player can start the game during a 100MB transfer. A
  * player told afterwards has paid for the download for nothing, so the reading taken alongside
  * the release details is shown for what it is worth. It is worth stating only where replacement
@@ -411,7 +411,7 @@ async function loadOpenStatus(install, render) {
  * A deferred install is not a failure and is not a success either.
  *
  * `install_openmohaa` resolves with what it actually did. Replacement is refused while one of the
- * engine's programs is running or cannot be proved stopped (rule S2), and that check happens
+ * engine's programs is running or cannot be proved stopped, and that check happens
  * after the transfer, so the ordinary success path would otherwise report an install that wrote
  * nothing. Nothing changed on disk, so the engine choice is left where it was and only the
  * release details are re-read.
@@ -462,12 +462,11 @@ async function stopInstall(render) {
  * Setup offers to install a game *program* — OpenMoHAA or Reborn. It cannot install the game
  * *data*, which `install::identify` requires, and nothing on screen used to draw that line. A
  * player pointing at an empty folder got "No Medal of Honor installation there" and no way to
- * work out why, which is the hardest kind of wall: no error, no next action, at second zero
- * (docs/friction.md F1, docs/design-review.md F2).
+ * work out why, which is the hardest kind of wall: no error, no next action, at second zero.
  *
  * Doomseeker settled the same boundary for the same kind of player years ago — it fetches the
  * optional content and states the base game as a precondition up front, rather than as a failure
- * halfway through (docs/ux-standards.md §7, prior art).
+ * halfway through.
  */
 function prerequisite() {
   return el(

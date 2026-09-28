@@ -3,7 +3,7 @@
 // What Reveille remembers about servers between runs: the ones the player starred,
 // and the ones it launched the game for.
 //
-// One honesty rule shapes the whole shape of this file (docs/rules.md H12). An entry
+// One honesty rule shapes the whole shape of this file. An entry
 // stores an address, a query port, and a name — and **nothing else**. No client
 // count, no map, no round trip, no compatibility state. Those are facts about a
 // moment, and a remembered moment rendered in the live table would read as current.

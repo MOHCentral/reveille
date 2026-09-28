@@ -7,7 +7,7 @@
 // Commands (crates/reveille-app/src/main.rs):
 //   detect_install(selectedPath?)              -> Installation | null
 //     Installation.products is what is on disk; Installation.playable is what can be run — an
-//     expansion needs the base game underneath it (rules H13/H14). Offer `playable`.
+//     expansion needs the base game underneath it. Offer `playable`.
 //   openmohaa_status(path, channel)            -> OpenMohaaStatus
 //   install_openmohaa(path, offerId)           -> OpenMohaaInstallResult
 //   cancel_openmohaa_install()                 -> void
@@ -168,7 +168,7 @@ export function errorText(error) {
  *
  * `{ kind, detail }`, where `kind` is decided in Rust beside the errors it names — the shell must
  * never read a cause out of a formatted message, which is how "no internet" and "the master sent
- * nonsense" ended up as the same unreadable line (docs/design-review.md F6). Anything else that
+ * nonsense" ended up as the same unreadable line. Anything else that
  * reaches this is carried through as `internal` with its own message intact.
  */
 export function browseFailure(error) {

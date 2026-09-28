@@ -144,7 +144,7 @@ function fallbackVersion(server) {
 /**
  * The engine's map-name normalisation, reproduced exactly.
  *
- * `MapKey::new` in crates/reveille-core/src/mapindex.rs, and docs/engine-facts.md §2:
+ * `MapKey::new` in crates/reveille-core/src/mapindex.rs:
  * trim, backslashes to slashes, ASCII lowercase, strip a leading `maps/` and a
  * trailing `.bsp`, and **nothing else**. Both prefixed and bare names are
  * legitimate, so no prefix may be inserted.
@@ -202,8 +202,7 @@ export function mapNeed(state) {
  *
  * Every one of them is a measurement, not a mood word. A verbal hedge — "can't tell", "no
  * source", "possibly compatible" — costs a reader trust in the figure and in the source, where
- * the same fact stated as a measurement costs almost none (van der Bles et al., PNAS 2020;
- * docs/ux-standards.md §1.1). So the name says what Reveille found, and the player is left to
+ * the same fact stated as a measurement costs almost none (van der Bles et al., PNAS 2020). So the name says what Reveille found, and the player is left to
  * draw the verdict.
  *
  * "Map list", never "rotation" — the server publishes a list, and calling it a rotation claims an
@@ -226,11 +225,10 @@ export function stateName(state) {
  * How each state was arrived at, rendered as persistent text beside the name.
  *
  * Not a tooltip. This is the sentence that turns a two-word noun into a decision, and a `title`
- * is unreachable by keyboard and by touch and fails WCAG 2.2 SC 1.4.13 outright
- * (docs/ux-standards.md §3.1).
+ * is unreachable by keyboard and by touch and fails WCAG 2.2 SC 1.4.13 outright.
  *
  * `Compatible` returns null on purpose. A ready server says nothing: silence is the correct
- * rendering of "nothing to do" (docs/ui.md §9).
+ * rendering of "nothing to do".
  */
 export function stateExplanation(state) {
   switch (state?.state) {
@@ -289,18 +287,12 @@ export function timeAgo(iso) {
   return then.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-/**
- * The launch line: what Reveille did, not what the server did.
- *
- * "Launched", never "joined" or "played". Reveille starts the game process and sees that it
- * started. Whether the server admitted the player is decided at connect time and Reveille never
- * observes the answer (docs/rules.md H12).
- */
+/** The detail pane's history line: when this server was last played from Reveille, and how often. */
 export function launchedLabel(entry) {
   if (!entry?.launches) return null;
   const when = timeAgo(entry.lastLaunchedAt);
   const times = entry.launches > 1 ? ` · ${entry.launches}×` : "";
-  return when ? `Launched ${when}${times}` : `Launched ${entry.launches}×`;
+  return when ? `Played ${when}${times}` : `Played ${entry.launches}×`;
 }
 
 /** The History view's Played column: how long ago, and how often once it is more than once. */
@@ -350,7 +342,7 @@ export function watchLine(reading, lastAlertAt, threshold = 1) {
  *
  * The sweep emits one event per probed endpoint, so a region restating "N of M done" fired
  * roughly two hundred announcements per sweep — not progress reporting but a denial of service
- * against the one output a blind player has (docs/ux-standards.md §5.7). Progress is announced at
+ * against the one output a blind player has. Progress is announced at
  * quarters instead: start, three milestones, then the summary. Five utterances rather than two
  * hundred.
  *
@@ -393,7 +385,7 @@ export function nonResultReason(group) {
  * The `kind` is decided in Rust, beside the errors it names, exactly as `OpenMohaaFailureKind`
  * already is — the shell never reads a cause out of a formatted message. Each one carries a cause
  * and a remedy, because the two moments this fires are where a non-technical player decides
- * whether the tool is broken or their PC is (docs/design-review.md F6).
+ * whether the tool is broken or their PC is.
  *
  * The original message is kept as `detail` and shown as detail, not as the whole status bar.
  */

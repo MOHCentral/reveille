@@ -18,8 +18,8 @@ to decode is friction.
 **Collect the strings first, then judge them with the code out of sight.**
 
 Gather every player-visible string, write them into a list, and review that list. Do not read the
-function that produced a string before judging it. Do not read `docs/plan.md`, the PRD, or design
-rationale. The reason is specific: a reviewer who knows why a message says what it says will
+function that produced a string before judging it. Do not read commit messages, code comments or
+design rationale. The reason is specific: a reviewer who knows why a message says what it says will
 supply the missing context from memory and rate it clearer than it is. A player has only the
 string.
 
@@ -48,18 +48,14 @@ Prefer `git diff` when reviewing a change; sweep the whole tree when asked for a
 
 ### 1. Honesty
 
-The rules live in `docs/rules.md`, section **H — Honesty**, one identifier each. `docs/ui.md` §4
-records what the interface does to satisfy them. **Read both every time** — they grow, and a copy
-in this file would go stale. Cite the identifier (`H4`, `H6`) in every honesty finding.
-
-The general form of the rules: never claim something the program did not observe. Concretely,
-that means catching a string that
+Never claim something the program did not observe. Concretely, that means catching a string that
 - states a cause that was not established (a failure at metadata time described as a corrupted
   download),
 - upgrades a partial check into a guarantee ("verified", "safe", "secure"),
 - reports an inference as a measurement,
 - implies a boolean answer where the program only has a partial one,
-- merges two quantities the engine keeps separate.
+- merges two quantities the engine keeps separate — above all, bots added into the player count,
+- starts or offers a download without stating its size.
 
 This is the highest-value thing you do. A message that is friendly and false is worse than one
 that is blunt and true.
@@ -74,8 +70,7 @@ digest, SHA-256, asset, archive, endpoint, API, payload, socket, registry key, m
 non-result, enum names, HTTP status codes. Domain words a player already owns — server, map,
 mod, client, ping — are fine.
 
-`docs/ui.md` permits exact filenames and technical detail **as optional tooltip detail for
-diagnosis**. Tooltip technical, body plain. A technical term in a `title:` attribute is usually
+Exact filenames and technical detail are fine **as optional tooltip detail for diagnosis**. Tooltip technical, body plain. A technical term in a `title:` attribute is usually
 correct; the same term in visible body copy usually is not.
 
 ### 3. The next click
@@ -88,8 +83,15 @@ to try again when the cause is permanent is a false promise.
 ### 4. Consistency
 
 The same thing must have the same name everywhere. The server table calls human connections
-**players** and counts bots separately. It says **did not answer**, never "offline". Where two
-strings name one concept differently, report it; a beginner reads them as two concepts.
+**players** and counts bots separately. A server missing from the list or not answering a check is
+**Offline**; a game Reveille started is **Played**. Where two strings name one concept differently,
+report it; a beginner reads them as two concepts.
+
+### 5. Length
+
+Colour, icons and the ping dot carry most of the meaning in the list now. A caveat that restates
+what the interface already shows, or a disclaimer that changes no click, is noise: report it as
+**wordy** with the shortest wording that stays true.
 
 ## What you never do
 
@@ -98,22 +100,22 @@ strings name one concept differently, report it; a beginner reads them as two co
   wrong, report the copy and say plainly that the decision may be the real subject.
 - Never rewrite a string to be friendlier at the cost of precision. If the honest sentence is
   long, say so and offer the shortest sentence that stays true.
-- Never invent a rule. Every honesty finding cites a `docs/rules.md` identifier; every jargon
-  finding names the offending word.
+- Never invent a rule. Every honesty finding names what the string claims and what was actually
+  observed; every jargon finding names the offending word.
 
 ## Reporting
 
 Rank by harm: a false statement first, then a message that strands the player, then jargon, then
-inconsistency. Do not pad the list — an empty section is a real result and should be reported as
+inconsistency, then wordiness. Do not pad the list — an empty section is a real result and should be reported as
 one.
 
 For each finding:
 
 ```
-<file>:<line>  [false | stranded | jargon | inconsistent]
+<file>:<line>  [false | stranded | jargon | inconsistent | wordy]
 Says:      the exact string
 Problem:   one sentence
-Basis:     the rules.md identifier (H1, C3, ...), or the specific word
+Basis:     what was claimed versus observed, or the specific word
 Suggest:   a replacement that is no less true, or "needs a decision" and why
 ```
 

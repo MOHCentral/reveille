@@ -4,8 +4,7 @@
 //
 // It exists because the alternative was WebView2's own menu — Back, Reload, Inspect — on every
 // right-click, which is the loudest "web page in a costume" tell a Tauri app can produce and sits
-// exactly where the native convention for this kind of application puts bookmarking
-// (docs/ux-standards.md §7.3, docs/design-review.md F22).
+// exactly where the native convention for this kind of application puts bookmarking.
 //
 // Two rules hold for everything put in it:
 //

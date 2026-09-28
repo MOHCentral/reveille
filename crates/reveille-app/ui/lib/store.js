@@ -128,8 +128,8 @@ export const state = {
    * Whether a saved scope's absent block is open.
    *
    * Shut by default. What it hides is stated on the disclosure that hides it, so a player can see
-   * that entries are folded away and how many (H15) — this is not a filter with an invisible
-   * effect, which is what got the old "Hide unavailable maps" toggle removed (docs/ui.md §2.1).
+   * that entries are folded away and how many — this is not a filter with an invisible
+   * effect, which is what got the old "Hide unavailable maps" toggle removed.
    */
   showAbsent: false,
 
@@ -156,9 +156,9 @@ export const state = {
    *
    * A sweep that cannot reach the master used to blank the table and leave the centre of the
    * window reading "Nothing has been checked yet" underneath an error in the corner — the two
-   * contradicting each other, with no next action in either (docs/design-review.md F6). The rows
+   * contradicting each other, with no next action in either. The rows
    * from the last sweep that did work are kept instead, and this is the clock time that says what
-   * they are: a past reading, not a current one (docs/ux-standards.md §4.5).
+   * they are: a past reading, not a current one.
    *
    * Null whenever the list on screen is this session's own answer.
    */
@@ -270,7 +270,7 @@ export function migrateInstallationPreferences(oldRoot, newRoot, engine, game) {
 
 /**
  * The games an install can actually run, which is not the same as the products detected in it:
- * an expansion needs the base game underneath it, and the Rust side decides that (rules H13/H14).
+ * an expansion needs the base game underneath it, and the Rust side decides that.
  */
 export function playableGames(install) {
   return install?.playable ?? [];
@@ -375,8 +375,7 @@ const SORTERS = {
  *
  * A sort is not a filter. Sorting by players surfaces full servers on the other side of the
  * world; sorting by ping surfaces empty ones next door. Shipping the sort without the filter is a
- * documented failure across several modern browsers, and Doomseeker has had this since the 2000s
- * (docs/ux-standards.md §7, docs/design-review.md F15).
+ * documented failure across several modern browsers, and Doomseeker has had this since the 2000s.
  */
 export const PING_LIMITS = [null, 80, 150, 250];
 
@@ -385,7 +384,7 @@ export const PING_LIMITS = [null, 80, 150, 250];
  *
  * The query matches the **address** as well as the name. It matched only the name here while
  * `partitionScope` below matched both, so pasting an IP into All said "Nothing matches" with the
- * server on screen, and the same paste in Favorites found it (docs/design-review.md F13).
+ * server on screen, and the same paste in Favorites found it.
  */
 function matchesFilters(row) {
   const query = state.filters.query.trim().toLowerCase();
@@ -573,10 +572,10 @@ export function scopedAbsent() {
  *
  * A remembered server the current sweep did not return is **not** dropped and **not** drawn with
  * the figures it had last time. It comes back as `absent`, carrying only its address and the name
- * it was starred under, and the view says so (docs/rules.md H12). Absent entries always follow the
+ * it was starred under, and the view says so. Absent entries always follow the
  * live rows: there is nothing to sort them by.
  *
- * They are also **collapsed behind a disclosure that states how many there are** (H15). Each of
+ * They are also **collapsed behind a disclosure that states how many there are**. Each of
  * the three games registers with the master separately, so a server starred while browsing another
  * one can never appear in this check and would otherwise sit in the list for ever, unanswerable —
  * often outnumbering the rows that did answer. The `disclosure` item is emitted whenever there is
@@ -678,7 +677,7 @@ export function rememberReadyJoin(next, row, result) {
  *
  * A check that ran and got no answer is evidence about *now*, and it outranks whatever the sweep
  * saw. The live row for this address is **dropped** rather than left standing with figures this
- * check has just shown are no longer current (docs/rules.md H12) — and its freshness stamp goes
+ * check has just shown are no longer current — and its freshness stamp goes
  * with it, because a time is a claim about a measurement that no longer exists.
  *
  * `dropped` carries the name the row had, so the pane can still say what the check was about.
