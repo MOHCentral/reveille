@@ -27,6 +27,7 @@ import {
   gameType,
   launchedLabel,
   mapName,
+  mapNeed,
   nonResultReason,
   occupancy,
   occupancyFill,
@@ -713,6 +714,18 @@ function occupancyCell(counts) {
   );
 }
 
+/** The maps a server needs, after its map name. The missing case is the one drawn in red. */
+function needBadge(need) {
+  if (!need) return null;
+  return el(
+    "span",
+    { className: `need need--${need.kind}`, title: need.title },
+    need.kind === "missing" ? "✕" : icon("download"),
+    need.text,
+    el("span", { className: "sr-only" }, ` ${need.title}`),
+  );
+}
+
 function segment(className, share) {
   const node = el("span", { className });
   node.style.width = `${(share * 100).toFixed(1)}%`;
@@ -752,8 +765,13 @@ function row(item, starred, launches, onSelect) {
       { role: "gridcell", className: "col-map" },
       el(
         "span",
-        { className: "map-cell" },
-        item.server.current_map ? mapName(item.server.current_map) : "—",
+        { className: "map-line" },
+        el(
+          "span",
+          { className: "map-cell" },
+          item.server.current_map ? mapName(item.server.current_map) : "—",
+        ),
+        needBadge(mapNeed(item.compatibility?.state)),
       ),
     ),
     el(

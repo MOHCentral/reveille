@@ -164,6 +164,35 @@ export function mapName(value) {
 }
 
 /**
+ * What the Map cell adds after the map name: how many maps this server needs, so "can I join
+ * right now?" is answered on every row without selecting it. Nothing for a ready server.
+ */
+export function mapNeed(state) {
+  switch (state?.state) {
+    case "compatible":
+      return null;
+    case "needs_maps":
+      return {
+        kind: "download",
+        text: String(state.count),
+        title: `Needs ${plural(state.count, "map")}. Reveille downloads them when you join.`,
+      };
+    case "no_source":
+      return {
+        kind: "missing",
+        text: String(state.count),
+        title: `No download found for ${plural(state.count, "map")}.`,
+      };
+    default:
+      return {
+        kind: "unknown",
+        text: "?",
+        title: "This server publishes no map list, so Reveille can only check the map running now.",
+      };
+  }
+}
+
+/**
  * The canonical four state names.
  *
  * Every one of them is a measurement, not a mood word. A verbal hedge — "can't tell", "no

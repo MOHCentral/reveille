@@ -441,8 +441,39 @@
   font-weight: 400;
 }
 
+.map-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.need {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--dim);
+}
+
+.need .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.need--unknown {
+  color: var(--faint);
+}
+
+.need--missing {
+  color: var(--bad-text);
+}
+
 .map-cell {
   display: block;
+  min-width: 0;
   font-family: var(--face-data);
   font-size: var(--text-sm);
   color: var(--dim);
