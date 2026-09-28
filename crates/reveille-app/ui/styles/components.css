@@ -226,35 +226,52 @@
   display: none;
 }
 
-/* The star ------------------------------------------------------------------
-   A control, not a status: brass when set, decoration grey when not. It never
-   colours anything the player reads to make a decision. */
+/* Marks: the favorite star and the watch bell ---------------------------------
+   Controls, not statuses: brass when set, decoration grey when not. */
 
-.star {
+.mark {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
   color: var(--faint-deco);
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
 }
 
-.star:hover {
+.mark:hover {
   color: var(--brass);
 }
 
-.star[aria-pressed="true"] {
+.mark[aria-pressed="true"] {
   color: var(--brass);
 }
 
-.star--lg {
+.mark--lg {
   width: 32px;
   height: 32px;
-  font-size: 22px;
+  font-size: 20px;
+}
+
+.marks {
+  display: flex;
+  gap: 2px;
+}
+
+/* In the list an unset mark only shows where the pointer or the selection is, so a hundred rows
+   are not a column of hollow icons. */
+.servers .mark[aria-pressed="false"] {
+  opacity: 0;
+}
+
+.servers tr:hover .mark,
+.servers tr[aria-selected="true"] .mark,
+.servers .mark:focus-visible {
+  opacity: 1;
 }
 
 /* Chips -------------------------------------------------------------------- */

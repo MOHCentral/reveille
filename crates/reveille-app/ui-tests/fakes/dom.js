@@ -7,7 +7,7 @@
 // immediately become a supply-chain question for issue #10 — a large answer to a small problem.
 // `dom.js` is 88 lines and touches a countable set of DOM features, listed below.
 //
-// **What this models.** `createElement`, `createDocumentFragment`, `activeElement`, `Node`,
+// **What this models.** `createElement`, `createElementNS`, `createDocumentFragment`, `activeElement`, `Node`,
 // `CSS.escape`, and per element: `append`, `replaceChildren`, `setAttribute`, `addEventListener`,
 // `dataset`, `classList`, `querySelector`, `contains`, `focus`, `setSelectionRange`, `textContent`, and the
 // reflected properties `el()` distinguishes by `key in node`.
@@ -218,6 +218,10 @@ export function installDom() {
   const document = {
     activeElement: null,
     createElement(tag) {
+      return new FakeElement(tag, document);
+    },
+    // SVG icons: the namespace makes no difference to anything these tests read.
+    createElementNS(_namespace, tag) {
       return new FakeElement(tag, document);
     },
     createDocumentFragment() {

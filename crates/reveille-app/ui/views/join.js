@@ -33,6 +33,7 @@ import {
   stateName,
 } from "../lib/format.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.js";
+import { icon } from "../lib/icons.js";
 import { hasPlayerAlert } from "../lib/player-alerts.js";
 import {
   GAME_LABELS,
@@ -116,7 +117,7 @@ function header(row, server, onRecheck, onTogglePlayerAlert) {
           "button",
           {
             type: "button",
-            className: "star star--lg",
+            className: "mark mark--star mark--lg",
             dataset: { focusKey: "detail-star" },
             "aria-pressed": starred ? "true" : "false",
             "aria-label": `Favorite ${server.hostname || row.address}`,
@@ -126,17 +127,17 @@ function header(row, server, onRecheck, onTogglePlayerAlert) {
               update(() => {});
             },
           },
-          starred ? "★" : "☆",
+          icon("star", { outline: !starred }),
         ),
         el("button", {
           type: "button",
-          className: "star star--lg player-alert-bell",
+          className: "mark mark--bell mark--lg",
           dataset: { focusKey: "detail-player-alert" },
           "aria-pressed": alerted ? "true" : "false",
           "aria-label": `${alerted ? "Turn off" : "Turn on"} player alerts for ${server.hostname || row.address}`,
           title: alerted ? "Turn off player alerts" : "Notify me when players join",
           onclick: () => void onTogglePlayerAlert(row),
-        }, "🔔"),
+        }, icon("bell", { outline: !alerted })),
       ),
     ),
     el("p", { className: "data quiet selectable" }, row.address),
