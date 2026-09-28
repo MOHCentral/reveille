@@ -70,3 +70,12 @@ export function markArrivalsRead() {
     // The feed remains readable when preferences cannot be saved.
   }
 }
+
+/** Empty the bell. A toast still on screen stays clickable for this run. */
+export function clearArrivals() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Nothing was saved to clear.
+  }
+}

@@ -41,6 +41,7 @@ import {
 import {
   arrivalById,
   arrivalEvents,
+  clearArrivals,
   markArrivalsRead,
   recordArrival,
   unreadArrivalCount,
@@ -221,6 +222,17 @@ function toggleArrivals() {
           servers.selectScope("watching");
         },
       }, "Open Watching"),
+      events.length > 0 && el("button", {
+        type: "button",
+        className: "btn btn--sm btn--utility",
+        onclick: () => {
+          clearArrivals();
+          renderArrivalBadge();
+          update(() => {});
+          closePopover();
+          toggleArrivals();
+        },
+      }, "Clear all"),
     ),
   );
 }

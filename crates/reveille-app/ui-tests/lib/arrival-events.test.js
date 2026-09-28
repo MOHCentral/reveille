@@ -7,6 +7,8 @@ import { installStorage } from "../fakes/storage.js";
 import {
   arrivalById,
   arrivalEvents,
+  clearArrivals,
+  lastArrivals,
   markArrivalsRead,
   recordArrival,
   unreadArrivalCount,
@@ -39,4 +41,14 @@ test("history keeps the newest 50 events and ignores malformed saved data", () =
   assert.equal(arrivalEvents().at(-1).count, 3);
   installStorage({ "reveille.arrival-events": "{bad" });
   assert.deepEqual(arrivalEvents(), []);
+});
+
+test("clearing empties the bell and its unread count", () => {
+  installStorage();
+  recordArrival(server, 2, 1000);
+  recordArrival(server, 3, 2000);
+  clearArrivals();
+  assert.deepEqual(arrivalEvents(), []);
+  assert.equal(unreadArrivalCount(), 0);
+  assert.equal(lastArrivals().size, 0);
 });
