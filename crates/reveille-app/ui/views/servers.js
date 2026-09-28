@@ -50,6 +50,7 @@ import {
   SCOPES,
   canRecheck,
   filtering,
+  foldedEmpty,
   playableGames,
   savedEntries,
   saveFilters,
@@ -57,6 +58,7 @@ import {
   scopedRows,
   state,
   update,
+  visibleServers,
 } from "../lib/store.js";
 
 const COLUMNS = [
@@ -201,17 +203,6 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     gameSelect,
   );
 
-  // "Not empty", never "Has people". The figure this gates on is occupied slots, and a slot counts
-  // from `connect` onwards — so it counts a player still downloading or sitting at a menu, and a
-  // stale connection the server has not timed out yet. Enough to say a server is not empty; not
-  // enough to promise people (rule H1, docs/design-review.md F7).
-  const notEmpty = toggle("Not empty", () =>
-    update((next) => {
-      next.filters.notEmpty = !next.filters.notEmpty;
-      saveFilters();
-    }),
-  );
-
   // The ping gate. Sorting by a column is not filtering on it: sorting by players surfaces full
   // servers on the far side of the world, and shipping the sort without the gate is a documented
   // failure across several modern browsers (docs/design-review.md F15).
@@ -278,7 +269,6 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
       el("span", { className: "field__icon", "aria-hidden": "true" }, "⌕"),
       search,
     ),
-    notEmpty,
     pingField,
     el("span", { className: "toolbar__spacer" }),
     actionSlot,
@@ -461,6 +451,7 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     const build = (item) => {
       if (item.kind === "live") return row(item.row, starred, launches, onSelect);
       if (item.kind === "disclosure") return disclosureRow(item.count, lastColumns);
+      if (item.kind === "empty-fold") return emptyFoldRow(item, lastColumns);
       return absentRow(item.entry, starred, launches, lastColumns, onCheck, onGame);
     };
     // Opening the absent block repaints the table the button that opened it lives in, and a
@@ -482,7 +473,6 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
   };
 
   const render = () => {
-    notEmpty.setAttribute("aria-pressed", state.filters.notEmpty ? "true" : "false");
     pingSelect.value = state.filters.maxPing === null ? "" : String(state.filters.maxPing);
     if (search.value !== state.filters.query) search.value = state.filters.query;
     paintGame();
@@ -529,7 +519,6 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
       selectScope("all");
       update((next) => {
         next.filters.query = address;
-        next.filters.notEmpty = false;
         next.filters.maxPing = null;
         saveFilters();
       });
@@ -591,21 +580,6 @@ function headerCell(column) {
     ),
   );
   return { column, th, arrow };
-}
-
-function toggle(label, onclick) {
-  return el(
-    "button",
-    {
-      type: "button",
-      className: "toggle",
-      "aria-pressed": "false",
-      dataset: { focusKey: `toggle-${label}` },
-      onclick,
-    },
-    el("span", { className: "toggle__box", "aria-hidden": "true" }, "✓"),
-    label,
-  );
 }
 
 /**
@@ -867,6 +841,40 @@ function disclosureRow(count, columns) {
 }
 
 /**
+ * The row All folds its empty servers under. It counts them, and the bots among them, whether it
+ * is open or shut, so nothing leaves the list without a number on screen saying so.
+ */
+function emptyFoldRow({ count, bots }, columns) {
+  const open = state.showEmpty;
+  const withBots = bots > 0 ? ` (${bots} with bots)` : "";
+  return el(
+    "tr",
+    { role: "row", className: "row-disclosure row-fold", tabIndex: -1 },
+    el(
+      "td",
+      { role: "gridcell", colspan: String(columns) },
+      el(
+        "button",
+        {
+          type: "button",
+          className: "disclosure",
+          tabIndex: -1,
+          "aria-expanded": open ? "true" : "false",
+          dataset: { focusKey: "empty-fold" },
+          onclick: () =>
+            update((next) => {
+              next.showEmpty = !next.showEmpty;
+              saveFilters();
+            }),
+        },
+        el("span", { className: "disclosure__caret", "aria-hidden": "true" }, open ? "▾" : "▸"),
+        `${count} ${count === 1 ? "server" : "servers"} with no players${withBots}`,
+      ),
+    ),
+  );
+}
+
+/**
  * A remembered server the current check did not return.
  *
  * It keeps its star and its name, and **nothing else** — no client count, no map, no round trip.
@@ -1110,7 +1118,7 @@ function statusbarContents(onShowNonResults, onCheck) {
       el(
         "span",
         null,
-        el("strong", null, String(scopedRows().length)),
+        el("strong", null, String(visibleServers().length)),
         ` of ${state.servers.length} shown`,
       ),
     summary &&
@@ -1138,6 +1146,7 @@ function statusbarContents(onShowNonResults, onCheck) {
         `${skipped} registered but not listed`,
       ),
     el("span", { className: "statusbar__spacer" }),
+    foldedEmpty() > 0 && el("span", null, el("strong", null, String(foldedEmpty())), " empty folded"),
     browse.cancelled && el("span", null, "stopped early"),
     browse.completedAt && el("span", null, browse.completedAt),
   ];

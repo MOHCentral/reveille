@@ -93,15 +93,17 @@ export const state = {
   /**
    * View state.
    *
-   * `notEmpty` keeps its persisted name: the filter asks whether at least one human connection
-   * occupies a slot, including someone still downloading or idle. The old `hasPeople` key is
-   * accepted below so existing preferences survive.
-   *
    * `maxPing` gates on the one round trip this sweep measured, not on the in-game ping — see
    * `roundTrip` in lib/format.js. Null means no gate.
    */
-  filters: { query: "", notEmpty: false, maxPing: null },
+  filters: { query: "", maxPing: null },
   sort: { column: "clients", direction: "desc" },
+  /**
+   * Whether All shows its servers with no players, which otherwise sit folded under one counted
+   * row. Most of the list is empty on a normal evening; folding them puts every populated server
+   * on the first screen.
+   */
+  showEmpty: false,
   /** Which population the table lists: every answering server, the starred ones, or the launched ones. */
   scope: "all",
   /**
@@ -292,11 +294,11 @@ export function saveFilters() {
     localStorage.setItem(
       FILTERS_KEY,
       JSON.stringify({
-        notEmpty: state.filters.notEmpty,
         maxPing: state.filters.maxPing,
         sort: state.sort,
         scope: state.scope,
         showAbsent: state.showAbsent,
+        showEmpty: state.showEmpty,
         query: "",
       }),
     );
@@ -309,11 +311,8 @@ export function loadFilters() {
   try {
     const saved = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? "null");
     if (!saved) return;
-    // `hasPeople` is the pre-rename key. Read once so an existing player's toggle survives the
-    // rename; nothing writes it any more.
     state.filters = {
       query: "",
-      notEmpty: !!(saved.notEmpty ?? saved.hasPeople),
       maxPing: PING_LIMITS.includes(saved.maxPing) ? saved.maxPing : null,
     };
     if (saved.sort?.column) state.sort = saved.sort;
@@ -322,6 +321,7 @@ export function loadFilters() {
     const scope = saved.scope === "favourites" ? "favorites" : saved.scope;
     if (SCOPES.includes(scope)) state.scope = scope;
     state.showAbsent = !!saved.showAbsent;
+    state.showEmpty = !!saved.showEmpty;
   } catch {
     // Ignore a corrupt preference rather than refusing to start.
   }
@@ -374,7 +374,6 @@ function matchesFilters(row) {
     ];
     if (!fields.some((field) => field.toLowerCase().includes(query))) return false;
   }
-  if (state.filters.notEmpty && (row.server.occupancy?.clients_reported ?? 0) < 1) return false;
   const limit = state.filters.maxPing;
   // A server that published no round trip is not gated by a ceiling it cannot be measured
   // against: hiding it would be a claim about a figure that does not exist.
@@ -386,7 +385,7 @@ function matchesFilters(row) {
 /** Whether any filter is narrowing the list right now. */
 export function filtering() {
   return Boolean(
-    state.filters.query.trim() || state.filters.notEmpty || state.filters.maxPing !== null,
+    state.filters.query.trim() || state.filters.maxPing !== null,
   );
 }
 
@@ -472,10 +471,38 @@ export function scopedAbsent() {
  * anything behind it, open or shut, so the count is on screen either way: rows may be folded away,
  * never silently dropped.
  */
+/** Whether a live row has anyone on it. Bots do not count: nobody plays with a bot by choice. */
+export function hasPlayers(row) {
+  return (row.server.occupancy?.clients_reported ?? 0) > 0;
+}
+
+/**
+ * All, with the servers nobody is playing on folded under one counted row. A search unfolds
+ * them, because a player looking for a server by name wants it whether or not it is busy.
+ */
+function allRows() {
+  const rows = visibleServers();
+  const live = (row) => ({ kind: "live", address: row.address, row });
+  if (state.filters.query.trim()) return rows.map(live);
+  const busy = rows.filter(hasPlayers);
+  const empty = rows.filter((row) => !hasPlayers(row));
+  if (!empty.length) return busy.map(live);
+  const bots = empty.filter((row) => (row.server.occupancy?.bots_reported ?? 0) > 0).length;
+  return [
+    ...busy.map(live),
+    { kind: "empty-fold", address: `empty:${empty.length}:${state.showEmpty}`, count: empty.length, bots },
+    ...(state.showEmpty ? empty.map(live) : []),
+  ];
+}
+
+/** How many servers the empty fold is hiding right now, for the status bar. */
+export function foldedEmpty() {
+  if (state.scope !== "all" || state.showEmpty || state.filters.query.trim()) return 0;
+  return visibleServers().filter((row) => !hasPlayers(row)).length;
+}
+
 export function scopedRows() {
-  if (state.scope === "all") {
-    return visibleServers().map((row) => ({ kind: "live", address: row.address, row }));
-  }
+  if (state.scope === "all") return allRows();
   const { rows, absent } = partitionScope();
   const listed = sortRows(rows).map((row) => ({ kind: "live", address: row.address, row }));
   if (!absent.length) return listed;

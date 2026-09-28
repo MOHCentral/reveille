@@ -36,7 +36,8 @@ function reset(seed = {}) {
   store.state.engine = null;
   store.state.game = "allied_assault";
   store.state.listSession = null;
-  store.state.filters = { query: "", notEmpty: false, maxPing: null };
+  store.state.filters = { query: "", maxPing: null };
+  store.state.showEmpty = false;
   store.state.sort = { column: "clients", direction: "desc" };
   store.state.scope = "all";
   store.state.showAbsent = false;
@@ -211,11 +212,39 @@ test("the ping ceiling never hides a server that published no round trip", () =>
   assert.deepEqual(addresses, ["a:1", "c:1"]);
 });
 
-test("Not empty gates on the reported human connection count", () => {
+test("All folds servers with no players under one row that counts them", () => {
   reset();
-  store.state.servers = [row("a:1", { clients: 3 }), row("b:1", { clients: 0 })];
-  store.state.filters.notEmpty = true;
-  assert.deepEqual(store.visibleServers().map((visible) => visible.address), ["a:1"]);
+  store.state.servers = [
+    row("a:1", { clients: 3 }),
+    row("b:1", { clients: 0, bots: 6 }),
+    row("c:1", { clients: 0, bots: 0 }),
+  ];
+  const shut = store.scopedRows();
+  assert.deepEqual(shut.map((item) => item.kind), ["live", "empty-fold"]);
+  assert.equal(shut[1].count, 2);
+  assert.equal(shut[1].bots, 1);
+  assert.equal(store.foldedEmpty(), 2);
+
+  store.state.showEmpty = true;
+  assert.deepEqual(
+    store.scopedRows().map((item) => item.address).filter((address) => !address.startsWith("empty:")),
+    ["a:1", "b:1", "c:1"],
+  );
+  assert.equal(store.foldedEmpty(), 0);
+});
+
+test("a search unfolds empty servers so they can be found by name", () => {
+  reset();
+  store.state.servers = [row("a:1", { hostname: "Busy", clients: 3 }), row("b:1", { hostname: "Quiet" })];
+  store.state.filters.query = "quiet";
+  assert.deepEqual(store.scopedRows().map((item) => item.address), ["b:1"]);
+  assert.equal(store.foldedEmpty(), 0);
+});
+
+test("no fold is drawn when every server has players", () => {
+  reset();
+  store.state.servers = [row("a:1", { clients: 3 })];
+  assert.deepEqual(store.scopedRows().map((item) => item.kind), ["live"]);
 });
 
 test("filtering() reports whether anything is narrowing the list", () => {
@@ -232,11 +261,9 @@ test("filtering() reports whether anything is narrowing the list", () => {
 
 /* Saved-preference migrations ----------------------------------------------- */
 
-test("the pre-rename filter key and scope value are still read", () => {
-  // An existing player's toggle has to survive the change from `hasPeople` to `notEmpty`.
+test("the pre-rename scope value is still read", () => {
   reset({
     "reveille.filters": JSON.stringify({
-      hasPeople: true,
       maxPing: 150,
       scope: "favourites",
       showAbsent: true,
@@ -244,7 +271,6 @@ test("the pre-rename filter key and scope value are still read", () => {
     }),
   });
   store.loadFilters();
-  assert.equal(store.state.filters.notEmpty, true);
   assert.equal(store.state.filters.maxPing, 150);
   assert.equal(store.state.scope, "favorites");
   assert.equal(store.state.showAbsent, true);
@@ -261,16 +287,16 @@ test("a ping ceiling the toolbar does not offer is not restored", () => {
 test("a corrupt preference blob leaves the defaults standing", () => {
   reset({ "reveille.filters": "{not json" });
   assert.doesNotThrow(() => store.loadFilters());
-  assert.deepEqual(store.state.filters, { query: "", notEmpty: false, maxPing: null });
+  assert.deepEqual(store.state.filters, { query: "", maxPing: null });
 });
 
 test("the search box is deliberately not persisted", () => {
   const storage = reset();
   store.state.filters.query = "sniper";
-  store.state.filters.notEmpty = true;
+  store.state.showEmpty = true;
   store.saveFilters();
   assert.equal(storage.json("reveille.filters").query, "");
-  assert.equal(storage.json("reveille.filters").notEmpty, true);
+  assert.equal(storage.json("reveille.filters").showEmpty, true);
 });
 
 /* Scoped rows and the disclosure (H15) -------------------------------------- */
@@ -371,7 +397,7 @@ test("the All scope draws no disclosure and no absent entries", () => {
     }),
   );
   store.state.scope = "all";
-  store.state.servers = [row("here:1")];
+  store.state.servers = [row("here:1", { clients: 2 })];
   assert.deepEqual(store.scopedRows().map((item) => item.kind), ["live"]);
   assert.deepEqual(store.scopedAbsent(), []);
 });
