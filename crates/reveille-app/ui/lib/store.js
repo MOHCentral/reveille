@@ -4,6 +4,7 @@
 // on change; nothing else holds application state.
 
 import { favorites, history, historyByAddress } from "./bookmarks.js";
+import { alertId, playerAlerts } from "./player-alerts.js";
 
 const INSTALL_KEY = "reveille.install";
 const FILTERS_KEY = "reveille.filters";
@@ -108,8 +109,12 @@ export const state = {
   showEmpty: false,
   /** Whether the detail pane is hidden, giving the list the whole window. */
   detailCollapsed: false,
-  /** Which population the table lists: every answering server, the starred ones, or the launched ones. */
+  /** Which population the table lists: every answering server, or the starred, watched or played ones. */
   scope: "all",
+  /** What the watch monitor last read for each watched server, keyed by `alertId`. */
+  watchReadings: new Map(),
+  /** Why the last player alert could not reach the desktop, or null. */
+  alertError: null,
   /**
    * Whether a saved scope's absent block is open.
    *
@@ -335,7 +340,7 @@ export function loadFilters() {
 
 /* Derived ------------------------------------------------------------------ */
 
-export const SCOPES = ["all", "favorites", "history"];
+export const SCOPES = ["all", "favorites", "watching", "history"];
 
 const SORTERS = {
   name: (row) => row.server.hostname.toLowerCase(),
@@ -419,9 +424,23 @@ function sortRows(rows) {
   });
 }
 
-/** The entries a saved scope draws from: the starred ones, or the launched ones. */
+/** The servers watched in the game this session is browsing, shaped like saved entries. */
+export function watchedEntries() {
+  return playerAlerts()
+    .filter((entry) => entry.game === state.game)
+    .map((entry) => ({ address: entry.address, queryPort: entry.queryPort, hostname: entry.hostname ?? "" }));
+}
+
+/** What the monitor last read for a watched address in this game, or null before its first probe. */
+export function watchReading(address) {
+  return state.watchReadings.get(alertId({ game: state.game, address })) ?? null;
+}
+
+/** The entries a saved scope draws from: the starred, watched or launched ones. */
 export function savedEntries() {
-  return state.scope === "favorites" ? favorites() : history();
+  if (state.scope === "favorites") return favorites();
+  if (state.scope === "watching") return watchedEntries();
+  return history();
 }
 
 /**
@@ -457,7 +476,7 @@ function partitionScope() {
 
 /** The remembered entries in this scope that the current check did not return. */
 export function scopedAbsent() {
-  if (state.scope === "all") return [];
+  if (state.scope === "all" || state.scope === "watching") return [];
   return partitionScope().absent;
 }
 
@@ -512,6 +531,10 @@ export function scopedRows() {
   const { rows, absent } = partitionScope();
   const listed = sortRows(rows).map((row) => ({ kind: "live", address: row.address, row }));
   if (!absent.length) return listed;
+  // Watched servers are few and are being probed anyway, so what the monitor saw is always shown.
+  if (state.scope === "watching") {
+    return [...listed, ...absent.map((entry) => ({ kind: "watched", address: entry.address, entry }))];
+  }
   return [
     ...listed,
     // The count and the open state ride in `address` because that is what the view's row

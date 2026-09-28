@@ -65,19 +65,23 @@ function save(entries) {
 /** Unknown breaks continuity; only two successful readings can establish a transition. */
 export function nextReading(previous, count, now, cooldownMs = COOLDOWN_MS) {
   if (!Number.isInteger(count) || count < 0) {
-    return { state: { ...previous, count: null }, alert: false };
+    return { state: { ...previous, count: null, checkedAt: now }, alert: false };
   }
   const alert =
     previous?.count === 0 &&
     count > 0 &&
     now - (previous.lastAlertAt ?? -Infinity) >= cooldownMs;
   return {
-    state: { count, lastAlertAt: alert ? now : (previous?.lastAlertAt ?? null) },
+    state: { count, checkedAt: now, lastAlertAt: alert ? now : (previous?.lastAlertAt ?? null) },
     alert,
   };
 }
 
-export function startPlayerAlertMonitor(probe, deliver) {
+/**
+ * `onReading(id, reading)` hears every probe, answered or not, so the Watching view can show what
+ * the monitor last saw without probing again.
+ */
+export function startPlayerAlertMonitor(probe, deliver, onReading = () => {}) {
   const readings = new Map();
   let stopped = false;
   let running = false;
@@ -102,6 +106,7 @@ export function startPlayerAlertMonitor(probe, deliver) {
       }
       const result = nextReading(readings.get(id), count, Date.now());
       readings.set(id, result.state);
+      onReading(id, result.state);
       if (result.alert) {
         try {
           await deliver(entry, count);

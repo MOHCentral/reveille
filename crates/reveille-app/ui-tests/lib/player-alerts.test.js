@@ -10,6 +10,7 @@ import {
   nextReading,
   playerAlerts,
   removePlayerAlert,
+  startPlayerAlertMonitor,
 } from "../../ui/lib/player-alerts.js";
 
 const row = {
@@ -51,4 +52,31 @@ test("corrupt or unusable persisted entries cannot become monitoring targets", (
     { game: "unknown", address: row.address, queryPort: 12300 },
   ]) });
   assert.equal(playerAlerts().length, 1);
+});
+
+test("each reading records when it was taken, answered or not", () => {
+  const first = nextReading(undefined, 2, 1000).state;
+  assert.deepEqual(first, { count: 2, checkedAt: 1000, lastAlertAt: null });
+  const unknown = nextReading(first, null, 2000).state;
+  assert.equal(unknown.count, null);
+  assert.equal(unknown.checkedAt, 2000);
+});
+
+test("the monitor reports every reading so the Watching view can draw it", async () => {
+  installStorage();
+  addPlayerAlert(row, "allied_assault");
+  const heard = [];
+  let resolveHeard;
+  const done = new Promise((resolve) => (resolveHeard = resolve));
+  const monitor = startPlayerAlertMonitor(
+    async () => 4,
+    async () => {},
+    (id, reading) => {
+      heard.push([id, reading.count]);
+      resolveHeard();
+    },
+  );
+  await done;
+  monitor.stop();
+  assert.deepEqual(heard, [[`allied_assault|${row.address}`, 4]]);
 });

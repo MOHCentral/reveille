@@ -44,6 +44,7 @@ import {
 import { favorites, recordLaunch, toggleFavorite } from "./lib/bookmarks.js";
 import {
   addPlayerAlert,
+  alertId,
   hasPlayerAlert,
   playerAlerts,
   removePlayerAlert,
@@ -52,6 +53,7 @@ import {
 import { clockTime, displayPath } from "./lib/format.js";
 import {
   GAME_LABELS,
+  SCOPES,
   applyCheckNonResult,
   applyCheckedRow,
   canRecheck,
@@ -125,7 +127,6 @@ void onSelfUpdateProgress(receiveReveilleUpdateProgress);
 
 subscribe(render);
 
-let alertDeliveryError = null;
 let pendingArrival = null;
 let openingArrival = false;
 let attentionRequested = false;
@@ -137,7 +138,11 @@ void onPlayerNotificationClick(({ eventId }) => {
   const event = arrivalById(eventId);
   if (event) requestOpenArrival(event);
 });
-const alertMonitor = startPlayerAlertMonitor(probePlayerCount, async (entry, count) => {
+const alertMonitor = startPlayerAlertMonitor(probePlayerCount, deliverArrival, (id, reading) =>
+  update((next) => next.watchReadings.set(id, reading)),
+);
+
+async function deliverArrival(entry, count) {
   const event = recordArrival(entry, count);
   renderArrivalBadge();
   if (!document.hasFocus() && !attentionRequested) {
@@ -145,16 +150,22 @@ const alertMonitor = startPlayerAlertMonitor(probePlayerCount, async (entry, cou
     void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
   }
   if (!(await canNotify())) {
-    alertDeliveryError = "Notifications are disabled for Reveille in your system settings.";
+    update((next) => (next.alertError = "Notifications are disabled for Reveille in your system settings."));
     return;
   }
   try {
     if (event) await sendPlayerNotification(event);
-    alertDeliveryError = null;
+    if (state.alertError) update((next) => (next.alertError = null));
   } catch {
-    alertDeliveryError = "Reveille could not show a system notification.";
+    update((next) => (next.alertError = "Reveille could not show a system notification."));
   }
-});
+}
+
+function forgetWatch(game, address) {
+  removePlayerAlert(game, address);
+  alertMonitor.forget(game, address);
+  update((next) => next.watchReadings.delete(alertId({ game, address })));
+}
 
 function renderArrivalBadge() {
   const count = unreadArrivalCount();
@@ -239,9 +250,7 @@ function browseFinished() {
 async function togglePlayerAlert(row) {
   const game = state.game;
   if (hasPlayerAlert(game, row.address)) {
-    removePlayerAlert(game, row.address);
-    alertMonitor.forget(game, row.address);
-    update(() => {});
+    forgetWatch(game, row.address);
     return;
   }
   try {
@@ -270,7 +279,7 @@ function openPlayerAlerts() {
     el("h3", null, "Player alerts"),
     el("p", { className: "quiet" },
       "Reveille checks these servers while it is running and tells you when players arrive."),
-    alertDeliveryError && el("p", { className: "error", role: "alert" }, alertDeliveryError),
+    state.alertError && el("p", { className: "error", role: "alert" }, state.alertError),
     entries.length === 0
       ? el("p", null, "No player alerts yet. Select a server and turn on its bell to add one.")
       : el("div", { className: "player-alert-list" }, entries.map((entry) =>
@@ -285,9 +294,7 @@ function openPlayerAlerts() {
               className: "btn btn--sm",
               "aria-label": `Turn off player alerts for ${entry.hostname}`,
               onclick: () => {
-                removePlayerAlert(entry.game, entry.address);
-                alertMonitor.forget(entry.game, entry.address);
-                update(() => {});
+                forgetWatch(entry.game, entry.address);
                 openPlayerAlerts();
               },
             }, "Remove"),
@@ -1080,6 +1087,9 @@ document.addEventListener("keydown", (event) => {
     // stays for the players who learned it here.
     event.preventDefault();
     servers.focusSearch();
+  } else if (findOrRefreshModifier && /^[1-4]$/u.test(event.key)) {
+    event.preventDefault();
+    servers.selectScope(SCOPES[Number(event.key) - 1]);
   } else if (findOrRefreshModifier && (event.key === "d" || event.key === "D")) {
     event.preventDefault();
     toggleDetail();

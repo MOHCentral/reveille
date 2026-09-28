@@ -20,12 +20,17 @@ const RESULTS = {
   installation_storage: { status: "writable" },
   check_reveille_update: null,
   browse_servers: browsePayload(),
-  probe_player_count: 0,
+  // The monitor sees what the list saw, so Watching can be compared with it.
+  probe_player_count: ({ address }) =>
+    browsePayload().servers.find((row) => row.address === address)?.server.occupancy.clients_reported ?? 3,
 };
 
 window.__TAURI__ = {
   core: {
-    invoke: (command) => Promise.resolve(RESULTS[command] ?? null),
+    invoke: (command, args) => {
+      const result = RESULTS[command];
+      return Promise.resolve((typeof result === "function" ? result(args) : result) ?? null);
+    },
   },
   event: { listen: () => Promise.resolve(() => {}) },
   opener: { openUrl: () => Promise.resolve() },
@@ -45,13 +50,23 @@ window.__TAURI__ = {
 localStorage.clear();
 localStorage.setItem("reveille.install", INSTALL.root);
 const favorites = Number(params.get("favorites") ?? 0);
-if (favorites > 0) {
-  const saved = RESULTS.browse_servers.servers.slice(0, favorites).map((row) => ({
+const played = Number(params.get("history") ?? 0);
+if (favorites > 0 || played > 0) {
+  const identify = (row) => ({
     address: row.address,
     queryPort: row.server.endpoint.query_port,
     hostname: row.server.hostname,
+  });
+  const servers = RESULTS.browse_servers.servers;
+  const history = servers.slice(3, 3 + played).map((row, index) => ({
+    ...identify(row),
+    lastLaunchedAt: new Date(Date.now() - (index + 1) * 5_400_000).toISOString(),
+    launches: index + 1,
   }));
-  localStorage.setItem("reveille.bookmarks", JSON.stringify({ v: 1, favorites: saved, history: [] }));
+  localStorage.setItem(
+    "reveille.bookmarks",
+    JSON.stringify({ v: 1, favorites: servers.slice(0, favorites).map(identify), history }),
+  );
 }
 
 const watched = Number(params.get("watch") ?? 0);
@@ -62,7 +77,24 @@ if (watched > 0) {
     queryPort: row.server.endpoint.query_port,
     hostname: row.server.hostname,
   }));
+  // One watched server the sweep did not return, as a server that went quiet overnight would be.
+  alerts.push({
+    game: "allied_assault",
+    address: "203.0.113.77:12203",
+    queryPort: 12300,
+    hostname: "[FR] Les Anciens | Objective",
+  });
   localStorage.setItem("reveille.player-alerts", JSON.stringify(alerts));
+  localStorage.setItem("reveille.arrival-events", JSON.stringify([{
+    id: "preview-arrival",
+    game: "allied_assault",
+    address: alerts[0].address,
+    queryPort: alerts[0].queryPort,
+    hostname: alerts[0].hostname,
+    count: 2,
+    at: Date.now() - 2 * 3_600_000,
+    read: false,
+  }]));
 }
 
 const page = new DOMParser().parseFromString(
