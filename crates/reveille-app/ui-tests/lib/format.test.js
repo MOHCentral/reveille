@@ -337,3 +337,13 @@ test("a repeat launch is counted, and a server never launched has no line", () =
 test("a launch with no usable timestamp still says how many, not when", () => {
   assert.equal(format.launchedLabel({ launches: 2, lastLaunchedAt: null }), "Launched 2×");
 });
+
+test("the map cell says nothing for a ready server and counts the maps otherwise", () => {
+  assert.equal(format.mapNeed({ state: "compatible" }), null);
+  assert.deepEqual(
+    { ...format.mapNeed({ state: "needs_maps", count: 3 }), title: undefined },
+    { kind: "download", text: "3", title: undefined },
+  );
+  assert.equal(format.mapNeed({ state: "no_source", count: 1 }).kind, "missing");
+  assert.equal(format.mapNeed({ state: "cant_tell" }).text, "?");
+});
