@@ -147,7 +147,7 @@ function header(row, server, onTogglePlayerAlert) {
         on: starred,
         label: "Favorite",
         focusKey: "detail-star",
-        title: starred ? "Remove from Favorites" : "Keep this server in Favorites",
+        title: starred ? "Remove from Favorites (F)" : "Keep this server in Favorites (F)",
         onclick: () => {
           toggleFavorite(row);
           update(() => {});
@@ -159,8 +159,8 @@ function header(row, server, onTogglePlayerAlert) {
         label: watched ? "Watching" : "Watch",
         focusKey: "detail-player-alert",
         title: watched
-          ? "Stop notifying me about this server"
-          : "Notify me when players join this server",
+          ? "Stop notifying me about this server (W)"
+          : "Notify me when players join this server (W)",
         onclick: () => void onTogglePlayerAlert(row),
       }),
       watched &&
@@ -417,7 +417,7 @@ function freshness(row, onRecheck) {
           // player would lose the caret on every check. `canRecheck` refuses the press instead.
           "aria-disabled": canRecheck(row.address) ? null : "true",
           dataset: { focusKey: "detail-recheck" },
-          title: "Ask this one server again, without re-checking the whole list.",
+          title: "Ask this one server again, without re-checking the whole list (R)",
           onclick: () => onRecheck(row),
         },
         check?.status === "checking" ? "Checking…" : "Check again",

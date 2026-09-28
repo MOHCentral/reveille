@@ -80,6 +80,7 @@ import {
 } from "./lib/store.js";
 import { autoDetect, setupView } from "./views/setup.js";
 import { openSettings } from "./views/settings.js";
+import { openShortcuts } from "./views/shortcuts.js";
 import { preferences } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
@@ -333,6 +334,7 @@ function openGameMenu(event) {
 
 function openMoreMenu(event) {
   openMenu([
+    { label: "Keyboard shortcuts", hint: "?", onSelect: openShortcuts },
     { label: "Report a bug", onSelect: () => void openBugReport() },
     { label: "About Reveille", onSelect: () => void openAbout() },
   ], event, $("#more-btn"));
@@ -1217,6 +1219,9 @@ document.addEventListener("keydown", (event) => {
   } else if (findOrRefreshModifier && (event.key === "d" || event.key === "D")) {
     event.preventDefault();
     toggleDetail();
+  } else if (event.key === "?" && !typing && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    openShortcuts();
   } else if (event.key === "/" && !typing) {
     event.preventDefault();
     servers.focusSearch();
@@ -1236,6 +1241,11 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     toggleFavorite(row);
     notify();
+  } else if ((event.key === "w" || event.key === "W") && !typing && plain) {
+    const row = selectedRow();
+    if (!row) return;
+    event.preventDefault();
+    void togglePlayerAlert(row);
   } else if ((event.key === "r" || event.key === "R") && !typing && plain) {
     // Plain R re-asks the selected server; Ctrl+R or Command+R, handled above, re-asks the whole
     // list. The modifier is the difference between one probe and a couple of hundred.

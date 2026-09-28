@@ -181,6 +181,7 @@ export function serversView({
     autocomplete: "off",
     spellcheck: false,
     placeholder: "Search servers, maps or modes",
+    title: "Search (Ctrl+F or /)",
     "aria-label": "Search servers, maps or modes",
     oninput: (event) => update((next) => (next.filters.query = event.target.value)),
   });
@@ -811,8 +812,8 @@ function marksCell(subject, address, hostname, starred, watched, onToggleWatch) 
 }
 
 const MARK_TITLES = {
-  star: ["Add to favorites", "Remove from favorites"],
-  bell: ["Watch: notify me when players join", "Stop watching"],
+  star: ["Add to favorites (F)", "Remove from favorites (F)"],
+  bell: ["Watch: notify me when players join (W)", "Stop watching (W)"],
 };
 
 function markButton(kind, on, label, toggle) {
@@ -1783,6 +1784,7 @@ function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch 
       },
       live && {
         label: watched ? "Stop watching" : "Watch for players",
+        hint: "W",
         onSelect: () => void onToggleWatch(live),
       },
       {
