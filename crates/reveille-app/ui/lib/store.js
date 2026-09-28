@@ -4,6 +4,7 @@
 // on change; nothing else holds application state.
 
 import { favorites, history, historyByAddress } from "./bookmarks.js";
+import { occupancy, occupancyFill } from "./format.js";
 import { alertId, playerAlerts } from "./player-alerts.js";
 
 const INSTALL_KEY = "reveille.install";
@@ -97,9 +98,11 @@ export const state = {
    * View state.
    *
    * `maxPing` gates on the one round trip this sweep measured, not on the in-game ping — see
-   * `roundTrip` in lib/format.js. Null means no gate.
+   * `roundTrip` in lib/format.js. Null means no gate. `modes` holds the gametypes to keep, in the
+   * spelling servers publish; empty keeps every mode. `ready` keeps only the servers that can be
+   * joined now: no maps to download and a free slot.
    */
-  filters: { query: "", maxPing: null },
+  filters: { query: "", maxPing: null, modes: [], ready: false },
   sort: { column: "clients", direction: "desc" },
   /**
    * Whether All shows its servers with no players, which otherwise sit folded under one counted
@@ -304,6 +307,8 @@ export function saveFilters() {
       FILTERS_KEY,
       JSON.stringify({
         maxPing: state.filters.maxPing,
+        modes: state.filters.modes,
+        ready: state.filters.ready,
         sort: state.sort,
         scope: state.scope,
         showAbsent: state.showAbsent,
@@ -324,6 +329,8 @@ export function loadFilters() {
     state.filters = {
       query: "",
       maxPing: PING_LIMITS.includes(saved.maxPing) ? saved.maxPing : null,
+      modes: Array.isArray(saved.modes) ? saved.modes.filter((mode) => typeof mode === "string") : [],
+      ready: saved.ready === true,
     };
     if (saved.sort?.column) state.sort = saved.sort;
     // `favourites` is the pre-rename scope value, mapped so a player who left the app on that
@@ -390,14 +397,56 @@ function matchesFilters(row) {
   // against: hiding it would be a claim about a figure that does not exist.
   const trip = row.server.status_round_trip;
   if (limit !== null && trip !== null && trip !== undefined && Number(trip) > limit) return false;
+  const { modes } = state.filters;
+  if (modes.length && !modes.includes(modeKey(row.server.game_type))) return false;
+  if (state.filters.ready && !readyToJoin(row)) return false;
   return true;
+}
+
+/** Gametypes compared without case: servers spell the same mode differently. */
+export function modeKey(gameType) {
+  return (gameType ?? "").trim().toLowerCase();
+}
+
+/** Whether a live row can be joined at once: nothing to download and a slot free. */
+export function readyToJoin(row) {
+  if (row.compatibility?.state?.state !== "compatible") return false;
+  return !occupancyFill(occupancy(row.server)).full;
+}
+
+/**
+ * The modes the servers in this list publish, busiest first, for the Mode chip. A mode kept by the
+ * filter stays listed after the servers running it are gone, so it can still be unticked.
+ */
+export function modeChoices() {
+  const choices = new Map();
+  for (const row of state.servers) {
+    const key = modeKey(row.server.game_type);
+    if (!key) continue;
+    const choice = choices.get(key) ?? { key, label: row.server.game_type.trim(), count: 0 };
+    choice.count += 1;
+    choices.set(key, choice);
+  }
+  for (const key of state.filters.modes) {
+    if (!choices.has(key)) choices.set(key, { key, label: key, count: 0 });
+  }
+  return [...choices.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+/** Whether a toolbar filter other than the search box is set. */
+export function chipFiltering() {
+  const { maxPing, modes, ready } = state.filters;
+  return maxPing !== null || modes.length > 0 || ready;
 }
 
 /** Whether any filter is narrowing the list right now. */
 export function filtering() {
-  return Boolean(
-    state.filters.query.trim() || state.filters.maxPing !== null,
-  );
+  return Boolean(state.filters.query.trim() || chipFiltering());
+}
+
+/** Clear the search box and every chip. */
+export function clearFilters(next) {
+  next.filters = { query: "", maxPing: null, modes: [], ready: false };
 }
 
 /** The rows the table should show, after search, filters and sort. */

@@ -22,9 +22,11 @@ function row(address, extra = {}) {
       occupancy: { clients_reported: extra.clients ?? 0, bots_reported: extra.bots ?? 0 },
       status_round_trip: "roundTrip" in extra ? extra.roundTrip : 50,
       current_map: extra.map ?? "dm/mohdm1",
-      game_type: extra.mode ?? "Deathmatch",
+      game_type: "mode" in extra ? extra.mode : "Deathmatch",
       endpoint: { query_port: extra.queryPort ?? 12300 },
+      client_capacity: extra.capacity ?? 32,
     },
+    compatibility: { state: { state: extra.needs ? "needs_maps" : "compatible", count: extra.needs } },
   };
 }
 
@@ -36,7 +38,7 @@ function reset(seed = {}) {
   store.state.engine = null;
   store.state.game = "allied_assault";
   store.state.listSession = null;
-  store.state.filters = { query: "", maxPing: null };
+  store.state.filters = { query: "", maxPing: null, modes: [], ready: false };
   store.state.showEmpty = false;
   store.state.detailCollapsed = false;
   store.state.sort = { column: "clients", direction: "desc" };
@@ -260,6 +262,61 @@ test("filtering() reports whether anything is narrowing the list", () => {
   assert.equal(store.filtering(), true);
 });
 
+test("the Mode chip keeps only the ticked modes, whatever their case", () => {
+  reset();
+  store.state.servers = [
+    row("a:1", { mode: "Objective-Match" }),
+    row("b:1", { mode: "objective-match" }),
+    row("c:1", { mode: "Team-Match" }),
+    row("d:1", { mode: null }),
+  ];
+  store.state.filters.modes = ["objective-match"];
+  assert.deepEqual(store.visibleServers().map((visible) => visible.address).sort(), ["a:1", "b:1"]);
+  assert.equal(store.filtering(), true);
+});
+
+test("the Mode chip lists each published mode once, busiest first", () => {
+  reset();
+  store.state.servers = [
+    row("a:1", { mode: "Team-Match" }),
+    row("b:1", { mode: "Objective-Match" }),
+    row("c:1", { mode: "objective-match" }),
+    row("d:1", { mode: null }),
+  ];
+  store.state.filters.modes = ["freeze-tag"];
+  assert.deepEqual(
+    store.modeChoices().map((choice) => [choice.key, choice.count]),
+    [["objective-match", 2], ["team-match", 1], ["freeze-tag", 0]],
+  );
+});
+
+test("Ready to join keeps servers with nothing to download and a free slot", () => {
+  reset();
+  store.state.servers = [
+    row("ready:1", { clients: 4 }),
+    row("maps:1", { needs: 2 }),
+    row("full:1", { clients: 16, capacity: 16 }),
+  ];
+  store.state.filters.ready = true;
+  assert.deepEqual(store.visibleServers().map((visible) => visible.address), ["ready:1"]);
+});
+
+test("Clear all empties the search box and every chip", () => {
+  reset();
+  store.state.filters = { query: "x", maxPing: 80, modes: ["team-match"], ready: true };
+  store.clearFilters(store.state);
+  assert.equal(store.filtering(), false);
+});
+
+test("the chips are remembered across a restart", () => {
+  const storage = reset();
+  store.state.filters = { query: "sniper", maxPing: 150, modes: ["team-match"], ready: true };
+  store.saveFilters();
+  reset({ "reveille.filters": storage.getItem("reveille.filters") });
+  store.loadFilters();
+  assert.deepEqual(store.state.filters, { query: "", maxPing: 150, modes: ["team-match"], ready: true });
+});
+
 /* Saved-preference migrations ----------------------------------------------- */
 
 test("the pre-rename scope value is still read", () => {
@@ -288,7 +345,7 @@ test("a ping ceiling the toolbar does not offer is not restored", () => {
 test("a corrupt preference blob leaves the defaults standing", () => {
   reset({ "reveille.filters": "{not json" });
   assert.doesNotThrow(() => store.loadFilters());
-  assert.deepEqual(store.state.filters, { query: "", maxPing: null });
+  assert.deepEqual(store.state.filters, { query: "", maxPing: null, modes: [], ready: false });
 });
 
 test("the search box is deliberately not persisted", () => {

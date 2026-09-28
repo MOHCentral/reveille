@@ -113,7 +113,7 @@
 }
 
 .toolbar__search {
-  flex: 1 1 240px;
+  flex: 1 1 160px;
   max-width: 340px;
 }
 
@@ -658,19 +658,83 @@
   white-space: nowrap;
 }
 
-/* The ping gate, styled as the game switch is: a toolbar control, not a heading. */
-.toolbar__ping {
+/* Filter chips: quiet until set, then brass like the scope they narrow. */
+.filters {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.toolbar__ping select {
-  padding: 7px 24px 7px 10px;
+.filter-chip {
+  padding: 4px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--rise);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.filter-chip:hover {
+  border-color: var(--line-strong);
   color: var(--ink);
+}
+
+.filter-chip--on {
+  border-color: color-mix(in srgb, var(--brass) 55%, transparent);
+  background: color-mix(in srgb, var(--brass) 12%, transparent);
+  color: var(--ink);
+}
+
+.filter-clear {
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.filter-clear:hover {
+  color: var(--ink);
+}
+
+.popover--narrow {
+  width: 260px;
+}
+
+.filter-options {
+  display: grid;
+  padding: var(--space-2) 0;
+}
+
+.filter-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.filter-option:hover {
+  background: var(--rise);
+}
+
+.filter-option__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-option__count {
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.filter-ping {
+  padding: var(--space-3);
 }
 
 /* The row that says the list below it is a past reading (docs/ux-standards.md §4.5).
@@ -1393,6 +1457,11 @@
 
 @media (max-width: 1080px) {
   .servers .col-mode {
+    display: none;
+  }
+
+  /* The filter chips need the room; each view keeps its icon, count and tooltip. */
+  .scope__label {
     display: none;
   }
 }

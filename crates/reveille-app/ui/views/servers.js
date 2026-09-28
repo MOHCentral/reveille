@@ -24,6 +24,7 @@ import { icon } from "../lib/icons.js";
 import { lastArrivals } from "../lib/arrival-events.js";
 import { preferences } from "../lib/preferences.js";
 import { openMenu } from "../lib/menu.js";
+import { closePopover, openPopover } from "../lib/popover.js";
 import {
   browseFailureText,
   gameType,
@@ -54,8 +55,10 @@ import {
   PING_LIMITS,
   SCOPES,
   canRecheck,
+  clearFilters,
   filtering,
   foldedEmpty,
+  modeChoices,
   playableGames,
   savedEntries,
   saveFilters,
@@ -208,33 +211,50 @@ export function serversView({
     scopeButtons,
   );
 
-  // The ping gate. Sorting by a column is not filtering on it: sorting by players surfaces full
-  // servers on the far side of the world, and shipping the sort without the gate is a documented
-  // failure across several modern browsers (docs/design-review.md F15).
-  const pingSelect = el("select", {
-    id: "ping-limit",
-    dataset: { focusKey: "ping-limit" },
-    onchange: (event) =>
+  // The filter chips. Sorting by a column is not filtering on it: sorting by players surfaces full
+  // servers on the far side of the world, so the ping gate sits beside the search box.
+  const chipButton = (focusKey, onclick, extra = {}) =>
+    el("button", { type: "button", className: "filter-chip", dataset: { focusKey }, onclick, ...extra });
+  const modeChip = chipButton("filter-mode", (event) => openModeFilter(event.currentTarget), {
+    "aria-haspopup": "dialog",
+    "aria-expanded": "false",
+  });
+  const pingChip = chipButton("filter-ping", (event) => openPingFilter(event.currentTarget), {
+    "aria-haspopup": "dialog",
+    "aria-expanded": "false",
+  });
+  const readyChip = chipButton(
+    "filter-ready",
+    () =>
       update((next) => {
-        const value = event.target.value;
-        next.filters.maxPing = value === "" ? null : Number(value);
+        next.filters.ready = !next.filters.ready;
         saveFilters();
       }),
-  });
-  fill(
-    pingSelect,
-    ...PING_LIMITS.map((limit) =>
-      el("option", { value: limit === null ? "" : String(limit) }, limit === null ? "Any" : `${limit} ms`),
-    ),
+    { title: "Only servers you can join now: no maps to download and a free slot" },
   );
-  const pingField = el(
-    "label",
-    { className: "toolbar__ping", for: "ping-limit" },
-    // "Round trip", not "ping under": the figure this gates is one UDP sample taken during the
-    // sweep, which is what the Ping column says too. Naming the control after the column keeps the
-    // two the same claim.
-    el("span", { className: "label" }, "Ping under"),
-    pingSelect,
+  const clearChips = el(
+    "button",
+    {
+      type: "button",
+      className: "filter-clear",
+      dataset: { focusKey: "filter-clear" },
+      onclick: () => {
+        update((next) => {
+          clearFilters(next);
+          saveFilters();
+        });
+        search.focus();
+      },
+    },
+    "Clear all",
+  );
+  const chips = el(
+    "div",
+    { className: "filters", role: "group", "aria-label": "Filters" },
+    modeChip,
+    pingChip,
+    readyChip,
+    clearChips,
   );
   // Both browse controls are built once and shown or hidden, never rebuilt. A
   // sweep notifies several times a second, and replacing a button between its
@@ -289,7 +309,7 @@ export function serversView({
       el("span", { className: "field__icon", "aria-hidden": "true" }, "⌕"),
       search,
     ),
-    pingField,
+    chips,
     el("span", { className: "toolbar__spacer" }),
     actionSlot,
   );
@@ -504,10 +524,26 @@ export function serversView({
     syncSelection();
   };
 
+  const paintChips = () => {
+    const { modes, maxPing, ready } = state.filters;
+    const modeLabel = !modes.length
+      ? "Mode"
+      : modes.length === 1
+        ? (modeChoices().find((choice) => choice.key === modes[0])?.label ?? modes[0])
+        : `${modes.length} modes`;
+    setChip(modeChip, modes.length > 0, modeLabel, true);
+    modeChip.title = modes.length ? `Modes: ${modes.join(", ")}` : "Show only some game modes";
+    setChip(pingChip, maxPing !== null, maxPing === null ? "Ping" : `Ping ≤ ${maxPing}`, true);
+    pingChip.title = "Hide servers slower than a round trip";
+    setChip(readyChip, ready, "Ready to join", false);
+    readyChip.setAttribute("aria-pressed", ready ? "true" : "false");
+    clearChips.classList.toggle("hidden", !filtering());
+  };
+
   const render = () => {
-    pingSelect.value = state.filters.maxPing === null ? "" : String(state.filters.maxPing);
     if (search.value !== state.filters.query) search.value = state.filters.query;
     paintScope();
+    paintChips();
     caption.textContent = CAPTIONS[state.scope];
     paintHeaders();
     paintAction();
@@ -550,8 +586,8 @@ export function serversView({
     reveal: (address) => {
       selectScope("all");
       update((next) => {
+        clearFilters(next);
         next.filters.query = address;
-        next.filters.maxPing = null;
         saveFilters();
       });
     },
@@ -564,6 +600,103 @@ export function serversView({
 /** Addresses watched for player arrivals in the game this session is browsing. */
 function watchedAddresses() {
   return new Set(watchedEntries().map((entry) => entry.address));
+}
+
+/** Write a chip's label and whether it is narrowing the list, in place. */
+function setChip(chip, active, label, menu) {
+  chip.classList.toggle("filter-chip--on", active);
+  const text = menu ? `${label} ▾` : label;
+  if (chip.textContent !== text) chip.textContent = text;
+}
+
+/** The Mode chip's panel: one box per mode the list publishes, with how many servers run it. */
+function openModeFilter(anchor) {
+  const choices = modeChoices();
+  const toggle = (key, on) =>
+    update((next) => {
+      const kept = next.filters.modes.filter((mode) => mode !== key);
+      next.filters.modes = on ? [...kept, key] : kept;
+      saveFilters();
+    });
+  const panel = openPopover(
+    anchor,
+    "Mode filter",
+    el("div", { className: "popover__head" }, el("h2", { className: "popover__title" }, "Modes")),
+    choices.length
+      ? el(
+          "div",
+          { className: "filter-options" },
+          choices.map((choice) =>
+            el(
+              "label",
+              { className: "filter-option" },
+              el("input", {
+                type: "checkbox",
+                checked: state.filters.modes.includes(choice.key),
+                onchange: (event) => toggle(choice.key, event.target.checked),
+              }),
+              el("span", { className: "filter-option__label" }, choice.label),
+              el("span", { className: "filter-option__count data" }, String(choice.count)),
+            ),
+          ),
+        )
+      : el("p", { className: "popover__empty" }, "No server in this list publishes its mode yet."),
+    el(
+      "div",
+      { className: "popover__foot" },
+      el("span", { className: "quiet" }, "None ticked shows every mode."),
+      el(
+        "button",
+        {
+          type: "button",
+          className: "btn btn--sm btn--utility",
+          onclick: () => {
+            update((next) => {
+              next.filters.modes = [];
+              saveFilters();
+            });
+            closePopover({ restoreFocus: true });
+          },
+        },
+        "Any mode",
+      ),
+    ),
+  );
+  panel.classList.add("popover--narrow");
+}
+
+/** The Ping chip's panel: the round-trip ceilings, one pick closes it. */
+function openPingFilter(anchor) {
+  const choose = (limit) => {
+    update((next) => {
+      next.filters.maxPing = limit;
+      saveFilters();
+    });
+    closePopover({ restoreFocus: true });
+  };
+  const panel = openPopover(
+    anchor,
+    "Ping filter",
+    el("div", { className: "popover__head" }, el("h2", { className: "popover__title" }, "Ping at most")),
+    el(
+      "div",
+      { className: "watch-rule__choices filter-ping", role: "radiogroup", "aria-label": "Highest ping" },
+      PING_LIMITS.map((limit) =>
+        el(
+          "button",
+          {
+            type: "button",
+            role: "radio",
+            className: "watch-rule__choice",
+            "aria-checked": String(limit === state.filters.maxPing),
+            onclick: () => choose(limit),
+          },
+          limit === null ? "Any" : `${limit} ms`,
+        ),
+      ),
+    ),
+  );
+  panel.classList.add("popover--narrow");
 }
 
 /** The row currently holding the grid's tab stop. */
