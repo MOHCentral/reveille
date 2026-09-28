@@ -167,3 +167,25 @@ test("the More fold holds the address, map list, download policy and build", () 
   root.querySelector('[data-focus-key="detail-more"]').dispatch("click");
   view.render();
 });
+
+test("an activated row that needs downloads focuses the priced Join once it can take focus", () => {
+  const { root, view } = renderView({ assessment: assessment(), catalogue: exactCatalogue() });
+  store.state.preview = null;
+  store.state.previewProgress = { index: -1, of: 0, map: "" };
+  view.focusJoin(ADDRESS);
+  const pricing = root.querySelector('[data-focus-key="join"]');
+  assert.equal(pricing.disabled, true);
+  assert.equal(pricing.focusCount, 0);
+
+  store.state.previewProgress = null;
+  store.state.preview = { address: ADDRESS, assessment: assessment(), catalogue: exactCatalogue() };
+  view.render();
+  const join = root.querySelector('[data-focus-key="join"]');
+  assert.equal(join.focusCount, 1);
+  assert.match(textOf(join), /Get 17\.6 MB & join/u);
+
+  // Once is enough: a later repaint after the player moved on does not pull focus back.
+  document.activeElement = null;
+  view.render();
+  assert.equal(root.querySelector('[data-focus-key="join"]').focusCount, 0);
+});

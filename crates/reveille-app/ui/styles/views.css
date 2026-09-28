@@ -105,6 +105,22 @@
   align-items: center;
 }
 
+.toolbar__refresh {
+  color: var(--dim);
+}
+
+.toolbar__refresh:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.toolbar__age {
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--faint);
+}
+
 .toolbar__progress {
   display: flex;
   align-items: center;

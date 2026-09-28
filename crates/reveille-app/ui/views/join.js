@@ -56,6 +56,9 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
   // cannot push it out of reach.
   const actions = el("div", { className: "actions" });
   fill(root, scroll);
+  // Set by a double-click or Enter on a row that needs something first. Join is disabled while the
+  // downloads are being priced, so focus waits for the first render where it can land.
+  let focusJoinFor = null;
 
   const render = () => {
     const row = selectedRow();
@@ -80,9 +83,22 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
           : frag(gonePane(state.selected, gone), actions),
       );
     });
+    if (focusJoinFor !== null) {
+      const join = actions.querySelector('[data-focus-key="join"]');
+      if (focusJoinFor !== row?.address) focusJoinFor = null;
+      else if (join && !join.disabled) {
+        focusJoinFor = null;
+        join.focus();
+      }
+    }
   };
 
-  return { render };
+  const focusJoin = (address) => {
+    focusJoinFor = address;
+    render();
+  };
+
+  return { render, focusJoin };
 }
 
 function idlePlaceholder() {

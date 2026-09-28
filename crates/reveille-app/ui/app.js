@@ -84,6 +84,7 @@ const servers = serversView({
   onRefresh: refresh,
   onCancel: stopBrowse,
   onSelect: select,
+  onActivate: activate,
   onShowNonResults: showNonResults,
   onCheck: check,
   onGame: selectGame,
@@ -569,6 +570,7 @@ async function refresh() {
   // are not a stale answer to this question, they are an answer to a different one.
   const previous = listIsForCurrentSession() ? state.servers : [];
   const previousAt = state.browse.completedAt;
+  const previousFinishedAt = state.browse.finishedAt;
   update((next) => {
     // Recorded before the first row arrives, because the streamed rows belong to this session
     // too, and a sweep that ends in an error still has to leave behind what it was asking.
@@ -584,6 +586,7 @@ async function refresh() {
       cancelled: false,
       error: null,
       completedAt: null,
+      finishedAt: null,
     };
     next.servers = [];
     next.summary = null;
@@ -607,6 +610,7 @@ async function refresh() {
       next.browse.running = false;
       next.browse.cancelled = payload.cancelled;
       next.browse.completedAt = clockTime();
+      next.browse.finishedAt = new Date().toISOString();
     });
   } catch (error) {
     update((next) => {
@@ -618,6 +622,7 @@ async function refresh() {
         next.servers = previous;
         next.staleAt = previousAt;
         next.browse.completedAt = previousAt;
+        next.browse.finishedAt = previousFinishedAt;
       }
     });
   }
@@ -689,6 +694,21 @@ function select(address) {
     previewTimer = null;
     void resolvePreview(address, token);
   }, PREVIEW_SETTLE_MS);
+}
+
+/**
+ * A double-click or Enter on a row. A server with nothing to fetch joins at once; anything else
+ * stops on the priced Join button, so no download starts without its size on screen and a second
+ * Enter is the consent.
+ */
+function activate(address) {
+  if (state.selected !== address) select(address);
+  const row = selectedRow();
+  if (!row) return;
+  const ready = row.compatibility.state.state === "compatible";
+  const idle = !state.joining && state.checks.get(address)?.status !== "checking";
+  if (ready && idle) void getAndJoin(row, false);
+  else join.focusJoin(address);
 }
 
 async function resolvePreview(address, token) {
