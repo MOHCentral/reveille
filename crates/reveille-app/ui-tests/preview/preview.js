@@ -98,7 +98,15 @@ if (favorites > 0 || played > 0) {
   }));
   localStorage.setItem(
     "reveille.bookmarks",
-    JSON.stringify({ v: 1, favorites: servers.slice(0, favorites).map(identify), history }),
+    JSON.stringify({
+      v: 1,
+      // One starred server the sweep did not return, so the offline fold shows.
+      favorites: [
+        ...servers.slice(0, favorites).map(identify),
+        { address: "203.0.113.90:12203", queryPort: 12300, hostname: "[UK] Old Guard | Stalingrad" },
+      ],
+      history,
+    }),
   );
 }
 

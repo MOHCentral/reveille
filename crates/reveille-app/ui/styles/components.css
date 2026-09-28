@@ -750,8 +750,16 @@ dialog::backdrop {
 
 /* Shortcut sheet ----------------------------------------------------------- */
 
-.shortcuts + .shortcuts {
-  margin-top: var(--space-4);
+dialog:has(.shortcuts-grid) {
+  width: min(760px, 94vw);
+  max-width: none;
+}
+
+/* Two columns so the whole sheet fits a 760px-high window without scrolling. */
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-5) var(--space-6);
 }
 
 .shortcuts__heading {
@@ -765,13 +773,15 @@ dialog::backdrop {
 
 .shortcuts__list {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: var(--space-2) var(--space-4);
+  /* One key column for every section, so the actions line up down the sheet. */
+  grid-template-columns: 7.5em 1fr;
+  gap: 6px var(--space-4);
   margin: 0;
 }
 
 .shortcuts__list dt {
   display: flex;
+  align-items: flex-start;
   gap: var(--space-1);
 }
 

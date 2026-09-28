@@ -30,31 +30,29 @@ export const SHORTCUTS = [
   {
     heading: "Window",
     keys: [
-      [["Ctrl", "1…4"], "Servers, Favorites, Watching, History"],
+      [["Ctrl", "1…4"], "Switch view"],
       [["Ctrl", "D"], "Show or hide server details"],
-      [["F6"], "Move between the list, toolbar and details"],
+      [["F6"], "Jump between list, toolbar and details"],
       [["?"], "Show this sheet"],
     ],
   },
 ];
 
 export function openShortcuts() {
-  openDialog(
-    "Keyboard shortcuts",
-    ...SHORTCUTS.map(({ heading, keys }) =>
+  const sections = SHORTCUTS.map(({ heading, keys }) =>
+    el(
+      "section",
+      { className: "shortcuts" },
+      el("h3", { className: "shortcuts__heading" }, heading),
       el(
-        "section",
-        { className: "shortcuts" },
-        el("h3", { className: "shortcuts__heading" }, heading),
-        el(
-          "dl",
-          { className: "shortcuts__list" },
-          ...keys.flatMap(([combo, action]) => [
-            el("dt", null, ...combo.map((key) => el("kbd", { className: "kbd" }, key))),
-            el("dd", null, action),
-          ]),
-        ),
+        "dl",
+        { className: "shortcuts__list" },
+        ...keys.flatMap(([combo, action]) => [
+          el("dt", null, ...combo.map((key) => el("kbd", { className: "kbd" }, key))),
+          el("dd", null, action),
+        ]),
       ),
     ),
   );
+  openDialog("Keyboard shortcuts", el("div", { className: "shortcuts-grid" }, ...sections));
 }
