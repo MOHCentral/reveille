@@ -66,6 +66,8 @@ export const state = {
     cancelled: false,
     error: null,
     completedAt: null,
+    // The same moment as a timestamp, for the toolbar's "2 min ago".
+    finishedAt: null,
   },
 
   /** The selected row's address, and the join preview once it arrives. */

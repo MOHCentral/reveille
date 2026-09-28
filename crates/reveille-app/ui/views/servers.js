@@ -36,6 +36,7 @@ import {
   roundTrip,
   shortVersion,
   sweepProgressText,
+  timeAgo,
 } from "../lib/format.js";
 import {
   clearHistory,
@@ -155,6 +156,7 @@ export function serversView({
   onRefresh,
   onCancel,
   onSelect,
+  onActivate,
   onShowNonResults,
   onCheck,
   onGame,
@@ -256,15 +258,21 @@ export function serversView({
     "Stop",
   );
   const progress = el("div", { className: "toolbar__progress" }, meter, meterCount, stopButton);
+  // Primary only before the first sweep. Afterwards Join is the one primary action on screen, and
+  // Refresh carries the list's age instead, which is what decides whether to press it.
+  const refreshLabel = el("span", null, "Find servers");
+  const refreshAge = el("span", { className: "toolbar__age" });
   const refresh = el(
     "button",
     {
       type: "button",
       className: "btn btn--primary",
       dataset: { focusKey: "browse-refresh" },
+      title: "Get the server list again (Ctrl+R)",
       onclick: onRefresh,
     },
-    "Find servers",
+    refreshLabel,
+    refreshAge,
   );
   const actionSlot = el("div", { className: "toolbar__action" }, progress, refresh);
   const toolbar = el(
@@ -282,18 +290,19 @@ export function serversView({
     el("span", { className: "toolbar__spacer" }),
     actionSlot,
   );
+  const menuActions = { onSelect, onActivate, onCheck, onToggleWatch };
   const tbody = el("tbody", {
     onkeydown: (event) => {
       // Shift+F10 and the Menu key are how a keyboard opens a context menu on Windows. Without
       // them the menu below would be a mouse-only feature, which is what makes a context menu an
       // accessibility problem rather than a convention.
       if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
-        onRowContextMenu(event, onSelect, onCheck);
+        onRowContextMenu(event, menuActions);
         return;
       }
-      onRowKey(event, onSelect);
+      onRowKey(event, onSelect, onActivate);
     },
-    oncontextmenu: (event) => onRowContextMenu(event, onSelect, onCheck),
+    oncontextmenu: (event) => onRowContextMenu(event, menuActions),
   });
   // Header cells are built once and their sort state written in place. Rebuilding them left the
   // arrow and the highlight frozen on whichever column was sorted when the view was created.
@@ -378,7 +387,12 @@ export function serversView({
     const running = state.browse.running;
     progress.classList.toggle("hidden", !running);
     refresh.classList.toggle("hidden", running);
-    refresh.textContent = state.servers.length ? "Refresh" : "Find servers";
+    const listed = state.servers.length > 0;
+    refresh.className = listed ? "btn btn--ghost toolbar__refresh" : "btn btn--primary";
+    refreshLabel.textContent = listed ? "⟳ Refresh" : "Find servers";
+    const age = listed ? timeAgo(state.browse.finishedAt) : null;
+    refreshAge.textContent = age ?? "";
+    refreshAge.classList.toggle("hidden", !age);
     if (!running) return;
     // The sweep spawns no further probes once stopped, but the ones already in
     // flight still have to time out. Say so rather than leaving Stop looking inert.
@@ -397,6 +411,9 @@ export function serversView({
       meter.setAttribute("aria-valuemax", String(inspected));
     }
   };
+
+  // "2 min ago" is relative, so it has to be rewritten as time passes; nothing else would.
+  setInterval(paintAction, 30_000)?.unref?.();
 
   /**
    * The selection, and the one tab stop that goes with it.
@@ -459,7 +476,9 @@ export function serversView({
     const watched = watchedAddresses();
     const launches = state.scope === "history" ? historyByAddress() : null;
     const build = (item) => {
-      if (item.kind === "live") return row(item.row, starred, watched, launches, onSelect, onToggleWatch);
+      if (item.kind === "live") {
+        return row(item.row, starred, watched, launches, onSelect, onActivate, onToggleWatch);
+      }
       if (item.kind === "disclosure") return disclosureRow(item.count, lastColumns);
       if (item.kind === "empty-fold") return emptyFoldRow(item, lastColumns);
       return absentRow(item.entry, starred, launches, lastColumns, onCheck, onGame);
@@ -740,7 +759,7 @@ function segment(className, share) {
   return node;
 }
 
-function row(item, starred, watched, launches, onSelect, onToggleWatch) {
+function row(item, starred, watched, launches, onSelect, onActivate, onToggleWatch) {
   const counts = occupancy(item.server);
   const ping = roundTrip(item.server);
   const mode = gameType(item.server);
@@ -760,6 +779,10 @@ function row(item, starred, watched, launches, onSelect, onToggleWatch) {
       tabIndex: -1,
       "aria-selected": "false",
       onclick: choose,
+      // The marks are buttons inside the row; a quick double press on one is not a join.
+      ondblclick: (event) => {
+        if (!event.target.closest("button")) onActivate(item.address);
+      },
       // Selection follows focus, which is the grid convention for a single-select list and what
       // makes the arrow keys useful. It is no longer a network storm: focus now moves only on a
       // deliberate arrow press, and the catalogue lookup behind it is debounced (app.js `select`).
@@ -1397,7 +1420,7 @@ function rowControls(tr) {
  * trade recorded in docs/design-review.md: leaving a row from inside one of its buttons would
  * make the star's own arrow behaviour ambiguous, and F4's fix had to preserve it.
  */
-function onRowKey(event, onSelect) {
+function onRowKey(event, onSelect, onActivate) {
   const current = event.target.closest("tr");
   if (!current) return;
   const insideControl = Boolean(event.target.closest("button, input, select, a[href]"));
@@ -1436,10 +1459,15 @@ function onRowKey(event, onSelect) {
   else if (event.key === "ArrowUp") next = rows[Math.max(index - 1, 0)];
   else if (event.key === "Home") [next] = rows;
   else if (event.key === "End") next = rows.at(-1);
-  else if (event.key === "Enter" || event.key === " ") {
+  else if (event.key === " ") {
     if (!current.dataset.address) return;
     event.preventDefault();
-    onSelect(current.dataset.address, { activate: true });
+    onSelect(current.dataset.address);
+    return;
+  } else if (event.key === "Enter") {
+    if (!current.dataset.address) return;
+    event.preventDefault();
+    onActivate(current.dataset.address);
     return;
   } else return;
 
@@ -1458,7 +1486,7 @@ function onRowKey(event, onSelect) {
  * Every entry here duplicates something already reachable another way. A context menu that is the
  * only route to an action is a trap for anyone who does not think to right-click.
  */
-function onRowContextMenu(event, onSelect, onCheck) {
+function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch }) {
   const tr = event.target.closest("tr[data-address], tr[data-remembered]");
   if (!tr) return;
   const address = tr.dataset.address ?? tr.dataset.remembered;
@@ -1474,8 +1502,15 @@ function onRowContextMenu(event, onSelect, onCheck) {
     ? Number(live.server.endpoint.query_port)
     : (saved?.queryPort ?? null);
 
+  const watched = live ? watchedAddresses().has(address) : false;
+
   openMenu(
     [
+      live && {
+        label: live.compatibility?.state?.state === "compatible" ? "Join" : "Join…",
+        hint: "Enter",
+        onSelect: () => onActivate(address),
+      },
       subject && {
         label: starred ? "Remove from favorites" : "Add to favorites",
         hint: "F",
@@ -1489,6 +1524,10 @@ function onRowContextMenu(event, onSelect, onCheck) {
         hint: "R",
         disabled: !canRecheck(address),
         onSelect: () => onCheck({ address, queryPort }),
+      },
+      live && {
+        label: watched ? "Stop watching" : "Watch for players",
+        onSelect: () => void onToggleWatch(live),
       },
       {
         label: "Copy address",
