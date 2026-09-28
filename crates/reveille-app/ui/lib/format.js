@@ -86,6 +86,9 @@ export function occupancyText({ clients, bots, capacity }) {
  * The server's own `sv_minPing`/`sv_maxPing` gate is a different number and is
  * never rendered here.
  */
+/** Upper bounds, in milliseconds, of a good and a fair ping. */
+export const PING_BANDS = { good: 80, fair: 150 };
+
 export function roundTrip(server) {
   const value = server.status_round_trip;
   if (value === null || value === undefined) return { text: "—", title: null };
@@ -93,6 +96,7 @@ export function roundTrip(server) {
   if (!Number.isFinite(millis)) return { text: "—", title: null };
   return {
     text: `${millis} ms`,
+    band: millis < PING_BANDS.good ? "good" : millis <= PING_BANDS.fair ? "fair" : "poor",
     title:
       "Time for one status request to this server and back, measured once during this check. Not the in-game ping.",
   };

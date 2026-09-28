@@ -366,8 +366,13 @@ export const PING_LIMITS = [null, 80, 150, 250];
 function matchesFilters(row) {
   const query = state.filters.query.trim().toLowerCase();
   if (query) {
-    const name = row.server.hostname.toLowerCase();
-    if (!name.includes(query) && !row.address.includes(query)) return false;
+    const fields = [
+      row.server.hostname,
+      row.address,
+      row.server.current_map ?? "",
+      row.server.game_type ?? "",
+    ];
+    if (!fields.some((field) => field.toLowerCase().includes(query))) return false;
   }
   if (state.filters.notEmpty && (row.server.occupancy?.clients_reported ?? 0) < 1) return false;
   const limit = state.filters.maxPing;
@@ -397,7 +402,14 @@ function sortRows(rows) {
   return rows.sort((left, right) => {
     const a = key(left, launches);
     const b = key(right, launches);
-    if (a === b) return left.server.hostname.localeCompare(right.server.hostname);
+    if (a === b) {
+      // Among equally busy servers the closer one is the better pick.
+      if (state.sort.column === "clients") {
+        const nearer = SORTERS.ping(left) - SORTERS.ping(right);
+        if (nearer !== 0) return nearer;
+      }
+      return left.server.hostname.localeCompare(right.server.hostname);
+    }
     return a > b ? direction : -direction;
   });
 }

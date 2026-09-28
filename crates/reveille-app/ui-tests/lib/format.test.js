@@ -117,6 +117,13 @@ test("the round trip is never described as the in-game ping", () => {
   assert.match(trip.title, /measured once during this check/u);
 });
 
+test("a ping is banded good below 80 ms, fair up to 150 and poor above", () => {
+  assert.equal(format.roundTrip({ status_round_trip: 79 }).band, "good");
+  assert.equal(format.roundTrip({ status_round_trip: 80 }).band, "fair");
+  assert.equal(format.roundTrip({ status_round_trip: 150 }).band, "fair");
+  assert.equal(format.roundTrip({ status_round_trip: 151 }).band, "poor");
+});
+
 test("an unmeasured round trip is an em dash with no explanation to give", () => {
   // Never synthesised. A server that produced no reply is not listed at all, so there is no
   // unknown case to fill in.
