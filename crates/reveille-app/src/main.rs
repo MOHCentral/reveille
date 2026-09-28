@@ -23,6 +23,7 @@
 //! payloads and progress events, and decides nothing the core has not already established.
 
 mod self_update;
+mod tray;
 
 use std::cmp;
 use std::collections::{HashSet, VecDeque};
@@ -2512,6 +2513,11 @@ fn main() {
         reason = "executable main boundary: a failed run has no caller to return to"
     )]
     tauri::Builder::default()
+        // First, so a second launch hands over before any other plugin starts. Clicking a Windows
+        // toast launches Reveille again, which is how a hidden window comes back.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -2535,9 +2541,11 @@ fn main() {
                 }
             }
             app.manage(AppState::default());
+            app.manage(tray::TrayState::default());
             self_update::register(app);
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             detect_install,
             engine_overview,
@@ -2564,6 +2572,7 @@ fn main() {
             self_update::check_reveille_update,
             self_update::install_reveille_update,
             self_update::cancel_reveille_update,
+            tray::set_close_to_tray,
             app_log_files
         ])
         .run(tauri::generate_context!())

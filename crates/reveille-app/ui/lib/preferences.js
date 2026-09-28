@@ -19,6 +19,7 @@ const DEFAULTS = {
   pingGood: 80,
   pingFair: 150,
   refreshOnFocus: true,
+  closeToTray: false,
 };
 
 const RULES = {
@@ -29,6 +30,7 @@ const RULES = {
   pingGood: (value) => PING_GOOD_CHOICES.includes(value),
   pingFair: (value) => PING_FAIR_CHOICES.includes(value),
   refreshOnFocus: (value) => typeof value === "boolean",
+  closeToTray: (value) => typeof value === "boolean",
 };
 
 let cached = null;

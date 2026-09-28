@@ -7,7 +7,7 @@ import { installStorage } from "../fakes/storage.js";
 import { preferences, reloadPreferences, setPreference } from "../../ui/lib/preferences.js";
 import { roundTrip } from "../../ui/lib/format.js";
 
-test("a fresh install keeps today's alert behaviour and ping colours", () => {
+test("a fresh install keeps today's alert behaviour, ping colours and quits on close", () => {
   installStorage();
   reloadPreferences();
   assert.deepEqual(preferences(), {
@@ -18,6 +18,7 @@ test("a fresh install keeps today's alert behaviour and ping colours", () => {
     pingGood: 80,
     pingFair: 150,
     refreshOnFocus: true,
+    closeToTray: false,
   });
 });
 

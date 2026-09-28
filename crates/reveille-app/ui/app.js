@@ -23,6 +23,7 @@ import {
   errorText,
   focusReveille,
   gameClientRunning,
+  setCloseToTray,
   installAndLaunch,
   installServerFiles,
   installReveilleUpdate,
@@ -81,7 +82,7 @@ import {
 import { autoDetect, setupView } from "./views/setup.js";
 import { openSettings } from "./views/settings.js";
 import { openShortcuts } from "./views/shortcuts.js";
-import { preferences } from "./lib/preferences.js";
+import { preferences, setPreference } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
 
@@ -409,6 +410,15 @@ async function openAppSettings() {
       return offer;
     },
     onReportBug: () => void openBugReport(),
+    onCloseToTray: syncCloseToTray,
+  });
+}
+
+function syncCloseToTray(enabled) {
+  setCloseToTray(enabled).catch(() => {
+    openDialog("Keep watching", el("p", null,
+      "Reveille could not add its notification-area icon, so closing the window still quits it."));
+    setPreference("closeToTray", false);
   });
 }
 
@@ -1259,6 +1269,7 @@ document.addEventListener("keydown", (event) => {
 /* Boot ---------------------------------------------------------------------- */
 
 notify();
+if (preferences().closeToTray) syncCloseToTray(true);
 autoDetect(setup.render, enterServers);
 void findReveilleUpdate();
 

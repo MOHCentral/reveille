@@ -31,6 +31,7 @@
 //   install_reveille_update()                  -> void (the app exits on Windows)
 //   cancel_reveille_update()                   -> void
 //   app_log_files()                            -> { current, previous }
+//   set_close_to_tray(enabled)                 -> void
 //
 // A `session` is `{ path, engine, game }`: which game folder, which engine program, and which of
 // the three games — Allied Assault, Spearhead or Breakthrough. Every server-facing command takes
@@ -96,6 +97,8 @@ export const readWatchedServer = ({ address, queryPort, game }) =>
   invoke("read_watched_server", { address, queryPort, game });
 
 export const gameClientRunning = () => invoke("game_client_running");
+
+export const setCloseToTray = (enabled) => invoke("set_close_to_tray", { enabled });
 
 export const onPlayerNotificationClick = (handler) =>
   on("reveille://player-alert-open", handler);

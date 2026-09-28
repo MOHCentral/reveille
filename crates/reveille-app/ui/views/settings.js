@@ -18,13 +18,13 @@ import { GAME_LABELS, state, update } from "../lib/store.js";
 
 /**
  * `engine` is the engine's display name; `version` the running build, when known. The callbacks
- * open Setup, the Watching view, the update dialog and a bug report.
+ * open Setup, the Watching view, the update dialog and a bug report, and tell the shell about the
+ * tray setting.
  */
-export function openSettings({ engine, version, onChangeInstall, onOpenWatching, onUpdate, onCheckUpdate, onReportBug }) {
-  const redraw = () =>
-    preserveFocus($("#info-dialog-body"), () =>
-      openSettings({ engine, version, onChangeInstall, onOpenWatching, onUpdate, onCheckUpdate, onReportBug }),
-    );
+export function openSettings(options) {
+  const { engine, version, onChangeInstall, onOpenWatching, onUpdate, onCheckUpdate, onReportBug, onCloseToTray } =
+    options;
+  const redraw = () => preserveFocus($("#info-dialog-body"), () => openSettings(options));
   const change = (name, value) => {
     setPreference(name, value);
     // Ping colours are drawn in the list, which repaints on a notify.
@@ -67,6 +67,21 @@ export function openSettings({ engine, version, onChangeInstall, onOpenWatching,
         (on) => change("quietWhilePlaying", on),
         alertsOff,
       ),
+      toggle(
+        "settings-tray",
+        "Keep watching when I close the window",
+        prefs.closeToTray,
+        (on) => {
+          change("closeToTray", on);
+          onCloseToTray(on);
+        },
+      ),
+      prefs.closeToTray &&
+        el(
+          "p",
+          { className: "settings__hint" },
+          "Closing the window leaves Reveille in the notification area. Right-click its icon to quit.",
+        ),
       el(
         "p",
         { className: "settings__hint" },
