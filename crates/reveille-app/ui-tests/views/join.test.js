@@ -27,6 +27,13 @@ function row() {
     server: {
       hostname: "Issue 6 fixture",
       current_map: "dm/mohdm1",
+      game_type: "Objective-Match",
+      game_version: "1.11",
+      version: "Medal of Honor Allied Assault 1.11 win-x86 Mar 5 2002",
+      occupancy: { clients_reported: 12, bots_reported: 0 },
+      client_capacity: 28,
+      status_round_trip: 46,
+      rotation: ["dm/mohdm1", "obj/obj_team3"],
       allow_download: 1,
       map_checksum: 123,
       endpoint: { query_port: 12300 },
@@ -62,16 +69,21 @@ function reset(preview) {
   store.state.browse = { ...store.state.browse, running: false, completedAt: null };
 }
 
-function renderText(preview) {
+function renderView(preview) {
   reset(preview);
   const root = document.createElement("div");
   const view = joinView(root, {
     onInstallServerFiles() {},
     onJoin() {},
     onRecheck() {},
+    onTogglePlayerAlert() {},
   });
   view.render();
-  return textOf(root);
+  return { root, view };
+}
+
+function renderText(preview) {
+  return textOf(renderView(preview).root);
 }
 
 function textOf(node) {
@@ -121,4 +133,37 @@ test("the post-server-file rescan offers Join when nothing remains", () => {
   assert.match(text, /Join/u);
   assert.doesNotMatch(text, /Get .*join/u);
   assert.doesNotMatch(text, /Download size not provided/u);
+});
+
+test("the pane leads with the six figures, labelled marks and Join", () => {
+  const text = renderText({ assessment: assessment("compatible"), catalogue: null });
+
+  assert.match(text, /Favorite/u);
+  assert.match(text, /Watch/u);
+  for (const figure of ["Players", "12", "/28", "Bots", "none", "46 ms", "dm/mohdm1", "Objective-Match", "1.11"]) {
+    assert.ok(text.includes(figure), `missing ${figure}`);
+  }
+  assert.match(text, /Join/u);
+  assert.match(text, /More about this server/u);
+  assert.doesNotMatch(text, /win-x86/u);
+  assert.doesNotMatch(text, /127\.0\.0\.1/u);
+});
+
+test("the More fold holds the address, map list, download policy and build", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  const toggle = root.querySelector('[data-focus-key="detail-more"]');
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+
+  toggle.dispatch("click");
+  view.render();
+  const text = textOf(root);
+
+  assert.equal(root.querySelector('[data-focus-key="detail-more"]').getAttribute("aria-expanded"), "true");
+  assert.match(text, /127\.0\.0\.1:12203/u);
+  assert.match(text, /dm\/mohdm1, obj\/obj_team3/u);
+  assert.match(text, /the server sends missing files/u);
+  assert.match(text, /win-x86 Mar 5 2002/u);
+
+  root.querySelector('[data-focus-key="detail-more"]').dispatch("click");
+  view.render();
 });
