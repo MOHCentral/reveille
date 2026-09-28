@@ -2,8 +2,9 @@
 
 name: Release
 
-# A tag builds the Windows installer and the signed/notarized universal Mac artifacts, then
-# attaches them to a *draft* release. Publishing stays a deliberate act by the owner. Manual runs
+# A tag builds the Windows installer and the universal Mac artifacts, then attaches them to a
+# *draft* release. The Mac build is signed and notarized when the Apple secrets are configured and
+# ad-hoc signed otherwise. Publishing stays a deliberate act by the owner. Manual runs
 # build the Windows installer as a workflow artifact without requiring Apple release credentials.
 on:
   push:
@@ -218,19 +219,36 @@ jobs:
       - name: Write the third-party notices
         run: node tools/third-party-notices.mjs aarch64-apple-darwin
 
-      - name: Require the signing, notarization and updater identities
+      - name: Choose Developer ID or ad-hoc signing
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY REVEILLE_UPDATER_PUBKEY; do
+          for name in TAURI_SIGNING_PRIVATE_KEY REVEILLE_UPDATER_PUBKEY; do
             if [ -z "${!name:-}" ]; then
-              echo "$name must be configured before a regular macOS release" >&2
+              echo "$name must be configured before a macOS release" >&2
               exit 1
             fi
           done
+          apple=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+          present=0
+          for name in "${apple[@]}"; do
+            [ -n "${!name:-}" ] && present=$((present + 1))
+          done
+          # A partial set is a broken configuration, not a request for an unsigned build.
+          if [ "$present" -ne 0 ] && [ "$present" -ne "${#apple[@]}" ]; then
+            echo "only $present of ${#apple[@]} Apple secrets are configured: ${apple[*]}" >&2
+            exit 1
+          fi
+          if [ "$present" -eq 0 ]; then
+            # Ad-hoc signing carries no Apple identity and cannot be notarized, but without it
+            # Apple Silicon reports the universal app as damaged instead of offering Open Anyway.
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "REVEILLE_MACOS_SIGNED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
           certificate="$RUNNER_TEMP/reveille-developer-id.p12"
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -246,15 +264,20 @@ jobs:
             exit 1
           fi
           echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "REVEILLE_MACOS_SIGNED=true" >> "$GITHUB_ENV"
 
-      - name: Build, sign, notarize and staple the universal DMG
+      - name: Build the universal DMG
         working-directory: crates/reveille-app
         run: |
           set -euo pipefail
+          if [ "$REVEILLE_MACOS_SIGNED" != true ]; then
+            # The bundler notarizes whenever these are set, and GitHub sets missing secrets to "".
+            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
           updater_config=$(jq -cn --arg key "$REVEILLE_UPDATER_PUBKEY" '{bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey:$key}}}')
           npx -- tauri build --target universal-apple-darwin --config "$updater_config" --config notices.conf.json -- --locked
 
-      - name: Validate architectures, signature, notarization and stapling
+      - name: Validate architectures and signatures
         id: macos
         run: |
           set -euo pipefail
@@ -264,7 +287,12 @@ jobs:
           [[ " $archs " == *" arm64 "* ]]
           [[ " $archs " == *" x86_64 "* ]]
           codesign --verify --deep --strict --verbose=2 "$app"
-          spctl --assess --type execute --verbose=2 "$app"
+          if [ "$REVEILLE_MACOS_SIGNED" = true ]; then
+            spctl --assess --type execute --verbose=2 "$app"
+          elif codesign -dv --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application'; then
+            echo 'the ad-hoc build unexpectedly carries a Developer ID signature' >&2
+            exit 1
+          fi
           shopt -s nullglob
           dmgs=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
           archives=(target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz)
@@ -272,9 +300,11 @@ jobs:
             echo 'expected one DMG and one signed macOS updater archive' >&2
             exit 1
           fi
-          codesign --verify --verbose=2 "${dmgs[0]}"
-          xcrun stapler validate "${dmgs[0]}"
-          spctl --assess --type open --context context:primary-signature --verbose=2 "${dmgs[0]}"
+          if [ "$REVEILLE_MACOS_SIGNED" = true ]; then
+            codesign --verify --verbose=2 "${dmgs[0]}"
+            xcrun stapler validate "${dmgs[0]}"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "${dmgs[0]}"
+          fi
           echo "dmg=${dmgs[0]}" >> "$GITHUB_OUTPUT"
           echo "archive=${archives[0]}" >> "$GITHUB_OUTPUT"
 
@@ -285,7 +315,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reveille-macos-signed
+          name: reveille-macos
           path: |
             target/universal-apple-darwin/release/bundle/dmg/*.dmg
             target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
@@ -312,7 +342,11 @@ jobs:
           windows_signature=$(<"${installers[0]}.sig")
           macos_signature=$(<"$MACOS_ARCHIVE.sig")
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
-          notes='Windows and signed/notarized universal macOS release, built by GitHub Actions from this tag.'
+          if [ "$REVEILLE_MACOS_SIGNED" = true ]; then
+            notes='Windows and signed/notarized universal macOS release, built by GitHub Actions from this tag.'
+          else
+            notes='Windows and universal macOS release, built by GitHub Actions from this tag.'
+          fi
           jq -n \
             --arg version "$version" \
             --arg notes "$notes" \
@@ -323,3 +357,11 @@ jobs:
             '{version:$version,notes:$notes,platforms:{"windows-x86_64":{url:$windows_url,signature:$windows_signature},"darwin-universal":{url:$macos_url,signature:$macos_signature}}}' \
             > "$RUNNER_TEMP/latest.json"
           gh release upload "$tag" "$DMG" "$MACOS_ARCHIVE" "$RUNNER_TEMP/latest.json" --clobber
+          if [ "$REVEILLE_MACOS_SIGNED" != true ]; then
+            mac_note='The macOS app is **not signed with an Apple Developer ID or notarized**. The first time you open it, macOS blocks it: open System Settings > Privacy & Security and choose **Open Anyway**.'
+            body=$(gh release view "$tag" --json body --jq .body)
+            if [[ "$body" != *"$mac_note"* ]]; then
+              printf '%s\n\n%s\n' "$body" "$mac_note" > "$RUNNER_TEMP/release-notes.md"
+              gh release edit "$tag" --notes-file "$RUNNER_TEMP/release-notes.md"
+            fi
+          fi

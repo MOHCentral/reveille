@@ -35,16 +35,15 @@ cargo run -p reveille-app
 ```
 
 `just bundle-macos` builds the universal Apple Silicon/Intel `.app` and `.dmg`, targeting macOS
-11.0 and later. Setup shows OpenMoHAA only and uses the bare native `openmohaa` executable. A
-`macos-preview-v*` tag creates an explicitly unsigned GitHub prerelease; it does not replace the
-website's normal latest release and is never offered through self-update.
+11.0 and later. Setup shows OpenMoHAA only and uses the bare native `openmohaa` executable.
 
-Regular `v*` macOS artifacts require a Developer ID certificate and Apple notarization
-credentials. The release workflow signs, notarizes and staples the universal DMG, validates all
-three, and adds its signed updater archive under the `darwin-universal` manifest target. General
-availability remains blocked until the physical-Mac journey in `docs/plan.md` passes.
+Every `v*` release builds the universal DMG and adds its updater archive under the
+`darwin-universal` manifest target. With a Developer ID certificate and Apple notarization
+credentials configured, the release workflow signs, notarizes and staples the DMG and validates
+all three. Without any of them it ad-hoc signs the app, and the release notes tell Mac users to
+allow it once under Privacy & Security. A partial set of Apple secrets fails the release.
 
-The regular release job expects the base64-encoded Developer ID certificate in
+For a signed build, the release job expects the base64-encoded Developer ID certificate in
 `APPLE_CERTIFICATE`, its password in `APPLE_CERTIFICATE_PASSWORD`, a temporary-keychain password
 in `KEYCHAIN_PASSWORD`, and Apple's notarization values in `APPLE_ID`, `APPLE_PASSWORD`, and
 `APPLE_TEAM_ID`.
