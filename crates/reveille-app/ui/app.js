@@ -323,7 +323,7 @@ function openGameMenu(event) {
       ? games.map((game) => ({
           label: GAME_LABELS[game] ?? game,
           checked: game === state.game,
-          disabled: (state.browse.running || state.joining) && game !== state.game,
+          disabled: state.joining && game !== state.game,
           onSelect: () => void selectGame(game),
         }))
       : []),
@@ -694,10 +694,23 @@ async function applyInstallChange({ install, engine, game }) {
  * session. Bumping all three tokens is what discards them. A join cannot be abandoned half-written,
  * so the control is refused outright while one is running rather than raced — `joining`, not
  * `installRun`, because a compatible server has nothing to download and still has a game to start.
+ *
+ * A running search is stopped instead, since its rows are about to be dropped anyway. That is what
+ * lets Setup open on one game without asking: the title bar can switch during the first search.
+ * Only the last game asked for while a search winds down is switched to.
  */
-function selectGame(game) {
-  if (game === state.game || state.browse.running || state.joining) return;
+let wantedGame = null;
+
+async function selectGame(game) {
+  if (game === state.game || state.joining) return;
   if (!playableGames(state.install).includes(game)) return;
+  if (state.browse.running) {
+    wantedGame = game;
+    stopBrowse();
+    await browseFinished();
+    if (wantedGame !== game || state.joining || game === state.game) return;
+    wantedGame = null;
+  }
   previewToken += 1;
   checkGeneration += 1;
   joinToken += 1;
