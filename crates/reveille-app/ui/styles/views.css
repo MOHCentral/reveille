@@ -1235,6 +1235,7 @@
 .setup-root {
   height: 100vh;
   overflow: auto;
+  background: radial-gradient(ellipse at 50% -10%, #1c222a 0%, var(--bg) 55%, var(--void) 100%);
 }
 
 .setup {
@@ -1244,12 +1245,15 @@
   padding: var(--space-6);
 }
 
+/* The one card of the first run. The brass top edge is the same accent the titlebar wordmark
+   carries, so the card reads as Reveille's own chrome rather than a system prompt. */
 .setup__card {
-  width: min(560px, 100%);
+  width: min(620px, 100%);
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-6);
+  padding: 24px 32px 18px;
   border: 1px solid var(--line);
+  border-top: 2px solid var(--brass);
   border-radius: var(--radius-lg);
   background: var(--panel);
   box-shadow: var(--lift);
@@ -1260,8 +1264,6 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--line);
 }
 
 .setup__title {
@@ -1269,50 +1271,94 @@
   font-size: var(--text-xl);
   font-weight: 600;
   line-height: 1.15;
+  text-wrap: balance;
 }
 
 .setup__lede {
+  margin-top: calc(var(--space-2) * -1);
   color: var(--dim);
-  font-size: var(--text-md);
-  line-height: 1.55;
+  font-size: var(--text-name);
+  line-height: 1.5;
 }
 
-.setup__found {
+/* Two numbered steps, because the order is real: the programs on offer depend on the folder. */
+.setup-step {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--void);
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px var(--space-3);
 }
 
-.setup__path {
-  font-family: var(--face-data);
+.setup-step__n {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: -2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-family: var(--face-display);
+  font-weight: 600;
   font-size: var(--text-sm);
   color: var(--dim);
-  overflow-wrap: anywhere;
-  user-select: text;
 }
 
-.setup__copy {
-  display: grid;
+.setup-step--now .setup-step__n {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+.setup-step--done .setup-step__n {
+  border-color: var(--brass);
+  background: var(--brass);
+  color: var(--brass-ink);
+}
+
+.setup-step--wait {
+  opacity: 0.55;
+}
+
+.setup-step__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--bad);
-  border-radius: var(--radius);
-  background: var(--void);
 }
 
-.setup__copy .actions__row {
-  padding-top: 0;
+.setup-step__title {
+  color: var(--ink);
 }
 
-/* What Reveille needs on disk, stated before the player goes looking for it. This is the first
-   thing read on a cold start with no install, so it carries body weight rather than note weight. */
-.setup__needs {
+.setup-step__body {
+  grid-column: 2;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.setup__go {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-4);
+}
+
+.setup__go .btn--primary {
+  padding: 11px 16px;
+  font-size: var(--text-name);
+}
+
+.setup__hint {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+
+.setup__hint strong {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+/* What Reveille needs on disk, stated before the player goes looking for it. */
+.setup__needs {
+  padding: var(--space-3) 14px;
   border: 1px solid var(--line);
   border-left: 2px solid var(--brass);
   border-radius: var(--radius);
@@ -1332,7 +1378,8 @@
   display: flex;
   gap: var(--space-2);
   justify-content: center;
-  padding-top: var(--space-2);
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 
 .setup__row {
@@ -1345,119 +1392,179 @@
   flex: 1;
 }
 
-.engine-choice {
+.folder-box {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-3);
-  color: var(--dim);
-  font-size: var(--text-sm);
-}
-
-.engine-choice__label {
-  white-space: nowrap;
-}
-
-.engine-choice select {
-  min-width: 0;
-  padding: 7px 28px 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--rise);
-}
-
-.engine-choice select:disabled {
-  color: var(--faint);
-}
-
-/* The game question. A plain radio row rather than cards: there is nothing to say about each
-   option beyond its name, and cards would give three identical boxes equal weight to the engine
-   choice below, which does carry version, size and installed state. */
-.game-choice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-  min-width: 0;
-  padding: 0;
-  border: 0;
-}
-
-.game-choice legend {
-  padding: 0;
-  margin-bottom: var(--space-2);
-}
-
-.game-choice__option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.game-choice label {
-  color: var(--ink);
-}
-
-.engine-cards {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
-  padding: 0;
-  border: 0;
-}
-
-.engine-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: 6px var(--space-3);
+  padding: 10px var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--void);
-  cursor: pointer;
 }
 
-.engine-card:hover,
-.engine-card--selected {
-  border-color: var(--brass);
+.folder-box__path {
+  font-size: var(--text-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
-.engine-card input[type="radio"] {
-  margin-top: 3px;
-  accent-color: var(--brass);
+.folder-box__games {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.engine-card__body,
-.engine-card__details {
+.folder-box__game {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  font-size: var(--text-sm);
+  color: var(--dim);
+}
+
+/* Amber, not red: a protected folder limits what can be written, not what can be played. */
+.folder-box__warn {
+  grid-column: 1 / -1;
   display: grid;
   gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--warn-text);
+}
+
+.folder-box__copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.programs {
+  display: grid;
   min-width: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--void);
 }
 
-.engine-card__label {
+.program {
   display: grid;
-  gap: var(--space-2);
-  cursor: pointer;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0 var(--space-3);
+  padding: 11px var(--space-3);
 }
 
-.engine-card__details {
-  margin-top: var(--space-2);
-  padding-top: var(--space-3);
+.program + .program {
   border-top: 1px solid var(--line);
 }
 
-.kv-line {
+.program--selected {
+  background: color-mix(in srgb, var(--brass) 7%, var(--void));
+  box-shadow: inset 3px 0 0 var(--brass);
+}
+
+.program input[type="radio"] {
+  align-self: start;
+  margin: 4px 0 0;
+  accent-color: var(--brass);
+}
+
+.program__label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px var(--space-3);
+  cursor: pointer;
+}
+
+.program__name {
   display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
+  align-items: baseline;
+  gap: var(--space-2);
+  font-weight: 600;
+  font-size: var(--text-name);
+}
+
+.program__tag {
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--brass) 45%, transparent);
+  border-radius: 2px;
+  font-family: var(--face-display);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.program__state {
+  font-family: var(--face-data);
+  font-size: var(--text-sm);
   color: var(--dim);
+  white-space: nowrap;
+}
+
+.program__state--ok {
+  color: var(--ok-text);
+}
+
+.program__desc {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--dim);
+}
+
+.program__details {
+  grid-column: 2;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.program__release {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+
+.program__release select {
+  padding: 3px 24px 3px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--rise);
   font-size: var(--text-sm);
 }
 
-.kv-line strong {
-  color: var(--ink);
-  font-family: var(--face-data);
+.program__release .data {
+  color: var(--dim);
+}
+
+.install-progress {
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+/* The same choice over the server list, in its own dialog so it can carry Cancel beside a
+   priced primary action; the shared info dialog only closes. */
+#setup-dialog {
+  width: min(600px, 92vw);
+  max-width: min(600px, 92vw);
+}
+
+.setup-section {
+  display: grid;
+  gap: var(--space-2);
 }
 
 /* Narrow windows. The minimum is 920x620, so this only has to survive the

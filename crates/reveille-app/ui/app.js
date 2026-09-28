@@ -79,7 +79,7 @@ import {
   subscribe,
   update,
 } from "./lib/store.js";
-import { autoDetect, setupView } from "./views/setup.js";
+import { setupView } from "./views/setup.js";
 import { openSettings } from "./views/settings.js";
 import { openShortcuts } from "./views/shortcuts.js";
 import { preferences, setPreference } from "./lib/preferences.js";
@@ -110,8 +110,9 @@ const join = joinView($("#detail-slot"), {
   onRecheck: recheck,
   onTogglePlayerAlert: togglePlayerAlert,
 });
-const setup = setupView(setupRoot, {
+const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: enterServers,
+  onApply: applyInstallChange,
   onUpdate: openReveilleUpdate,
   onReportBug: () => void openBugReport(),
 });
@@ -317,18 +318,17 @@ async function openPendingArrival() {
 function openGameMenu(event) {
   const anchor = $("#game-switch");
   const games = playableGames(state.install);
-  const busy = state.browse.running || state.joining;
   openMenu([
     ...(games.length > 1
       ? games.map((game) => ({
           label: GAME_LABELS[game] ?? game,
           checked: game === state.game,
-          disabled: busy && game !== state.game,
+          disabled: (state.browse.running || state.joining) && game !== state.game,
           onSelect: () => void selectGame(game),
         }))
       : []),
     games.length > 1 && { separator: true },
-    { label: "Change folder or engine…", disabled: state.joining, onSelect: leaveServers },
+    { label: "Change folder or engine…", disabled: state.joining, onSelect: () => setup.change() },
     { note: displayPath(state.install.root) },
   ].filter(Boolean), event, anchor);
 }
@@ -393,8 +393,9 @@ async function openAppSettings() {
     engine: engineLabel(state.engine),
     version,
     onChangeInstall: () => {
+      if (state.joining) return;
       closeDialog();
-      leaveServers();
+      setup.change();
     },
     onOpenWatching: () => {
       closeDialog();
@@ -649,13 +650,35 @@ function enterServers() {
   if (!state.servers.length || !listIsForCurrentSession()) refresh();
 }
 
-function leaveServers() {
+/**
+ * Adopt the folder, program and game the setup dialog confirmed, without leaving the list.
+ *
+ * Every result still in flight was asked of the session being left, so the same three tokens
+ * `selectGame` bumps are bumped here, and a running sweep is stopped rather than left to fill the
+ * table with the old session's rows. The list is searched again only when the session changed.
+ */
+async function applyInstallChange({ install, engine, game }) {
+  if (state.browse.running) {
+    stopBrowse();
+    await browseFinished();
+  }
+  previewToken += 1;
+  checkGeneration += 1;
+  joinToken += 1;
   update((next) => {
-    next.install = null;
+    next.install = install;
+    next.engine = engine;
+    next.game = game;
     next.selected = null;
     next.preview = null;
+    next.checks = new Map();
+    next.checkedAt = new Map();
+    next.previewProgress = null;
+    next.previewError = null;
+    next.joinResult = null;
+    next.joinError = null;
   });
-  autoDetect(setup.render, enterServers, { skipConfirmation: false });
+  enterServers();
 }
 
 /**
@@ -1270,7 +1293,7 @@ document.addEventListener("keydown", (event) => {
 
 notify();
 if (preferences().closeToTray) syncCloseToTray(true);
-autoDetect(setup.render, enterServers);
+setup.detect();
 void findReveilleUpdate();
 
 function engineLabel(engine) {
