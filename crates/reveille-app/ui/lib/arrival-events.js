@@ -39,7 +39,7 @@ export function arrivalById(id) {
   return recent.get(id) ?? arrivalEvents().find((entry) => entry.id === id) ?? null;
 }
 
-export function recordArrival(server, count, at = Date.now()) {
+export function recordArrival(server, count, at = Date.now(), detail = null) {
   const event = {
     id: crypto.randomUUID(),
     game: server.game,
@@ -47,6 +47,8 @@ export function recordArrival(server, count, at = Date.now()) {
     queryPort: server.queryPort,
     hostname: server.hostname,
     count,
+    // The round they arrived for: map, mode and ping, already worded.
+    detail: typeof detail === "string" && detail ? detail : null,
     at,
     read: false,
   };

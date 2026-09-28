@@ -22,7 +22,7 @@
 //   browse_servers(session)                    -> BrowserPayload
 //   cancel_browse()                            -> void
 //   check_server(session, address, queryPort)  -> CheckResult
-//   probe_player_count(address, queryPort, game) -> number | null
+//   read_watched_server(address, queryPort, game) -> { clients, bots, map, mode, round_trip } | null
 //   preview_join(session, address)             -> JoinPreview
 //   install_server_files(session, address)     -> ServerFilesResult
 //   install_and_launch(session, address, selectedCandidateIds, acceptIncomplete) -> JoinResult
@@ -91,8 +91,8 @@ export const cancelBrowse = () => invoke("cancel_browse");
 export const checkServer = (session, address, queryPort) =>
   invoke("check_server", { session, address, queryPort });
 
-export const probePlayerCount = ({ address, queryPort, game }) =>
-  invoke("probe_player_count", { address, queryPort, game });
+export const readWatchedServer = ({ address, queryPort, game }) =>
+  invoke("read_watched_server", { address, queryPort, game });
 
 export const onPlayerNotificationClick = (handler) =>
   on("reveille://player-alert-open", handler);
@@ -119,6 +119,7 @@ export const sendPlayerNotification = (event) =>
     eventId: event.id,
     hostname: event.hostname,
     count: event.count,
+    detail: event.detail ?? null,
   });
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });

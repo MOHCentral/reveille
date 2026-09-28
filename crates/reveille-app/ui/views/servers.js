@@ -888,9 +888,10 @@ function row(item, starred, watched, launches, alerted, onSelect, onActivate, on
   );
 }
 
-/** What the monitor last saw on a watched server, and when it last alerted. */
+/** What the monitor last saw on a watched server, when it last alerted, and its rule. */
 function watchedLine(address, alerted) {
-  return watchLine(watchReading(address), alerted.get(`${state.game}|${address}`) ?? null);
+  const threshold = watchedEntries().find((entry) => entry.address === address)?.threshold;
+  return watchLine(watchReading(address), alerted.get(`${state.game}|${address}`) ?? null, threshold);
 }
 
 /**

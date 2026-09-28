@@ -1428,10 +1428,24 @@ async fn check_server(
     })
 }
 
-/// Read only the player count for an explicitly monitored endpoint. Unlike `check_server`, this
-/// does not index maps or alter the browse list behind a pending join.
+/// What one probe of a watched server saw: enough to decide an alert and to word its toast.
+#[derive(Serialize)]
+struct WatchReading {
+    clients: Option<u32>,
+    bots: Option<u32>,
+    map: Option<String>,
+    mode: Option<String>,
+    round_trip: u32,
+}
+
+/// Read a watched endpoint's occupancy and current round. Unlike `check_server`, this does not
+/// index maps or alter the browse list behind a pending join.
 #[tauri::command]
-async fn probe_player_count(address: String, query_port: u16, game: TargetGame) -> Option<u32> {
+async fn read_watched_server(
+    address: String,
+    query_port: u16,
+    game: TargetGame,
+) -> Option<WatchReading> {
     let address = address.parse::<SocketAddrV4>().ok()?;
     if query_port == 0 {
         return None;
@@ -1448,10 +1462,19 @@ async fn probe_player_count(address: String, query_port: u16, game: TargetGame) 
     {
         return None;
     }
-    server
-        .occupancy
-        .clients_reported
-        .map(discovery::ClientsReported::get)
+    Some(WatchReading {
+        clients: server
+            .occupancy
+            .clients_reported
+            .map(discovery::ClientsReported::get),
+        bots: server
+            .occupancy
+            .bots_reported
+            .map(discovery::BotsReported::get),
+        map: server.current_map,
+        mode: server.game_type,
+        round_trip: server.status_round_trip.get(),
+    })
 }
 
 #[cfg(not(windows))]
@@ -1467,10 +1490,18 @@ async fn send_player_notification(
     event_id: String,
     hostname: String,
     count: u32,
+    detail: Option<String>,
 ) -> Result<(), String> {
-    if event_id.len() > 64 || event_id.is_empty() || count == 0 || hostname.len() > 256 {
+    let detail = detail.filter(|detail| !detail.trim().is_empty());
+    if event_id.len() > 64
+        || event_id.is_empty()
+        || count == 0
+        || hostname.len() > 256
+        || detail.as_ref().is_some_and(|detail| detail.len() > 256)
+    {
         return Err("Invalid player alert".into());
     }
+    let body = detail.unwrap_or_else(|| "A server you follow is no longer empty.".into());
     let title = format!(
         "{count} {} on {hostname}",
         if count == 1 { "player" } else { "players" }
@@ -1481,17 +1512,14 @@ async fn send_player_notification(
         app.notification()
             .builder()
             .title(title)
-            .body("A server you follow is no longer empty.")
+            .body(body)
             .show()
             .map_err(|error| error.to_string())
     }
     #[cfg(not(windows))]
     tokio::task::spawn_blocking(move || {
         let mut notification = notify_rust::Notification::new();
-        notification
-            .summary(&title)
-            .body("A server you follow is no longer empty.")
-            .auto_icon();
+        notification.summary(&title).body(&body).auto_icon();
         #[cfg(target_os = "macos")]
         {
             let _ = notify_rust::set_application(if tauri::is_dev() {
@@ -2518,7 +2546,7 @@ fn main() {
             cancel_browse,
             browse_servers,
             check_server,
-            probe_player_count,
+            read_watched_server,
             send_player_notification,
             preview_join,
             install_server_files,

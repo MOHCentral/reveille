@@ -33,7 +33,7 @@ import {
   notificationPermission,
   openExternalUrl,
   previewJoin,
-  probePlayerCount,
+  readWatchedServer,
   requestPlayerAlertAttention,
   sendPlayerNotification,
 } from "./lib/api.js";
@@ -53,7 +53,7 @@ import {
   removePlayerAlert,
   startPlayerAlertMonitor,
 } from "./lib/player-alerts.js";
-import { clockTime, displayPath, plural, timeAgo } from "./lib/format.js";
+import { alertDetail, clockTime, displayPath, plural, timeAgo } from "./lib/format.js";
 import {
   GAME_LABELS,
   SCOPES,
@@ -144,12 +144,12 @@ void onPlayerNotificationClick(({ eventId }) => {
   const event = arrivalById(eventId);
   if (event) requestOpenArrival(event);
 });
-const alertMonitor = startPlayerAlertMonitor(probePlayerCount, deliverArrival, (id, reading) =>
+const alertMonitor = startPlayerAlertMonitor(readWatchedServer, deliverArrival, (id, reading) =>
   update((next) => next.watchReadings.set(id, reading)),
 );
 
-async function deliverArrival(entry, count) {
-  const event = recordArrival(entry, count);
+async function deliverArrival(entry, count, reading) {
+  const event = recordArrival(entry, count, Date.now(), alertDetail(reading));
   renderArrivalBadge();
   if (!document.hasFocus() && !attentionRequested) {
     attentionRequested = true;
@@ -223,7 +223,7 @@ function arrivalEntry(event) {
     el("span", { className: "arrival__title", title: event.hostname },
       el("strong", null, plural(event.count, "player")), ` on ${event.hostname}`),
     el("span", { className: "arrival__meta" },
-      `${where}${timeAgo(new Date(event.at).toISOString()) ?? ""}`),
+      [where + (timeAgo(new Date(event.at).toISOString()) ?? ""), event.detail].filter(Boolean).join(" · ")),
     el("span", { className: "arrival__actions" },
       el("button", {
         type: "button",
