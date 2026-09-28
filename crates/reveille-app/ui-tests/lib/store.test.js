@@ -413,6 +413,34 @@ test("the All scope draws no disclosure and no absent entries", () => {
   assert.deepEqual(store.scopedAbsent(), []);
 });
 
+test("Watching lists this game's watched servers, answering ones first and the rest unfolded", () => {
+  const storage = reset();
+  storage.setItem(
+    "reveille.player-alerts",
+    JSON.stringify([
+      { game: "allied_assault", address: "1.2.3.4:12203", queryPort: 12300, hostname: "Quiet" },
+      { game: "allied_assault", address: "1.2.3.5:12203", queryPort: 12300, hostname: "Busy" },
+      { game: "spearhead", address: "1.2.3.6:12203", queryPort: 12300, hostname: "Other game" },
+    ]),
+  );
+  store.state.scope = "watching";
+  store.state.servers = [row("1.2.3.5:12203", { clients: 5 }), row("9.9.9.9:1", { clients: 9 })];
+  assert.deepEqual(
+    store.scopedRows().map((item) => [item.kind, item.address]),
+    [["live", "1.2.3.5:12203"], ["watched", "1.2.3.4:12203"]],
+  );
+  assert.deepEqual(store.scopedAbsent(), []);
+  store.state.watchReadings = new Map([["allied_assault|1.2.3.4:12203", { count: 2, checkedAt: 1 }]]);
+  assert.equal(store.watchReading("1.2.3.4:12203").count, 2);
+  assert.equal(store.watchReading("1.2.3.5:12203"), null);
+});
+
+test("the Watching scope is remembered like the others", () => {
+  reset({ "reveille.filters": JSON.stringify({ scope: "watching" }) });
+  store.loadFilters();
+  assert.equal(store.state.scope, "watching");
+});
+
 /* Re-checking ---------------------------------------------------------------*/
 
 test("one server may not be re-asked during a sweep, during a join, or while already in flight", () => {

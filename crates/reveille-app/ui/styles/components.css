@@ -197,7 +197,7 @@
 
 .scope__option {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border: 0;
@@ -215,6 +215,14 @@
 .scope__option[aria-pressed="true"] {
   background: var(--rise);
   color: var(--ink);
+}
+
+.scope__icon {
+  color: var(--faint);
+}
+
+.scope__option[aria-pressed="true"] .scope__icon {
+  color: var(--brass);
 }
 
 .scope__count {

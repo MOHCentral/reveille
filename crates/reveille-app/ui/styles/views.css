@@ -381,6 +381,15 @@
   color: var(--dim);
 }
 
+.played-cell {
+  color: var(--dim);
+}
+
+.row-watched .occupancy__count {
+  display: inline-block;
+  min-width: 2ch;
+}
+
 .history-line {
   flex: none;
   font-size: var(--text-xs);

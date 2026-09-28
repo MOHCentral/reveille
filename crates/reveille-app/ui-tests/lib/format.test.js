@@ -354,3 +354,22 @@ test("the map cell says nothing for a ready server and counts the maps otherwise
   assert.equal(format.mapNeed({ state: "no_source", count: 1 }).kind, "missing");
   assert.equal(format.mapNeed({ state: "cant_tell" }).text, "?");
 });
+
+test("the Played column says how long ago, and how often once it is more than once", () => {
+  const ago = new Date(Date.now() - 2 * 3_600_000).toISOString();
+  assert.equal(format.playedLabel({ launches: 1, lastLaunchedAt: ago }), "2h ago");
+  assert.equal(format.playedLabel({ launches: 3, lastLaunchedAt: ago }), "2h ago ×3");
+  assert.equal(format.playedLabel({ launches: 0 }), null);
+});
+
+test("the watch line says what the monitor last saw and when it last alerted", () => {
+  const now = Date.now();
+  assert.equal(format.watchLine(null, null), "Not checked yet");
+  assert.equal(format.watchLine({ count: 3, checkedAt: now }, null), "3 players just now");
+  assert.equal(format.watchLine({ count: 0, checkedAt: now }, null), "No players just now");
+  assert.equal(format.watchLine({ count: null, checkedAt: now - 5 * 60_000 }, null), "No answer 5 min ago");
+  assert.equal(
+    format.watchLine({ count: 1, checkedAt: now }, now - 2 * 3_600_000),
+    "1 player just now · alerted 2h ago",
+  );
+});

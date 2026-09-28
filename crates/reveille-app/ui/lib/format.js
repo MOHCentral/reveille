@@ -302,6 +302,36 @@ export function launchedLabel(entry) {
   return when ? `Launched ${when}${times}` : `Launched ${entry.launches}×`;
 }
 
+/** The History view's Played column: how long ago, and how often once it is more than once. */
+export function playedLabel(entry) {
+  if (!entry?.launches) return null;
+  const when = timeAgo(entry.lastLaunchedAt);
+  const times = entry.launches > 1 ? ` ×${entry.launches}` : "";
+  return when ? `${when}${times}` : `×${entry.launches}`;
+}
+
+/**
+ * What the watch monitor last saw on one server, for the Watching view. `lastAlertAt` comes from
+ * the stored arrivals rather than the monitor, so it survives a restart.
+ */
+export function watchLine(reading, lastAlertAt) {
+  const parts = [];
+  if (!reading) parts.push("Not checked yet");
+  else {
+    const checked = timeAgo(reading.checkedAt);
+    const seen =
+      reading.count === null || reading.count === undefined
+        ? "No answer"
+        : reading.count === 0
+          ? "No players"
+          : plural(reading.count, "player");
+    parts.push(checked ? `${seen} ${checked}` : seen);
+  }
+  const alerted = timeAgo(lastAlertAt);
+  if (alerted) parts.push(`alerted ${alerted}`);
+  return parts.join(" · ");
+}
+
 /**
  * What the live region says while a sweep runs.
  *

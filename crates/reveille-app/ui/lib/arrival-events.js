@@ -25,6 +25,16 @@ export function unreadArrivalCount() {
   return arrivalEvents().filter((entry) => !entry.read).length;
 }
 
+/** `game|address` -> when players last arrived there, read once for a whole list. */
+export function lastArrivals() {
+  const latest = new Map();
+  for (const entry of arrivalEvents()) {
+    const id = `${entry.game}|${entry.address}`;
+    if ((latest.get(id) ?? -Infinity) < entry.at) latest.set(id, entry.at);
+  }
+  return latest;
+}
+
 export function arrivalById(id) {
   return recent.get(id) ?? arrivalEvents().find((entry) => entry.id === id) ?? null;
 }

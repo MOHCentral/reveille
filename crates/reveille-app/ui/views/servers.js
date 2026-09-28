@@ -21,7 +21,7 @@
 
 import { el, fill, preserveFocus } from "../lib/dom.js";
 import { icon } from "../lib/icons.js";
-import { playerAlerts } from "../lib/player-alerts.js";
+import { lastArrivals } from "../lib/arrival-events.js";
 import { openMenu } from "../lib/menu.js";
 import {
   browseFailureText,
@@ -33,10 +33,12 @@ import {
   occupancy,
   occupancyFill,
   occupancyText,
+  playedLabel,
   roundTrip,
   shortVersion,
   sweepProgressText,
   timeAgo,
+  watchLine,
 } from "../lib/format.js";
 import {
   clearHistory,
@@ -61,6 +63,8 @@ import {
   state,
   update,
   visibleServers,
+  watchReading,
+  watchedEntries,
 } from "../lib/store.js";
 
 const COLUMNS = [
@@ -97,7 +101,7 @@ const COLUMNS = [
   // more than it answered: a column on every row for a question asked about one row, drawn in a
   // width that had to come out of **Mode**, which is what a player filters the list by before
   // anything else. The price is in the detail pane, where the join is decided.
-  { key: "runs", label: "Runs", sortable: false, className: "col-runs" },
+  { key: "runs", label: "Runs", sortable: false, scoped: true, className: "col-runs" },
 ];
 
 /**
@@ -122,12 +126,14 @@ function columnsShown(table) {
   return shown || COLUMNS.length;
 }
 
-const SCOPE_LABELS = { all: "All", favorites: "Favorites", history: "History" };
+const SCOPE_LABELS = { all: "Servers", favorites: "Favorites", watching: "Watching", history: "History" };
+const SCOPE_ICONS = { all: "list", favorites: "star", watching: "bell", history: "clock" };
 
 const CAPTIONS = {
   all: "Servers answering now",
   favorites: "Starred servers, and whether they are in this list",
-  history: "Servers Reveille launched the game for, most recent first",
+  watching: "Watched servers, and what Reveille last saw on each",
+  history: "Servers you played on, most recent first",
 };
 
 /**
@@ -179,16 +185,18 @@ export function serversView({
 
   // Which population the table lists. Three exclusive buttons rather than tabs: there is still
   // one table, one set of columns and one selection — only the rows it draws from change.
-  const scopeButtons = SCOPES.map((scope) =>
+  const scopeButtons = SCOPES.map((scope, index) =>
     el(
       "button",
       {
         type: "button",
-        className: "scope__option",
+        className: `scope__option scope__option--${scope}`,
         "aria-pressed": "false",
+        title: `${SCOPE_LABELS[scope]} (Ctrl+${index + 1})`,
         dataset: { focusKey: `scope-${scope}`, scope },
         onclick: () => selectScope(scope),
       },
+      icon(SCOPE_ICONS[scope], { className: "scope__icon" }),
       el("span", { className: "scope__label" }, SCOPE_LABELS[scope]),
       el("span", { className: "scope__count data" }),
     ),
@@ -375,7 +383,12 @@ export function serversView({
   };
 
   const paintScope = () => {
-    const counts = { all: state.servers.length, favorites: favorites().length, history: history().length };
+    const counts = {
+      all: state.servers.length,
+      favorites: favorites().length,
+      watching: watchedEntries().length,
+      history: history().length,
+    };
     for (const button of scopeButtons) {
       const { scope } = button.dataset;
       button.setAttribute("aria-pressed", state.scope === scope ? "true" : "false");
@@ -385,8 +398,14 @@ export function serversView({
   };
 
   const paintHeaders = () => {
-    for (const { column, th, arrow } of headers) {
-      const active = column.sortable && state.sort.column === column.key;
+    for (const { column, th, arrow, sortKey } of headers) {
+      if (column.scoped) {
+        const history = state.scope === "history";
+        th.querySelector(".th-runs").classList.toggle("hidden", history);
+        th.querySelector(".th-played").classList.toggle("hidden", !history);
+      }
+      const key = sortKey ?? column.key;
+      const active = (column.sortable || column.scoped) && state.sort.column === key && (!column.scoped || state.scope === "history");
       const ascending = state.sort.direction === "asc";
       if (active) th.setAttribute("aria-sort", ascending ? "ascending" : "descending");
       else th.removeAttribute("aria-sort");
@@ -491,12 +510,16 @@ export function serversView({
     const starred = favoriteAddresses();
     const watched = watchedAddresses();
     const launches = state.scope === "history" ? historyByAddress() : null;
+    const alerted = state.scope === "watching" ? lastArrivals() : null;
     const build = (item) => {
       if (item.kind === "live") {
-        return row(item.row, starred, watched, launches, onSelect, onActivate, onToggleWatch);
+        return row(item.row, starred, watched, launches, alerted, onSelect, onActivate, onToggleWatch);
       }
       if (item.kind === "disclosure") return disclosureRow(item.count, lastColumns);
       if (item.kind === "empty-fold") return emptyFoldRow(item, lastColumns);
+      if (item.kind === "watched") {
+        return watchedRow(item.entry, starred, alerted, lastColumns, onCheck, onGame, onToggleWatch);
+      }
       return absentRow(item.entry, starred, launches, lastColumns, onCheck, onGame);
     };
     // Opening the absent block repaints the table the button that opened it lives in, and a
@@ -560,6 +583,7 @@ export function serversView({
     listPane,
     statusbar,
     live,
+    selectScope,
     reveal: (address) => {
       selectScope("all");
       update((next) => {
@@ -576,11 +600,7 @@ export function serversView({
 
 /** Addresses watched for player arrivals in the game this session is browsing. */
 function watchedAddresses() {
-  return new Set(
-    playerAlerts()
-      .filter((entry) => entry.game === state.game)
-      .map((entry) => entry.address),
-  );
+  return new Set(watchedEntries().map((entry) => entry.address));
 }
 
 /** The row currently holding the grid's tab stop. */
@@ -599,6 +619,35 @@ function headerCell(column) {
     scope: "col",
     className: [column.numeric ? "num" : null, column.className].filter(Boolean).join(" ") || null,
   };
+  // Runs in every view but History, where the same slot says when each server was last played and
+  // owns the order History arrives in.
+  if (column.scoped) {
+    const arrow = el("span", { className: "sort-arrow" });
+    const th = el(
+      "th",
+      attrs,
+      el("span", { className: "th-runs" }, column.label),
+      el(
+        "button",
+        {
+          type: "button",
+          className: "th-played hidden",
+          onclick: () =>
+            update((next) => {
+              next.sort = {
+                column: "launched",
+                direction:
+                  next.sort.column === "launched" && next.sort.direction === "desc" ? "asc" : "desc",
+              };
+              saveFilters();
+            }),
+        },
+        "Played",
+        arrow,
+      ),
+    );
+    return { column, th, arrow, sortKey: "launched" };
+  }
   if (column.hideLabel) {
     return {
       column,
@@ -652,7 +701,8 @@ function marksCell(subject, address, hostname, starred, watched, onToggleWatch) 
     update(() => {});
   });
   const bell =
-    subject.server &&
+    onToggleWatch &&
+    (subject.server || watched.has(address)) &&
     markButton("bell", watched.has(address), `Watch ${name}`, () => void onToggleWatch(subject));
   return el("td", { role: "gridcell", className: "col-star" }, el("span", { className: "marks" }, star, bell));
 }
@@ -690,7 +740,7 @@ function setMark(button, kind, on) {
  * menu: a second line under every name halved how many servers fit on screen for a detail almost
  * nobody scans.
  */
-function nameCell(hostname, address, launched, remembered, join = null) {
+function nameCell(hostname, address, note, remembered, join = null) {
   return el(
     "td",
     { role: "gridcell", className: "col-name" },
@@ -705,7 +755,7 @@ function nameCell(hostname, address, launched, remembered, join = null) {
         },
         hostname || "(unnamed server)",
       ),
-      launched && el("span", { className: "history-line" }, launched),
+      note && el("span", { className: "history-line" }, note),
       join,
     ),
   );
@@ -800,11 +850,12 @@ function segment(className, share) {
   return node;
 }
 
-function row(item, starred, watched, launches, onSelect, onActivate, onToggleWatch) {
+function row(item, starred, watched, launches, alerted, onSelect, onActivate, onToggleWatch) {
   const counts = occupancy(item.server);
   const ping = roundTrip(item.server);
   const mode = gameType(item.server);
-  const launched = launches ? launchedLabel(launches.get(item.address)) : null;
+  const played = launches ? playedLabel(launches.get(item.address)) : null;
+  const seen = alerted ? watchedLine(item.address, alerted) : null;
   const choose = () => {
     if (state.selected !== item.address) onSelect(item.address);
   };
@@ -830,7 +881,7 @@ function row(item, starred, watched, launches, onSelect, onActivate, onToggleWat
       onfocus: choose,
     },
     marksCell(item, item.address, item.server.hostname, starred, watched, onToggleWatch),
-    nameCell(item.server.hostname, item.address, launched, false, inlineJoin(item, onActivate)),
+    nameCell(item.server.hostname, item.address, seen, false, inlineJoin(item, onActivate)),
     occupancyCell(counts),
     el(
       "td",
@@ -864,11 +915,54 @@ function row(item, starred, watched, launches, onSelect, onActivate, onToggleWat
     el(
       "td",
       { role: "gridcell", className: "col-runs" },
+      launches
+        ? el("span", { className: "runs-cell played-cell" }, played ?? "—")
+        : el(
+            "span",
+            { className: "runs-cell", title: item.server.version ?? "" },
+            shortVersion(item.server),
+          ),
+    ),
+  );
+}
+
+/** What the monitor last saw on a watched server, and when it last alerted. */
+function watchedLine(address, alerted) {
+  return watchLine(watchReading(address), alerted.get(`${state.game}|${address}`) ?? null);
+}
+
+/**
+ * A watched server the current list does not hold. The monitor probes it anyway, so unlike a
+ * favorite it is not folded away: its last count is in the Players column and the name line says
+ * when that was.
+ */
+function watchedRow(entry, starred, alerted, columns, onCheck, onGame, onToggleWatch) {
+  const check = state.checks.get(entry.address);
+  const count = watchReading(entry.address)?.count;
+  return el(
+    "tr",
+    {
+      role: "row",
+      className: `row-absent row-watched${count > 0 ? "" : " row--empty"}`,
+      tabIndex: -1,
+      dataset: { remembered: entry.address, focusKey: `watched-${entry.address}` },
+    },
+    marksCell(entry, entry.address, entry.hostname, starred, new Set([entry.address]), onToggleWatch),
+    nameCell(entry.hostname, entry.address, watchedLine(entry.address, alerted), true),
+    el(
+      "td",
+      { role: "gridcell", className: "col-clients" },
       el(
         "span",
-        { className: "runs-cell", title: item.server.version ?? "" },
-        shortVersion(item.server),
+        { className: "occupancy__count" },
+        el("span", { className: "occupancy__clients" }, Number.isInteger(count) ? String(count) : "—"),
       ),
+    ),
+    el(
+      "td",
+      { role: "gridcell", colspan: String(columns - 3) },
+      el("span", { className: "absent-note" }, absentNote(check)),
+      absentAction(entry, check, onCheck, onGame),
     ),
   );
 }
@@ -876,7 +970,8 @@ function row(item, starred, watched, launches, onSelect, onActivate, onToggleWat
 /** The scope's own word for what it holds, singular or plural. */
 const SAVED_NOUNS = {
   favorites: ["favorite", "favorites"],
-  history: ["launched server", "launched servers"],
+  watching: ["watched server", "watched servers"],
+  history: ["played server", "played servers"],
 };
 
 function savedNoun(count = 0) {
@@ -1125,6 +1220,11 @@ function emptyRow(columns) {
   // problems, and only one of them is fixed by clearing the search box.
   if (state.scope === "favorites" && favorites().length === 0) {
     body = [el("h3", null, "No favorites yet"), el("p", null, "Star a server to keep it here.")];
+  } else if (state.scope === "watching" && watchedEntries().length === 0) {
+    body = [
+      el("h3", null, "Not watching any servers"),
+      el("p", null, "Turn on a server's bell and Reveille tells you when players join it."),
+    ];
   } else if (state.scope === "history" && history().length === 0) {
     body = [
       el("h3", null, "Nothing launched yet"),
@@ -1290,6 +1390,7 @@ function scopedStatusbar(onCheck) {
         },
         `Check the other ${shown.length}`,
       ),
+    state.scope === "watching" && state.alertError && el("span", { className: "error" }, state.alertError),
     el("span", { className: "statusbar__spacer" }),
     state.scope === "history" && saved.length > 0 && clearHistoryButton(),
   ];
@@ -1440,7 +1541,12 @@ function signature(items) {
   const checks = [...state.checks].map(([address, check]) => `${address}${check.status}`).join(",");
   // `staleAt` draws a row of its own, so a sweep failing on top of a list has to repaint even
   // though every row it holds is unchanged.
-  return `${state.scope}:${state.sort.column}:${state.sort.direction}:${state.staleAt}:${rows}:${checks}`;
+  // The Watching view draws what the monitor saw, so each new reading repaints it.
+  const readings =
+    state.scope === "watching"
+      ? [...state.watchReadings].map(([id, reading]) => `${id}${reading.count}@${reading.checkedAt}`).join(",")
+      : "";
+  return `${state.scope}:${state.sort.column}:${state.sort.direction}:${state.staleAt}:${rows}:${checks}:${readings}`;
 }
 
 /** Every control inside one row, in visual order. */
