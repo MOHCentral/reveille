@@ -635,17 +635,41 @@
   border-bottom: 1px solid var(--line);
 }
 
-.detail__title-row {
+.detail__marks {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
-.detail__server-controls {
-  display: flex;
+/* Labelled, unlike the list's bare icons: this is where the two are told apart, so each says
+   what it does. */
+.mark-toggle {
+  display: inline-flex;
   align-items: center;
-  flex: none;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  font-family: var(--face-display);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.mark-toggle .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.mark-toggle:hover {
+  color: var(--ink);
+  border-color: var(--faint-deco);
+}
+
+.mark-toggle[aria-pressed="true"] {
+  color: var(--brass);
+  border-color: color-mix(in srgb, var(--brass) 45%, transparent);
+  background: color-mix(in srgb, var(--brass) 10%, transparent);
 }
 
 .detail__title {
@@ -654,6 +678,101 @@
   font-weight: 600;
   line-height: 1.2;
   overflow-wrap: anywhere;
+  /* Two lines at most, so a long clan banner cannot push Join down the pane. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+
+.fact {
+  min-width: 0;
+}
+
+.fact dt {
+  font-family: var(--face-display);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.fact dd {
+  margin-top: 2px;
+  font-family: var(--face-data);
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fact dd strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.fact .ping-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.fact dd .facts__full {
+  color: var(--warn-text);
+}
+
+/* Everything that does not decide the join. */
+.detail__more {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+}
+
+.detail__more-toggle {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-family: var(--face-display);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.detail__more-toggle::before {
+  content: "";
+  border: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  border-right: 0;
+  transition: transform 120ms ease;
+}
+
+.detail__more-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.detail__more-toggle:hover {
+  color: var(--ink);
+}
+
+.detail__address {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 /* A name recalled from the row a check has just dropped. Same reasoning as the list's
@@ -670,7 +789,8 @@
 .detail__freshness {
   display: grid;
   gap: var(--space-2);
-  margin-top: var(--space-1);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--line);
 }
 
 .detail__freshness-row {
@@ -849,12 +969,16 @@
 
 /* Action bar --------------------------------------------------------------- */
 
+/* Sits right under the facts it acts on; sticky so a long list of choices cannot scroll it away. */
 .actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--line);
-  background: var(--void);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .actions__row {

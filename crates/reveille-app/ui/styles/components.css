@@ -251,12 +251,6 @@
   color: var(--brass);
 }
 
-.mark--lg {
-  width: 32px;
-  height: 32px;
-  font-size: 20px;
-}
-
 .marks {
   display: flex;
   gap: 2px;
