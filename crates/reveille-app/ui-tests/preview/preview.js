@@ -54,6 +54,17 @@ if (favorites > 0) {
   localStorage.setItem("reveille.bookmarks", JSON.stringify({ v: 1, favorites: saved, history: [] }));
 }
 
+const watched = Number(params.get("watch") ?? 0);
+if (watched > 0) {
+  const alerts = RESULTS.browse_servers.servers.slice(1, 1 + watched).map((row) => ({
+    game: "allied_assault",
+    address: row.address,
+    queryPort: row.server.endpoint.query_port,
+    hostname: row.server.hostname,
+  }));
+  localStorage.setItem("reveille.player-alerts", JSON.stringify(alerts));
+}
+
 const page = new DOMParser().parseFromString(
   await (await fetch(new URL("index.html", SHELL))).text(),
   "text/html",

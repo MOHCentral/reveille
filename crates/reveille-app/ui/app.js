@@ -87,6 +87,7 @@ const servers = serversView({
   onShowNonResults: showNonResults,
   onCheck: check,
   onGame: selectGame,
+  onToggleWatch: togglePlayerAlert,
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,

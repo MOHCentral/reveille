@@ -21,6 +21,7 @@
 
 import { el, fill, preserveFocus } from "../lib/dom.js";
 import { icon } from "../lib/icons.js";
+import { playerAlerts } from "../lib/player-alerts.js";
 import { openMenu } from "../lib/menu.js";
 import {
   browseFailureText,
@@ -150,7 +151,15 @@ function selectScope(scope) {
   });
 }
 
-export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, onCheck, onGame }) {
+export function serversView({
+  onRefresh,
+  onCancel,
+  onSelect,
+  onShowNonResults,
+  onCheck,
+  onGame,
+  onToggleWatch,
+}) {
   const search = el("input", {
     id: "server-search",
     type: "search",
@@ -427,16 +436,16 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
    * repaint. It converges every path that can star a server: the row's own button, the detail
    * pane's, and the `F` key.
    */
-  const syncStars = () => {
+  const syncMarks = () => {
     const starred = favoriteAddresses();
+    const watched = watchedAddresses();
     for (const tr of tbody.children) {
       const address = tr.dataset.address ?? tr.dataset.remembered;
-      const button = address && tr.querySelector(".star");
-      if (!button) continue;
-      const on = starred.has(address);
-      button.setAttribute("aria-pressed", on ? "true" : "false");
-      button.title = on ? "Remove from favorites" : "Add to favorites";
-      button.textContent = on ? "★" : "☆";
+      if (!address) continue;
+      const star = tr.querySelector(".mark--star");
+      if (star) setMark(star, "star", starred.has(address));
+      const bell = tr.querySelector(".mark--bell");
+      if (bell) setMark(bell, "bell", watched.has(address));
     }
   };
 
@@ -447,9 +456,10 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     lastColumns = columnsShown(table);
     // Read the starred set once. Asking per row would parse the store a hundred-odd times a paint.
     const starred = favoriteAddresses();
+    const watched = watchedAddresses();
     const launches = state.scope === "history" ? historyByAddress() : null;
     const build = (item) => {
-      if (item.kind === "live") return row(item.row, starred, launches, onSelect);
+      if (item.kind === "live") return row(item.row, starred, watched, launches, onSelect, onToggleWatch);
       if (item.kind === "disclosure") return disclosureRow(item.count, lastColumns);
       if (item.kind === "empty-fold") return emptyFoldRow(item, lastColumns);
       return absentRow(item.entry, starred, launches, lastColumns, onCheck, onGame);
@@ -488,7 +498,7 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     // breakpoint changes every colspan the last paint wrote, so it has to force one too.
     if (next === lastSignature && columnsShown(table) === lastColumns) {
       syncSelection();
-      syncStars();
+      syncMarks();
       return;
     }
     // A sweep emits one event per probed endpoint. Repainting ~130 rows on each
@@ -527,6 +537,15 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     // The grid's one tab stop, wherever `syncSelection` put it.
     focusFirstRow: () => tabbableRow(tbody)?.focus(),
   };
+}
+
+/** Addresses watched for player arrivals in the game this session is browsing. */
+function watchedAddresses() {
+  return new Set(
+    playerAlerts()
+      .filter((entry) => entry.game === state.game)
+      .map((entry) => entry.address),
+  );
 }
 
 /** The row currently holding the grid's tab stop. */
@@ -583,37 +602,52 @@ function headerCell(column) {
 }
 
 /**
- * The star. A real button, so it is reachable by keyboard and announces its own state; the click
- * must not fall through to the row, or starring would also change the selection.
+ * The row's two marks: the star for a favorite and the bell for a watched server. Real buttons, so
+ * each is reachable by keyboard and announces its own state; a click must not fall through to the
+ * row, or marking would also change the selection. Unset marks only appear on hover or on the
+ * selected row, so a list of a hundred servers is not a column of hollow icons.
  *
  * Takes a live row or a remembered entry, because a favorite can be unstarred from a row this
- * sweep did not return.
+ * sweep did not return. Only a live row can be watched: the monitor needs its query port.
  */
-function starCell(subject, address, hostname, starred) {
-  const on = starred.has(address);
+function marksCell(subject, address, hostname, starred, watched, onToggleWatch) {
   const name = hostname || address;
-  return el(
-    "td",
-    { role: "gridcell", className: "col-star" },
-    el(
-      "button",
-      {
-        type: "button",
-        className: "star",
-        // The grid owns the tab order; `syncSelection` rewrites this on every render anyway.
-        tabIndex: -1,
-        "aria-pressed": on ? "true" : "false",
-        "aria-label": `Favorite ${name}`,
-        title: on ? "Remove from favorites" : "Add to favorites",
-        onclick: (event) => {
-          event.stopPropagation();
-          toggleFavorite(subject);
-          update(() => {});
-        },
-      },
-      on ? "★" : "☆",
-    ),
-  );
+  const star = markButton("star", starred.has(address), `Favorite ${name}`, () => {
+    toggleFavorite(subject);
+    update(() => {});
+  });
+  const bell =
+    subject.server &&
+    markButton("bell", watched.has(address), `Watch ${name}`, () => void onToggleWatch(subject));
+  return el("td", { role: "gridcell", className: "col-star" }, el("span", { className: "marks" }, star, bell));
+}
+
+const MARK_TITLES = {
+  star: ["Add to favorites", "Remove from favorites"],
+  bell: ["Watch: notify me when players join", "Stop watching"],
+};
+
+function markButton(kind, on, label, toggle) {
+  const button = el("button", {
+    type: "button",
+    className: `mark mark--${kind}`,
+    // The grid owns the tab order; `syncSelection` rewrites this on every render anyway.
+    tabIndex: -1,
+    "aria-label": label,
+    onclick: (event) => {
+      event.stopPropagation();
+      toggle();
+    },
+  });
+  setMark(button, kind, on);
+  return button;
+}
+
+function setMark(button, kind, on) {
+  if (button.getAttribute("aria-pressed") === (on ? "true" : "false")) return;
+  button.setAttribute("aria-pressed", on ? "true" : "false");
+  button.title = MARK_TITLES[kind][on ? 1 : 0];
+  fill(button, icon(kind, { outline: !on }));
 }
 
 /**
@@ -706,7 +740,7 @@ function segment(className, share) {
   return node;
 }
 
-function row(item, starred, launches, onSelect) {
+function row(item, starred, watched, launches, onSelect, onToggleWatch) {
   const counts = occupancy(item.server);
   const ping = roundTrip(item.server);
   const mode = gameType(item.server);
@@ -731,7 +765,7 @@ function row(item, starred, launches, onSelect) {
       // deliberate arrow press, and the catalogue lookup behind it is debounced (app.js `select`).
       onfocus: choose,
     },
-    starCell(item, item.address, item.server.hostname, starred),
+    marksCell(item, item.address, item.server.hostname, starred, watched, onToggleWatch),
     nameCell(item.server.hostname, item.address, launched, false),
     occupancyCell(counts),
     el(
@@ -903,7 +937,7 @@ function absentRow(entry, starred, launches, columns, onCheck, onGame) {
       tabIndex: -1,
       dataset: { remembered: entry.address, focusKey: `absent-${entry.address}` },
     },
-    starCell(entry, entry.address, entry.hostname, starred),
+    marksCell(entry, entry.address, entry.hostname, starred, new Set(), null),
     nameCell(entry.hostname, entry.address, launched, true),
     el(
       "td",
