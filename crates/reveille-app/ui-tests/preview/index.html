@@ -1,0 +1,16 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Reveille preview</title>
+  </head>
+  <body>
+    <!--
+      Loads the real shell from ui/ against a fake Tauri bridge and a fixed server list, so the
+      interface can be looked at in any browser. Serve crates/reveille-app over HTTP and open
+      /ui-tests/preview/. Add ?favorites=3 to star the first three servers.
+    -->
+    <script type="module" src="preview.js"></script>
+  </body>
+</html>
