@@ -154,8 +154,8 @@ export function serversView({ onRefresh, onCancel, onSelect, onShowNonResults, o
     type: "search",
     autocomplete: "off",
     spellcheck: false,
-    placeholder: "Search server names",
-    "aria-label": "Search server names",
+    placeholder: "Search servers, maps or modes",
+    "aria-label": "Search servers, maps or modes",
     oninput: (event) => update((next) => (next.filters.query = event.target.value)),
   });
 
@@ -782,7 +782,12 @@ function row(item, starred, launches, onSelect) {
     el(
       "td",
       { role: "gridcell", className: "num col-ping" },
-      el("span", { className: "ping-cell", title: ping.title }, ping.text),
+      el(
+        "span",
+        { className: "ping-cell", title: ping.title },
+        ping.band && el("span", { className: `ping-dot ping-dot--${ping.band}`, "aria-hidden": "true" }),
+        ping.text,
+      ),
     ),
     el(
       "td",

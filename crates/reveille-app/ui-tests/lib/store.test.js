@@ -171,6 +171,33 @@ test("the search box matches the address as well as the name", () => {
   assert.equal(store.visibleServers().length, 0);
 });
 
+test("the search box also matches the map and the mode", () => {
+  reset();
+  store.state.servers = [
+    row("a:1", { map: "obj/obj_team2", mode: "Objective-Match" }),
+    row("b:1", { map: "dm/mohdm6", mode: "Team-Match" }),
+  ];
+
+  store.state.filters.query = "mohdm6";
+  assert.deepEqual(store.visibleServers().map((item) => item.address), ["b:1"]);
+
+  store.state.filters.query = "objective";
+  assert.deepEqual(store.visibleServers().map((item) => item.address), ["a:1"]);
+});
+
+test("equally busy servers sort nearest first", () => {
+  reset();
+  store.state.servers = [
+    row("far:1", { hostname: "A far", clients: 4, roundTrip: 200 }),
+    row("near:1", { hostname: "Z near", clients: 4, roundTrip: 20 }),
+    row("busy:1", { hostname: "M busy", clients: 9, roundTrip: 300 }),
+  ];
+  assert.deepEqual(
+    store.visibleServers().map((item) => item.address),
+    ["busy:1", "near:1", "far:1"],
+  );
+});
+
 test("the ping ceiling never hides a server that published no round trip", () => {
   reset();
   store.state.servers = [

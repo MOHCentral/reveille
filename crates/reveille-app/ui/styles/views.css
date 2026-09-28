@@ -193,7 +193,8 @@
 }
 
 .servers .col-ping {
-  width: 70px;
+  width: 80px;
+  padding-left: var(--space-2);
 }
 
 .servers .col-runs {
@@ -499,12 +500,32 @@
    would rank servers for the player the same way the traffic light docs/ui.md
    §2.1 rejects does. Same weight as Map, so neither reads as the answer. */
 .ping-cell {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--face-data);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--dim);
   white-space: nowrap;
+}
+
+.ping-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.ping-dot--good {
+  background: var(--ok);
+}
+
+.ping-dot--fair {
+  background: var(--warn);
+}
+
+.ping-dot--poor {
+  background: var(--bad);
 }
 
 /* The build string, kept quiet: it is the one thing here nobody reads to choose a
