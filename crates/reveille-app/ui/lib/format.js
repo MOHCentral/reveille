@@ -39,6 +39,42 @@ export function occupancy(server) {
   };
 }
 
+/** Share of capacity above which a server reads as nearly full. */
+export const NEARLY_FULL = 0.85;
+
+/**
+ * How full a server is, for the occupancy bar and the row's activity styling.
+ *
+ * Players and bots are separate segments of one track, players first, clipped so the two never
+ * overrun capacity. `activity` is what the row looks like at a glance: people on it, only bots,
+ * or nobody.
+ */
+export function occupancyFill({ clients, bots, capacity }) {
+  const players = clients ?? 0;
+  const botCount = bots ?? 0;
+  const activity = players > 0 ? "players" : botCount > 0 ? "bots" : "empty";
+  if (!capacity || capacity < 1) {
+    return { players: 0, bots: 0, full: false, nearlyFull: false, activity };
+  }
+  const playerShare = Math.min(1, players / capacity);
+  const botShare = Math.min(1 - playerShare, botCount / capacity);
+  return {
+    players: playerShare,
+    bots: botShare,
+    full: players >= capacity,
+    nearlyFull: players < capacity && playerShare >= NEARLY_FULL,
+    activity,
+  };
+}
+
+/** The occupancy cell's tooltip and accessible name, in words. */
+export function occupancyText({ clients, bots, capacity }) {
+  if (clients === null) return "Player count not published";
+  const players = `${plural(clients, "player")}${capacity ? ` of ${capacity}` : ""}`;
+  const full = capacity && clients >= capacity ? ", full" : "";
+  return bots ? `${players}${full}, plus ${plural(bots, "bot")}` : `${players}${full}`;
+}
+
 /**
  * The Ping column: the round trip of this sweep's one status request.
  *

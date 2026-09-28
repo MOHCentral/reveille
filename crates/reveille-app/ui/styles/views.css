@@ -175,11 +175,15 @@
 }
 
 .servers .col-clients {
-  width: 92px;
+  width: 136px;
+}
+
+.servers th.col-clients {
+  text-align: left;
 }
 
 .servers .col-map {
-  width: 170px;
+  width: 164px;
 }
 
 /* Wide enough for "Round-Based-Match", the longest label the stock engine sets
@@ -189,7 +193,7 @@
 }
 
 .servers .col-ping {
-  width: 78px;
+  width: 70px;
 }
 
 .servers .col-runs {
@@ -355,8 +359,17 @@
 }
 
 .occupancy {
+  display: grid;
+  grid-template-columns: 44px 34px 1fr;
+  align-items: center;
+  gap: 6px;
   font-family: var(--face-data);
   white-space: nowrap;
+}
+
+.occupancy__count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .occupancy__clients {
@@ -368,10 +381,64 @@
   color: var(--faint);
 }
 
+.occupancy__bar {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+
+.occupancy__players {
+  background: var(--brass);
+}
+
+.occupancy__bar--busy .occupancy__players,
+.occupancy__bar--full .occupancy__players {
+  background: var(--warn);
+}
+
+.occupancy__botfill {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--faint-deco) 0 2px,
+    transparent 2px 4px
+  );
+}
+
 .occupancy__bots {
-  margin-left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: var(--text-xs);
   color: var(--faint);
+}
+
+.occupancy__bots .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.occupancy__full {
+  font-family: var(--face-display);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--warn-text);
+}
+
+/* Activity at a glance: a row with people on it is drawn at full strength, and the rest step back
+   so the eye lands on the servers worth joining. */
+.row--bots .server-name,
+.row--empty .server-name {
+  color: var(--dim);
+}
+
+.row--bots .occupancy__clients,
+.row--empty .occupancy__clients {
+  color: var(--faint);
+  font-weight: 400;
 }
 
 .map-cell {
