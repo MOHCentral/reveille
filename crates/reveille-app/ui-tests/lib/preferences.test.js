@@ -17,6 +17,7 @@ test("a fresh install keeps today's alert behaviour and ping colours", () => {
     quietWhilePlaying: false,
     pingGood: 80,
     pingFair: 150,
+    refreshOnFocus: true,
   });
 });
 

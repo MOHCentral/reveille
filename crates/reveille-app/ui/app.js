@@ -61,8 +61,10 @@ import {
   applyCheckNonResult,
   applyCheckedRow,
   canRecheck,
+  countsByAddress,
   droppedIdentity,
   listIsForCurrentSession,
+  listIsStale,
   loadFilters,
   notify,
   playableGames,
@@ -142,6 +144,7 @@ let attentionRequested = false;
 window.addEventListener("focus", () => {
   attentionRequested = false;
   void clearPlayerAlertAttention().catch(() => {});
+  refreshOnReturn();
 });
 void onPlayerNotificationClick(({ eventId }) => {
   const event = arrivalById(eventId);
@@ -679,6 +682,20 @@ function selectGame(game) {
 
 /* Browsing ----------------------------------------------------------------- */
 
+/**
+ * Coming back to a list more than five minutes old gets it again, once, keeping the selected
+ * server selected. Not while a join owns the pane or a dialog is open over the list.
+ */
+function refreshOnReturn() {
+  if (!preferences().refreshOnFocus || !state.install || state.browse.running || state.joining) return;
+  if (!state.servers.length || !listIsForCurrentSession() || !listIsStale()) return;
+  if (document.querySelector("dialog[open]")) return;
+  const kept = state.selected;
+  void refresh().then(() => {
+    if (kept && !state.selected && state.servers.some((row) => row.address === kept)) select(kept);
+  });
+}
+
 async function refresh() {
   if (state.browse.running) return;
   // Any check still in flight is about the list this sweep is replacing.
@@ -690,6 +707,8 @@ async function refresh() {
   // F6). Only a list swept for *this* session qualifies: rows from another game or another folder
   // are not a stale answer to this question, they are an answer to a different one.
   const previous = listIsForCurrentSession() ? state.servers : [];
+  // A server that was in the last list but not in this one keeps no count to compare against.
+  const previousCounts = countsByAddress(previous);
   const previousAt = state.browse.completedAt;
   const previousFinishedAt = state.browse.finishedAt;
   update((next) => {
@@ -710,6 +729,7 @@ async function refresh() {
       finishedAt: null,
     };
     next.servers = [];
+    next.previousCounts = previousCounts;
     next.summary = null;
     next.nonResults = [];
     next.selected = null;

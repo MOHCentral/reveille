@@ -18,13 +18,29 @@ const install = params.has("games")
   ? { ...INSTALL, products: GAMES, playable: GAMES.slice(0, Number(params.get("games"))) }
   : INSTALL;
 
+let sweeps = 0;
 const RESULTS = {
   detect_install: install,
   engine_overview: OVERVIEW,
   select_engine: OVERVIEW,
   installation_storage: { status: "writable" },
   check_reveille_update: null,
-  browse_servers: browsePayload(),
+  // ?drift=1 moves some player counts on every sweep after the first, so the trend arrows show.
+  browse_servers: () => {
+    sweeps += 1;
+    const payload = browsePayload();
+    if (!params.has("drift") || sweeps < 2) return payload;
+    payload.servers.forEach((row, index) => {
+      const occupancy = row.server.occupancy;
+      const step = [2, -3, 0, 1, 0, -1][index % 6];
+      occupancy.clients_reported = Math.max(0, Math.min(row.server.client_capacity, occupancy.clients_reported + step));
+    });
+    payload.summary.clients_reported = payload.servers.reduce(
+      (sum, row) => sum + row.server.occupancy.clients_reported,
+      0,
+    );
+    return payload;
+  },
   check_server: ({ address }) => ({
     row: browsePayload().servers.find((row) => row.address === address) ?? null,
     non_result: { stage: "status", reason: "timeout" },
@@ -74,7 +90,7 @@ if (favorites > 0 || played > 0) {
     queryPort: row.server.endpoint.query_port,
     hostname: row.server.hostname,
   });
-  const servers = RESULTS.browse_servers.servers;
+  const servers = browsePayload().servers;
   const history = servers.slice(3, 3 + played).map((row, index) => ({
     ...identify(row),
     lastLaunchedAt: new Date(Date.now() - (index + 1) * 5_400_000).toISOString(),
@@ -88,7 +104,7 @@ if (favorites > 0 || played > 0) {
 
 const watched = Number(params.get("watch") ?? 0);
 if (watched > 0) {
-  const alerts = RESULTS.browse_servers.servers.slice(1, 1 + watched).map((row) => ({
+  const alerts = browsePayload().servers.slice(1, 1 + watched).map((row) => ({
     game: "allied_assault",
     address: row.address,
     queryPort: row.server.endpoint.query_port,

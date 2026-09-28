@@ -58,8 +58,10 @@ import {
   clearFilters,
   filtering,
   foldedEmpty,
+  listIsStale,
   modeChoices,
   playableGames,
+  playerTrend,
   savedEntries,
   saveFilters,
   scopedAbsent,
@@ -407,6 +409,11 @@ export function serversView({
     const age = listed ? timeAgo(state.browse.finishedAt) : null;
     refreshAge.textContent = age ?? "";
     refreshAge.classList.toggle("hidden", !age);
+    const stale = listed && listIsStale();
+    refresh.classList.toggle("toolbar__refresh--stale", stale);
+    refresh.title = stale
+      ? `This list is from ${age}, so player counts have likely moved. Get it again (Ctrl+R)`
+      : "Get the server list again (Ctrl+R)";
     const collapsed = state.detailCollapsed;
     detailToggle.setAttribute("aria-pressed", collapsed ? "false" : "true");
     detailToggle.setAttribute("aria-label", "Server details");
@@ -886,7 +893,7 @@ function inlineJoin(item, onActivate) {
  * is how busy a server is at a glance: players in brass, bots hatched after them, capacity as the
  * track. Bots stay a separate figure and are never added to the player count.
  */
-function occupancyCell(counts) {
+function occupancyCell(counts, trend) {
   const { clients, bots, capacity } = counts;
   const fill = occupancyFill(counts);
   const bar =
@@ -909,7 +916,8 @@ function occupancyCell(counts) {
   const extra = fill.full
     ? el("span", { className: "occupancy__full" }, "Full")
     : bots !== null && el("span", { className: "occupancy__bots" }, icon("bot"), String(bots));
-  const text = occupancyText(counts);
+  const since = trend ? `, ${trend.direction === "up" ? "up" : "down"} from ${trend.before} at the last check` : "";
+  const text = `${occupancyText(counts)}${since}`;
   return el(
     "td",
     { role: "gridcell", className: "col-clients", title: text, "aria-label": text },
@@ -919,6 +927,8 @@ function occupancyCell(counts) {
       el(
         "span",
         { className: "occupancy__count" },
+        trend &&
+          el("span", { className: `trend trend--${trend.direction}` }, trend.direction === "up" ? "▲" : "▼"),
         el("span", { className: "occupancy__clients" }, clients === null ? "—" : String(clients)),
         capacity !== null && el("span", { className: "occupancy__capacity" }, `/${capacity}`),
       ),
@@ -978,7 +988,7 @@ function row(item, starred, watched, launches, alerted, onSelect, onActivate, on
     },
     marksCell(item, item.address, item.server.hostname, starred, watched, onToggleWatch),
     nameCell(item.server.hostname, item.address, seen, false, inlineJoin(item, onActivate)),
-    occupancyCell(counts),
+    occupancyCell(counts, playerTrend(item)),
     el(
       "td",
       { role: "gridcell", className: "col-map" },

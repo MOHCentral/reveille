@@ -42,6 +42,7 @@ function draft(servers = []) {
     servers,
     checks: new Map(),
     checkedAt: new Map(),
+    previousCounts: new Map(),
     preview: { address: "x" },
     previewProgress: { index: 1, of: 4 },
     previewError: "stale",
@@ -123,6 +124,8 @@ test("an answering check replaces the row and stamps when it was measured", () =
   // The pane words a re-checked row differently from one the sweep returned, because a sweep's
   // finish time is not when any particular row inside it answered.
   assert.equal(next.checkedAt.get("here:1"), "14:32");
+  // The count it replaced is what the row's trend arrow compares against.
+  assert.equal(next.previousCounts.get("here:1"), 0);
   assert.equal(next.checks.has("here:1"), false, "a clean answer clears the check entry");
 });
 

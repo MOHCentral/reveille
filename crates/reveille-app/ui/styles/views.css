@@ -143,6 +143,16 @@
   color: var(--faint);
 }
 
+/* Past five minutes the counts on screen have likely moved. */
+.toolbar__refresh--stale {
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn-text);
+}
+
+.toolbar__refresh--stale .toolbar__age {
+  color: var(--warn-text);
+}
+
 /* A window with its right-hand panel: filled when the panel shows. */
 .toolbar__pane-glyph {
   position: relative;
@@ -236,7 +246,7 @@
 }
 
 .servers .col-clients {
-  width: 136px;
+  width: 146px;
 }
 
 .servers th.col-clients {
@@ -479,7 +489,7 @@
 
 .occupancy {
   display: grid;
-  grid-template-columns: 44px 34px 1fr;
+  grid-template-columns: 54px 34px 1fr;
   align-items: center;
   gap: 6px;
   font-family: var(--face-data);
@@ -494,6 +504,21 @@
 .occupancy__clients {
   color: var(--ink);
   font-weight: 600;
+}
+
+/* Since the last check. Small and quiet: a direction, not a verdict. */
+.trend {
+  margin-right: 3px;
+  font-size: 9px;
+  vertical-align: 1px;
+}
+
+.trend--up {
+  color: var(--ok-text);
+}
+
+.trend--down {
+  color: var(--faint);
 }
 
 .occupancy__capacity {

@@ -47,6 +47,7 @@ function reset(seed = {}) {
   store.state.browse = { ...store.state.browse, running: false };
   store.state.joining = false;
   store.state.checks = new Map();
+  store.state.previousCounts = new Map();
   return storage;
 }
 
@@ -532,4 +533,30 @@ test("update mutates and then notifies exactly once", () => {
   unsubscribe();
   store.update(() => {});
   assert.equal(notified, 1, "an unsubscribed handler is not called again");
+});
+
+/* Freshness and trends ------------------------------------------------------ */
+
+test("a list turns stale five minutes after its sweep finished", () => {
+  reset();
+  const finished = Date.parse("2026-09-28T12:00:00Z");
+  store.state.browse = { ...store.state.browse, finishedAt: new Date(finished).toISOString() };
+  assert.equal(store.listIsStale(finished + store.STALE_AFTER_MS), false);
+  assert.equal(store.listIsStale(finished + store.STALE_AFTER_MS + 1), true);
+  store.state.browse = { ...store.state.browse, finishedAt: null };
+  assert.equal(store.listIsStale(finished + 3_600_000), false, "no list is not a stale list");
+});
+
+test("a row's trend compares players with the list it replaced, never bots", () => {
+  reset();
+  store.state.previousCounts = store.countsByAddress([
+    row("up:1", { clients: 2 }),
+    row("down:1", { clients: 9 }),
+    row("same:1", { clients: 4, bots: 1 }),
+  ]);
+  assert.deepEqual(store.playerTrend(row("up:1", { clients: 5 })), { direction: "up", before: 2 });
+  assert.deepEqual(store.playerTrend(row("down:1", { clients: 3 })), { direction: "down", before: 9 });
+  assert.equal(store.playerTrend(row("same:1", { clients: 4, bots: 8 })), null);
+  assert.equal(store.playerTrend(row("new:1", { clients: 4 })), null, "a server seen once has no trend");
+  store.state.previousCounts = new Map();
 });

@@ -80,6 +80,12 @@ export function openSettings({ engine, version, onChangeInstall, onOpenWatching,
     ),
     section(
       "Server list",
+      toggle(
+        "settings-refresh-focus",
+        "Refresh a list older than 5 minutes when I come back to Reveille",
+        prefs.refreshOnFocus,
+        (on) => change("refreshOnFocus", on),
+      ),
       choice(
         "settings-ping-good",
         "Ping is green below",

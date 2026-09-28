@@ -72,6 +72,12 @@ export const state = {
     finishedAt: null,
   },
 
+  /**
+   * Each server's player count in the list the current sweep replaced, keyed by address, so a row
+   * can say whether it is filling up or emptying. Empty after a change of game, engine or folder.
+   */
+  previousCounts: new Map(),
+
   /** The selected row's address, and the join preview once it arrives. */
   selected: null,
   preview: null,
@@ -473,6 +479,33 @@ function sortRows(rows) {
   });
 }
 
+/** How old a list may get before the toolbar marks it and a return to the window refreshes it. */
+export const STALE_AFTER_MS = 5 * 60_000;
+
+/** Whether the list on screen finished longer ago than `STALE_AFTER_MS`. */
+export function listIsStale(now = Date.now()) {
+  const finished = Date.parse(state.browse.finishedAt ?? "");
+  return Number.isFinite(finished) && now - finished > STALE_AFTER_MS;
+}
+
+/** Player counts by address, for the next sweep to compare against. Bots are not counted. */
+export function countsByAddress(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    const clients = row.server.occupancy?.clients_reported;
+    if (Number.isInteger(clients)) counts.set(row.address, clients);
+  }
+  return counts;
+}
+
+/** "up" or "down" when a server's player count moved since the last measurement, else null. */
+export function playerTrend(row) {
+  const before = state.previousCounts.get(row.address);
+  const now = row.server.occupancy?.clients_reported;
+  if (!Number.isInteger(before) || !Number.isInteger(now) || before === now) return null;
+  return { direction: now > before ? "up" : "down", before };
+}
+
 /** The servers watched in the game this session is browsing, shaped like saved entries. */
 export function watchedEntries() {
   return playerAlerts()
@@ -682,6 +715,9 @@ export function applyCheckedRow(next, entry, result, dropped, at) {
     next.checks.set(entry.address, { status: "absent", movedTo: result.row.address, dropped });
   } else {
     next.checks.delete(entry.address);
+    const before = next.servers.find((row) => row.address === entry.address);
+    const clients = before?.server.occupancy?.clients_reported;
+    if (Number.isInteger(clients)) next.previousCounts.set(entry.address, clients);
   }
   next.servers = [
     ...next.servers.filter(

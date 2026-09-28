@@ -18,6 +18,7 @@ const DEFAULTS = {
   quietWhilePlaying: false,
   pingGood: 80,
   pingFair: 150,
+  refreshOnFocus: true,
 };
 
 const RULES = {
@@ -27,6 +28,7 @@ const RULES = {
   quietWhilePlaying: (value) => typeof value === "boolean",
   pingGood: (value) => PING_GOOD_CHOICES.includes(value),
   pingFair: (value) => PING_FAIR_CHOICES.includes(value),
+  refreshOnFocus: (value) => typeof value === "boolean",
 };
 
 let cached = null;
