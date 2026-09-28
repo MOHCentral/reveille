@@ -68,6 +68,15 @@
       </div>
     </dialog>
 
+    <dialog id="setup-dialog" aria-labelledby="setup-dialog-title">
+      <div class="dialog__head">
+        <h2 class="display heading-sm" id="setup-dialog-title">Game folder and program</h2>
+      </div>
+      <!-- Filled by views/setup.js, which draws the same folder and program choice as the first run. -->
+      <div class="dialog__body" data-setup-body></div>
+      <div class="dialog__foot" data-setup-foot></div>
+    </dialog>
+
     <dialog
       id="reveille-update-dialog"
       aria-labelledby="reveille-update-title"

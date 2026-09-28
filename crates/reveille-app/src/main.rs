@@ -3283,13 +3283,19 @@ mod tests {
                 && !setup.contains("!isInstalled(\"reborn\")"),
             "ui/views/setup.js: an engine action must not be withheld merely because something is installed"
         );
+        // Installing from nothing rides on the setup's own priced primary button; anything
+        // already installed keeps a secondary action on its row, whatever build it is.
         assert!(
-            setup.contains("view.installing === \"openmohaa\" ? installProgress(render) : available && openAction(install, status, render)"),
-            "ui/views/setup.js: the OpenMoHAA card must offer its action whenever a release is available"
+            setup.contains("return { label: `Install ${name} (${bytes(size)}) and ${verb}`, run: installAndAccept };"),
+            "ui/views/setup.js: a program that is not installed must be installable from the primary action"
         );
         assert!(
-            setup.contains("view.installing === \"reborn\" ? installProgress(render) : rebornAction(install, info, build, render)"),
-            "ui/views/setup.js: the Reborn card must offer its action whatever is installed"
+            setup.contains("available && isInstalled(\"openmohaa\") && !view.installing && openAction(install, status, render)"),
+            "ui/views/setup.js: an installed OpenMoHAA must keep its action whenever a release is available"
+        );
+        assert!(
+            setup.contains("isInstalled(\"reborn\") && !view.installing && rebornAction(install, info, build, render)"),
+            "ui/views/setup.js: an installed Reborn must keep its action whatever build it is"
         );
 
         // The label states the direction the Rust comparison found, and never guesses one.
@@ -3324,11 +3330,10 @@ mod tests {
         // whole copy flow with a filesystem behind it.
         let setup = include_str!("../ui/views/setup.js");
         for wording in [
-            "Windows protects this game folder.",
-            "Make a writable copy",
-            "Continue without copying",
+            "Windows protects this game folder",
+            "`Make a copy (${bytes(storage.source_bytes)})`",
+            "`Make a copy to install ${name}`",
             "Choose another location",
-            "of free space",
             "The original stays unchanged.",
             "Cancel copy",
         ] {

@@ -24,6 +24,7 @@ test("bytes keeps a decimal below 100 so a small download is not rounded to noth
   assert.match(format.bytes(1024 * 1024 * 0.4), /^4\d{2} KB$/u);
   assert.equal(format.bytes(1024 * 1024 * 9.1), "9.1 MB");
   assert.equal(format.bytes(1024 * 1024 * 512), "512 MB");
+  assert.equal(format.bytes(1_288_490_188), "1.2 GB", "a game folder copy is priced in gigabytes");
 });
 
 test("a size that does not exist is an em dash, never a zero", () => {
