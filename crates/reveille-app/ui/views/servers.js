@@ -207,22 +207,6 @@ export function serversView({
     scopeButtons,
   );
 
-  // Which of the three games this session is browsing. It sits before the scope buttons because
-  // it decides which population they draw from: Allied Assault, Spearhead and Breakthrough
-  // register with the master separately, so this is a different list, not a filter over one.
-  // Hidden entirely on an install that has only one of them — a control with one option is noise.
-  const gameSelect = el("select", {
-    id: "game-select",
-    dataset: { focusKey: "game-select" },
-    onchange: (event) => onGame(event.target.value),
-  });
-  const gameField = el(
-    "label",
-    { className: "toolbar__game", for: "game-select" },
-    el("span", { className: "label" }, "Game"),
-    gameSelect,
-  );
-
   // The ping gate. Sorting by a column is not filtering on it: sorting by players surfaces full
   // servers on the far side of the world, and shipping the sort without the gate is a documented
   // failure across several modern browsers (docs/design-review.md F15).
@@ -297,7 +281,6 @@ export function serversView({
   const toolbar = el(
     "div",
     { className: "toolbar" },
-    gameField,
     scopeGroup,
     el(
       "label",
@@ -361,26 +344,6 @@ export function serversView({
   window.addEventListener("resize", () => {
     if (columnsShown(table) !== lastColumns) update(() => {});
   });
-
-  // Rebuilt only when the detected products change, which is once per install: replacing the
-  // options on every render would drop the open dropdown mid-choice.
-  let lastGames = null;
-  const paintGame = () => {
-    const games = playableGames(state.install);
-    gameField.classList.toggle("hidden", games.length < 2);
-    const signature = games.join("|");
-    if (signature !== lastGames) {
-      lastGames = signature;
-      fill(
-        gameSelect,
-        ...games.map((game) => el("option", { value: game }, GAME_LABELS[game] ?? game)),
-      );
-    }
-    gameSelect.value = state.game;
-    // Switching mid-sweep would leave probes in flight for the game just left, and a download
-    // cannot be abandoned half-written at all.
-    gameSelect.disabled = state.browse.running || state.joining;
-  };
 
   const paintScope = () => {
     const counts = {
@@ -543,7 +506,6 @@ export function serversView({
   const render = () => {
     pingSelect.value = state.filters.maxPing === null ? "" : String(state.filters.maxPing);
     if (search.value !== state.filters.query) search.value = state.filters.query;
-    paintGame();
     paintScope();
     caption.textContent = CAPTIONS[state.scope];
     paintHeaders();

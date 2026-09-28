@@ -32,31 +32,72 @@
   flex: 1;
 }
 
-.install-chip {
+/* What this session plays: the game, then the engine. The folder is in its menu and tooltip. */
+.game-switch {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
-  max-width: 46ch;
-  padding: 3px 9px;
-  border: 1px solid var(--line);
+  margin-left: var(--space-3);
+  padding: 4px 8px;
+  border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.game-switch:hover,
+.game-switch[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  background: var(--panel);
+}
+
+.game-switch__game {
+  font-weight: 600;
+}
+
+.game-switch__engine {
   color: var(--dim);
+}
+
+.game-switch__engine::before {
+  content: "·";
+  margin-right: var(--space-2);
+  color: var(--faint);
+}
+
+.game-switch__caret {
+  color: var(--faint);
   font-size: var(--text-xs);
 }
 
-.install-chip:hover {
+.titlebar__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  font-size: 16px;
+}
+
+.titlebar__icon:hover,
+.titlebar__icon[aria-expanded="true"] {
   border-color: var(--line-strong);
   color: var(--ink);
 }
 
-.install-chip__path {
-  font-family: var(--face-data);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+.titlebar__icon .arrival-unread {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  font-size: 10px;
+  line-height: 15px;
+  font-weight: 700;
 }
 
 /* Toolbar ------------------------------------------------------------------ */
@@ -69,26 +110,6 @@
   padding: var(--space-3) var(--space-4);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
-}
-
-/* The game switch. Styled like the toolbar's other controls rather than as a heading: it is a
-   choice between three lists, and the label is what says which. */
-.toolbar__game {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.toolbar__game select {
-  padding: 7px 28px 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--rise);
-  color: var(--ink);
-}
-
-.toolbar__game select:disabled {
-  color: var(--faint);
 }
 
 .toolbar__search {
@@ -1184,17 +1205,6 @@
 
 .setup__row .field {
   flex: 1;
-}
-
-.install-chip__engine {
-  flex: none;
-  color: var(--ink);
-}
-
-.install-chip__engine::before {
-  content: "·";
-  margin-right: var(--space-2);
-  color: var(--faint);
 }
 
 .engine-choice {
