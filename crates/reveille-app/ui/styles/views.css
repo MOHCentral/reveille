@@ -323,6 +323,22 @@
   padding-bottom: var(--space-2);
 }
 
+.row-fold td {
+  background: var(--bg);
+  padding-left: 22px;
+}
+
+.row-fold .disclosure {
+  gap: 14px;
+  font-size: var(--text-base);
+}
+
+.row-fold .disclosure__caret {
+  width: 14px;
+  font-size: 12px;
+  line-height: 1;
+}
+
 .disclosure {
   display: inline-flex;
   align-items: center;
