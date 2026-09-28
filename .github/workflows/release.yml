@@ -178,7 +178,7 @@ jobs:
               'The Windows installer is **not code-signed**. Windows names no publisher for it, and SmartScreen may hold the download. The SHA-256 is in the build log for this tag.' \
               > "$RUNNER_TEMP/release-notes.md"
             gh release create "$tag" --draft --title "$tag" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
+              --notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes
           fi
           gh release upload "$tag" "$INSTALLER" --clobber
 

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Sections for GitHub's generated release notes, matched by PR label. Unlabelled PRs land in
+# "Other changes" so nothing merged goes missing from a release.
+changelog:
+  exclude:
+    labels:
+      - dependencies
+    authors:
+      - dependabot
+  categories:
+    - title: New
+      labels:
+        - enhancement
+    - title: Fixes
+      labels:
+        - bug
+    - title: Website and docs
+      labels:
+        - documentation
+    - title: Other changes
+      labels:
+        - "*"
