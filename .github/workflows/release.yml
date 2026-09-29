@@ -48,6 +48,9 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       REVEILLE_UPDATER_PUBKEY: ${{ vars.REVEILLE_UPDATER_PUBKEY }}
+      # PostHog's project key is write-only and public by design; without it the build never
+      # asks about or sends telemetry.
+      REVEILLE_TELEMETRY_KEY: ${{ vars.REVEILLE_TELEMETRY_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -193,6 +196,9 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       REVEILLE_UPDATER_PUBKEY: ${{ vars.REVEILLE_UPDATER_PUBKEY }}
+      # PostHog's project key is write-only and public by design; without it the build never
+      # asks about or sends telemetry.
+      REVEILLE_TELEMETRY_KEY: ${{ vars.REVEILLE_TELEMETRY_KEY }}
       REVEILLE_UPDATER_TARGET: darwin-universal
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}

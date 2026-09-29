@@ -172,3 +172,26 @@ test("an external link goes through the scoped system opener", async () => {
   // escape; the opener plugin hands it to the system browser, and its allowlist is the gate.
   assert.deepEqual(bridge.opened, ["https://github.com/MOHCentral/reveille/issues/new"]);
 });
+
+/* Telemetry ----------------------------------------------------------------- */
+
+test("a telemetry event is sent as the typed event Rust accepts", () => {
+  api.trackEvent({ event: "server_selected", ready: true });
+  assert.deepEqual(bridge.calls, [
+    { command: "track_event", args: { event: { event: "server_selected", ready: true } } },
+  ]);
+});
+
+test("a telemetry event that fails never reaches the caller", async () => {
+  bridge.fail("track_event", "no such command");
+  assert.equal(api.trackEvent({ event: "server_selected", ready: false }), undefined);
+  // An unhandled rejection would fail this file under `node --test`.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  delete bridge.results.track_event;
+});
+
+test("the sharing choice is saved through its own command", async () => {
+  bridge.results.set_telemetry_shared = ({ shared }) => ({ available: true, shared });
+  assert.deepEqual(await api.setTelemetryShared(false), { available: true, shared: false });
+  assert.deepEqual(bridge.calls.at(-1), { command: "set_telemetry_shared", args: { shared: false } });
+});

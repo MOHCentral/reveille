@@ -15,15 +15,28 @@ import {
   setPreference,
 } from "../lib/preferences.js";
 import { GAME_LABELS, state, update } from "../lib/store.js";
+import { TELEMETRY_LABEL, TELEMETRY_SUMMARY } from "./telemetry.js";
 
 /**
  * `engine` is the engine's display name; `version` the running build, when known. The callbacks
  * open Setup, the Watching view, the update dialog and a bug report, and tell the shell about the
- * tray setting.
+ * tray setting. `telemetry` is the saved statistics choice; `onTelemetry(shared)` saves a new one
+ * and resolves to the status that results.
  */
 export function openSettings(options) {
-  const { engine, version, onChangeInstall, onOpenWatching, onUpdate, onCheckUpdate, onReportBug, onCloseToTray } =
-    options;
+  const {
+    engine,
+    version,
+    telemetry,
+    onChangeInstall,
+    onOpenWatching,
+    onUpdate,
+    onCheckUpdate,
+    onReportBug,
+    onCloseToTray,
+    onTelemetry,
+    onTelemetryDetails,
+  } = options;
   const redraw = () => preserveFocus($("#info-dialog-body"), () => openSettings(options));
   const change = (name, value) => {
     setPreference(name, value);
@@ -132,6 +145,21 @@ export function openSettings(options) {
         "Change folder or engine…",
       ),
     ),
+    telemetry?.available &&
+      section(
+        "Privacy",
+        toggle("settings-telemetry", TELEMETRY_LABEL, telemetry.shared === true, async (on) => {
+          // Kept on `options` so a later redraw from any other control shows the saved answer.
+          options.telemetry = await onTelemetry(on).catch(() => telemetry);
+          redraw();
+        }),
+        el("p", { className: "settings__hint" }, TELEMETRY_SUMMARY),
+        el(
+          "button",
+          { type: "button", className: "btn btn--sm btn--utility", onclick: onTelemetryDetails },
+          "What is sent",
+        ),
+      ),
     section(
       "About",
       el("p", { className: "settings__value" }, version ? `Reveille ${version}` : "Reveille"),

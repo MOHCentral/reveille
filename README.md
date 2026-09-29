@@ -140,6 +140,37 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
+## Telemetry
+
+The first time it opens, Reveille asks whether to send anonymous usage statistics and crash
+reports. Nothing is sent until you answer, and you can change your answer at any time under
+Settings, Privacy. The CLI never sends anything.
+
+If you say yes, Reveille sends these events to PostHog's EU region:
+
+- the app started, and the previous run crashed (with the Reveille version and a source file and
+  line, never the error text);
+- a game folder was found (which games it holds), and first-time setup finished (game and engine);
+- the server list loaded (how many servers) or failed (the kind of failure);
+- a server was selected (once per run), and whether it was ready to join;
+- a map download started, finished or failed (which kind of download, and how many maps);
+- Join was pressed, the game started, or the join failed (with a short reason code such as
+  `engine_missing` or `download_failed`).
+
+Every event carries a random installation ID, a random ID for this run of the app, the Reveille
+version, the operating system (`windows` or `macos`) and a timestamp. The installation ID is
+created when you say yes and deleted when you say no; it is not derived from your hardware,
+account or files.
+
+Reveille never sends player names, server names or addresses, server passwords, CD keys, your
+Windows username or computer name, folder paths, error messages or your server history. IP-based
+location lookup is turned off for every event, and the PostHog project discards client IP
+addresses.
+
+Every event is defined in one place, [`crates/reveille-app/src/telemetry.rs`](crates/reveille-app/src/telemetry.rs).
+Builds made without the `REVEILLE_TELEMETRY_KEY` environment variable, including every local
+build, never ask and never send.
+
 ## Licence
 
 Reveille is free software under the GNU General Public License version 3; see `LICENSE`. The

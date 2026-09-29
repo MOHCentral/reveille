@@ -38,6 +38,10 @@ import {
   readWatchedServer,
   requestPlayerAlertAttention,
   sendPlayerNotification,
+  setTelemetryShared,
+  TELEMETRY_DETAILS_URL,
+  telemetryStatus,
+  trackEvent,
 } from "./lib/api.js";
 import {
   arrivalById,
@@ -82,6 +86,7 @@ import {
 import { setupView } from "./views/setup.js";
 import { openSettings } from "./views/settings.js";
 import { openShortcuts } from "./views/shortcuts.js";
+import { openTelemetryPrompt } from "./views/telemetry.js";
 import { preferences, setPreference } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
@@ -92,6 +97,8 @@ const ISSUE_TRACKER_URL = "https://github.com/MOHCentral/reveille/issues/new";
 
 loadFilters();
 state.rememberedInstall = recallInstall();
+// A remembered folder means setup finished on an earlier run, so its automatic Continue is not one.
+const firstRun = !state.rememberedInstall;
 
 const servers = serversView({
   onRefresh: refresh,
@@ -111,7 +118,10 @@ const join = joinView($("#detail-slot"), {
   onTogglePlayerAlert: togglePlayerAlert,
 });
 const setup = setupView(setupRoot, $("#setup-dialog"), {
-  onReady: enterServers,
+  onReady: () => {
+    if (firstRun) trackEvent({ event: "first_run_completed", game: state.game, engine: state.engine });
+    enterServers();
+  },
   onApply: applyInstallChange,
   onUpdate: openReveilleUpdate,
   onReportBug: () => void openBugReport(),
@@ -388,10 +398,16 @@ async function togglePlayerAlert(row) {
 }
 
 async function openAppSettings() {
-  const version = await appVersion().catch(() => null);
+  const [version, telemetry] = await Promise.all([
+    appVersion().catch(() => null),
+    telemetryStatus().catch(() => null),
+  ]);
   openSettings({
     engine: engineLabel(state.engine),
     version,
+    telemetry,
+    onTelemetry: setTelemetryShared,
+    onTelemetryDetails: openTelemetryDetails,
     onChangeInstall: () => {
       if (state.joining) return;
       closeDialog();
@@ -526,6 +542,22 @@ function issueTemplate(logs) {
       : "Attach the Reveille log from the app's local log folder.",
     "Set `RUST_LOG=reveille=debug` before starting Reveille for more detail.",
   ].join("\n");
+}
+
+/* Anonymous statistics ------------------------------------------------------ */
+
+/** Ask once per installation, and only in a build that can send anything. */
+async function askAboutTelemetry() {
+  const status = await telemetryStatus().catch(() => null);
+  if (!status?.available || status.shared !== null) return;
+  openTelemetryPrompt({
+    onChoose: (shared) => void setTelemetryShared(shared).catch(() => {}),
+    onLearnMore: openTelemetryDetails,
+  });
+}
+
+function openTelemetryDetails() {
+  void openExternalUrl(TELEMETRY_DETAILS_URL).catch(() => {});
 }
 
 /* Reveille updates --------------------------------------------------------- */
@@ -872,6 +904,7 @@ function select(address) {
   });
 
   const row = selectedRow();
+  if (row) trackEvent({ event: "server_selected", ready: row.compatibility.state.state === "compatible" });
   // Nothing to resolve: the map list is already satisfied, or there is none.
   if (!row || row.compatibility.state.state === "compatible") return;
 
@@ -1308,6 +1341,7 @@ notify();
 if (preferences().closeToTray) syncCloseToTray(true);
 setup.detect();
 void findReveilleUpdate();
+void askAboutTelemetry();
 
 function engineLabel(engine) {
   if (engine === "openmohaa") return "OpenMoHAA";

@@ -23,6 +23,7 @@
 //! payloads and progress events, and decides nothing the core has not already established.
 
 mod self_update;
+mod telemetry;
 mod tray;
 
 use std::cmp;
@@ -66,6 +67,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 use tauri_plugin_notification::NotificationExt as _;
+use telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry, TelemetryStatus, UiEvent};
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::{info, warn};
@@ -625,7 +627,24 @@ impl From<String> for BrowseFailure {
 }
 
 #[tauri::command]
-fn detect_install(selected_path: Option<String>) -> Result<Option<Installation>, String> {
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri resolves managed state only for by-value command parameters"
+)]
+fn detect_install(
+    selected_path: Option<String>,
+    telemetry: tauri::State<'_, Telemetry>,
+) -> Result<Option<Installation>, String> {
+    let found = find_install(selected_path)?;
+    if let Some(installation) = &found {
+        telemetry.track(&Event::GameInstallDetected {
+            games: installation.playable.clone(),
+        });
+    }
+    Ok(found)
+}
+
+fn find_install(selected_path: Option<String>) -> Result<Option<Installation>, String> {
     if let Some(path) = selected_path.filter(|path| !path.trim().is_empty()) {
         return install::identify(path)
             .map(Some)
@@ -1217,6 +1236,29 @@ async fn browse_servers(
     session: Session,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    telemetry: tauri::State<'_, Telemetry>,
+) -> Result<BrowserPayload, BrowseFailure> {
+    let (game, engine) = (session.game, session.engine);
+    let result = sweep_servers(session, app, state).await;
+    telemetry.track(&match &result {
+        Ok(payload) => Event::ServerListLoaded {
+            game,
+            engine,
+            server_count: payload.servers.len(),
+            cancelled: payload.cancelled,
+        },
+        Err(failure) => Event::ServerListFailed {
+            game,
+            reason: failure.kind,
+        },
+    });
+    result
+}
+
+async fn sweep_servers(
+    session: Session,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
 ) -> Result<BrowserPayload, BrowseFailure> {
     info!(game = ?session.game, "starting server browse");
     let index = installed_maps(&session)?;
@@ -1727,6 +1769,7 @@ async fn install_server_files(
     address: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<ServerFilesResult, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "installing server files");
     let server = find_server(&state, &address)?;
@@ -1739,7 +1782,20 @@ async fn install_server_files(
         .transpose()?;
     let (_, failures) = match &install_target {
         Some(target) => {
-            install_pakradar_manifest(&pakradar, &search_path, &target.game_directory, &app).await?
+            telemetry.track(&Event::MapDownloadStarted {
+                source: DownloadSource::ServerFiles,
+                count: pakradar.pending,
+            });
+            let result =
+                install_pakradar_manifest(&pakradar, &search_path, &target.game_directory, &app)
+                    .await;
+            track_download(
+                &telemetry,
+                DownloadSource::ServerFiles,
+                &result,
+                pakradar.pending,
+            );
+            result?
         }
         None => (
             Vec::new(),
@@ -1771,7 +1827,72 @@ async fn install_and_launch(
     accept_incomplete: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<JoinResult, String> {
+    let (game, engine) = (session.game, session.engine);
+    telemetry.track(&Event::JoinClicked {
+        game,
+        engine,
+        accept_incomplete,
+    });
+    let result = join_and_launch(
+        session,
+        address,
+        selected_candidate_ids,
+        accept_incomplete,
+        &app,
+        &state,
+        &telemetry,
+    )
+    .await;
+    telemetry.track(&match &result {
+        Ok(JoinResult {
+            outcome: LaunchOutcome::Launched { .. },
+            ..
+        }) => Event::GameLaunched { game, engine },
+        Ok(JoinResult {
+            outcome: LaunchOutcome::Refused { .. },
+            assessment,
+            ..
+        }) => Event::JoinFailed {
+            game,
+            engine,
+            reason: refusal_reason(assessment),
+        },
+        Err(failure) => Event::JoinFailed {
+            game,
+            engine,
+            reason: failure.reason,
+        },
+    });
+    result.map_err(|failure| failure.message)
+}
+
+/// A join that stopped before the game started: the sentence the player reads, and the code the
+/// telemetry sends instead of that sentence.
+#[derive(Debug)]
+struct JoinFailure {
+    reason: JoinFailureReason,
+    message: String,
+}
+
+/// Tag an error from a join step with the reason it stands for.
+fn failed<E: ToString>(reason: JoinFailureReason) -> impl FnOnce(E) -> JoinFailure {
+    move |error| JoinFailure {
+        reason,
+        message: error.to_string(),
+    }
+}
+
+async fn join_and_launch(
+    session: Session,
+    address: String,
+    selected_candidate_ids: Vec<u64>,
+    accept_incomplete: bool,
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    telemetry: &Telemetry,
+) -> Result<JoinResult, JoinFailure> {
     info!(
         %address,
         selected_candidates = selected_candidate_ids.len(),
@@ -1780,21 +1901,26 @@ async fn install_and_launch(
         engine = ?session.engine,
         "starting install-and-launch flow"
     );
-    let server = find_server(&state, &address)?;
-    let preview = match take_cached_preview(&state, &session, &address) {
+    let server = find_server(state, &address).map_err(failed(JoinFailureReason::ServerGone))?;
+    let preview = match take_cached_preview(state, &session, &address) {
         Some(preview) => preview,
-        None => build_preview(&session, server.clone(), Some(&app)).await?,
+        None => build_preview(&session, server.clone(), Some(app))
+            .await
+            .map_err(failed(JoinFailureReason::Unknown))?,
     };
-    let search_path = session_search_path(&session)?;
+    let search_path =
+        session_search_path(&session).map_err(failed(JoinFailureReason::GameInstallMissing))?;
     let current_pakradar = build_pakradar_preview(&server, &search_path).await;
     if current_pakradar
         .as_ref()
         .is_some_and(|pakradar| pakradar.pending > 0 || pakradar.non_result.is_some())
     {
-        return Err(
-            "Install and verify the server files before deciding whether to download anything else."
-                .to_owned(),
-        );
+        return Err(JoinFailure {
+            reason: JoinFailureReason::ServerFilesPending,
+            message:
+                "Install and verify the server files before deciding whether to download anything else."
+                    .to_owned(),
+        });
     }
     let selected = selected_candidate_ids.into_iter().collect::<HashSet<_>>();
     let catalogue = preview.catalogue.clone();
@@ -1802,11 +1928,24 @@ async fn install_and_launch(
         .as_ref()
         .filter(|catalogue| shopping_list_will_write(catalogue, &selected))
         .map(|_| install_destination(&session))
-        .transpose()?;
+        .transpose()
+        .map_err(failed(JoinFailureReason::NoWritableFolder))?;
     let (installed, failures) = if let (Some(catalogue), Some(target)) =
         (&catalogue, &install_target)
     {
-        install_shopping_list(catalogue, &selected, &server, &target.game_directory, &app).await?
+        telemetry.track(&Event::MapDownloadStarted {
+            source: DownloadSource::Catalogue,
+            count: selected.len(),
+        });
+        let result =
+            install_shopping_list(catalogue, &selected, &server, &target.game_directory, app).await;
+        track_download(
+            telemetry,
+            DownloadSource::Catalogue,
+            &result,
+            selected.len(),
+        );
+        result.map_err(failed(JoinFailureReason::DownloadFailed))?
     } else {
         (Vec::new(), Vec::new())
     };
@@ -1814,7 +1953,7 @@ async fn install_and_launch(
     // whether the engine can now find the map, and the engine reads all of it. The destination is
     // the preview's, not a fresh probe — the files went where the download put them, and that is
     // what gets reported.
-    let index = installed_maps(&session)?;
+    let index = installed_maps(&session).map_err(failed(JoinFailureReason::GameInstallMissing))?;
     let assessment = reveille_core::join::classify_server(&index, &server, catalogue.as_ref());
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
         LaunchOutcome::Refused { reason }
@@ -1838,6 +1977,29 @@ async fn install_and_launch(
         game: session.game,
         outcome,
     })
+}
+
+/// Close a download batch opened with `MapDownloadStarted`.
+fn track_download(
+    telemetry: &Telemetry,
+    source: DownloadSource,
+    result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), String>,
+    attempted: usize,
+) {
+    telemetry.track(&match result {
+        Ok((_, failures)) if !failures.is_empty() => Event::MapDownloadFailed {
+            source,
+            failed: failures.len(),
+        },
+        Ok((installed, _)) => Event::MapDownloadCompleted {
+            source,
+            installed: installed.len(),
+        },
+        Err(_) => Event::MapDownloadFailed {
+            source,
+            failed: attempted,
+        },
+    });
 }
 
 /// Install every missing or outdated package from the server's `pr_downloads` manifest.
@@ -2065,15 +2227,18 @@ fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
 }
 
 /// Start the client the detected install actually provides, connected to `address`.
-fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, String> {
+fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, JoinFailure> {
+    use JoinFailureReason as Reason;
+
     info!(%address, game = ?session.game, engine = ?session.engine, "launching client");
-    let installation = install::identify(&session.path).map_err(|error| error.to_string())?;
+    let installation =
+        install::identify(&session.path).map_err(failed(Reason::GameInstallMissing))?;
     platform::engine::resolve_choice(
         &installation.root,
         Some(session.engine),
         &platform::HostCapabilities::current(),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(failed(Reason::EngineMissing))?;
     let kind = platform::ClientKind::from(session.engine);
     let profile = LaunchProfile::new(session.game);
     let program = platform::default_client(&installation.root, profile.target, kind)
@@ -2082,13 +2247,13 @@ fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, Str
     let command = LaunchCommand::new(
         program,
         profile,
-        FsGame::new("").map_err(|error| error.to_string())?,
+        FsGame::new("").map_err(failed(Reason::LaunchFailed))?,
         address,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(failed(Reason::LaunchFailed))?;
     Ok(LaunchOutcome::Launched {
         process_id: platform::launch_client(&command, kind)
-            .map_err(|error| error.to_string())?
+            .map_err(failed(Reason::LaunchFailed))?
             .id(),
     })
 }
@@ -2114,6 +2279,15 @@ fn launch_refusal(assessment: &CompatibilityAssessment, accept_incomplete: bool)
         return None;
     }
     Some("This join has not been fully checked and was not confirmed.".to_owned())
+}
+
+/// The telemetry code for a refusal [`launch_refusal`] made.
+fn refusal_reason(assessment: &CompatibilityAssessment) -> JoinFailureReason {
+    if matches!(assessment.current_map, CurrentMapReadiness::Missing) {
+        JoinFailureReason::CurrentMapMissing
+    } else {
+        JoinFailureReason::Unconfirmed
+    }
 }
 
 fn take_cached_preview(
@@ -2478,6 +2652,55 @@ fn prepare_app_log(directory: &Path) -> Result<(fs::File, PathBuf), AppLoggingEr
     Ok((file, current))
 }
 
+#[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri resolves managed state only for by-value command parameters"
+)]
+fn telemetry_status(telemetry: tauri::State<'_, Telemetry>) -> TelemetryStatus {
+    telemetry.status()
+}
+
+#[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri resolves managed state only for by-value command parameters"
+)]
+fn set_telemetry_shared(
+    shared: bool,
+    telemetry: tauri::State<'_, Telemetry>,
+) -> Result<TelemetryStatus, String> {
+    info!(shared, "telemetry choice changed");
+    telemetry
+        .set_shared(shared)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri resolves managed state only for by-value command parameters"
+)]
+fn track_event(event: UiEvent, telemetry: tauri::State<'_, Telemetry>) {
+    telemetry.track_ui(event);
+}
+
+/// Load the telemetry choice and send this run's start. A build or machine without a usable
+/// config directory gets telemetry that is unavailable rather than a failed start.
+fn init_telemetry(app: &tauri::App) -> Telemetry {
+    let version = app.package_info().version.to_string();
+    let telemetry = match app.path().app_config_dir() {
+        Ok(directory) => Telemetry::load(directory, version, telemetry::Sink::from_build()),
+        Err(error) => {
+            warn!(%error, "could not resolve the app config directory; telemetry is off");
+            Telemetry::unavailable(version)
+        }
+    };
+    telemetry.install_panic_hook();
+    telemetry.start();
+    telemetry
+}
+
 fn logging_filter() -> EnvFilter {
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"))
 }
@@ -2541,6 +2764,7 @@ fn main() {
                 }
             }
             app.manage(AppState::default());
+            app.manage(init_telemetry(app));
             app.manage(tray::TrayState::default());
             self_update::register(app);
             Ok(())
@@ -2573,7 +2797,10 @@ fn main() {
             self_update::install_reveille_update,
             self_update::cancel_reveille_update,
             tray::set_close_to_tray,
-            app_log_files
+            app_log_files,
+            telemetry_status,
+            set_telemetry_shared,
+            track_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running Reveille");
@@ -2605,12 +2832,12 @@ mod tests {
 
     use super::{
         APP_LOG_FILENAME, AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason,
-        DiscoveryError, EngineChoice, MasterEndpoint, OfferRelation, OpenMohaaFailure,
-        OpenMohaaFailureKind, OpenMohaaInstalledBuild, PREVIOUS_APP_LOG_FILENAME, QueryPort,
-        RequestError, Server, Session, TargetGame, answered_for_another_game,
-        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, installed_maps,
+        DiscoveryError, EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation,
+        OpenMohaaFailure, OpenMohaaFailureKind, OpenMohaaInstalledBuild, PREVIOUS_APP_LOG_FILENAME,
+        QueryPort, RequestError, Server, Session, TargetGame, answered_for_another_game,
+        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, failed, installed_maps,
         installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
-        platform, prepare_app_log, preview_cache_matches, record_openmohaa_install,
+        platform, prepare_app_log, preview_cache_matches, record_openmohaa_install, refusal_reason,
         shopping_list_will_write,
     };
 
@@ -3488,6 +3715,36 @@ mod tests {
 
         assert!(launch_refusal(&cant_tell, false).is_some());
         assert_eq!(launch_refusal(&cant_tell, true), None);
+    }
+
+    #[test]
+    fn a_refused_join_is_reported_by_why_it_was_refused() {
+        let dropped_on_arrival = assessment(
+            CompatibilityState::NoSource {
+                count: MapsNeeded::new(1),
+            },
+            CurrentMapReadiness::Missing,
+        );
+        let unconfirmed = assessment(CompatibilityState::CantTell, CurrentMapReadiness::Unknown);
+
+        assert_eq!(
+            refusal_reason(&dropped_on_arrival),
+            JoinFailureReason::CurrentMapMissing
+        );
+        assert_eq!(refusal_reason(&unconfirmed), JoinFailureReason::Unconfirmed);
+    }
+
+    #[test]
+    fn a_join_failure_keeps_the_players_message_beside_its_code() {
+        let failure = failed(JoinFailureReason::ServerGone)(
+            "This server is no longer in the current list.".to_owned(),
+        );
+
+        assert_eq!(failure.reason, JoinFailureReason::ServerGone);
+        assert_eq!(
+            failure.message,
+            "This server is no longer in the current list."
+        );
     }
 
     #[test]

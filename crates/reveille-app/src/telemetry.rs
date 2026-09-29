@@ -1,0 +1,691 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! Anonymous product telemetry, sent only after the player has said yes (issue #44).
+//!
+//! Every event the app can send is a variant of [`Event`], so what leaves the machine can be
+//! reviewed in this one file. Properties are closed enums and counts: no paths, addresses, player
+//! names, server names or error text. Builds made without `REVEILLE_TELEMETRY_KEY` never ask and
+//! never send.
+
+use std::fs;
+use std::io;
+use std::panic::{self, PanicHookInfo};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use reveille_core::discovery::TargetGame;
+use reveille_core::engine::EngineChoice;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+use thiserror::Error;
+use tracing::{debug, warn};
+use uuid::Uuid;
+
+const CHOICE_FILENAME: &str = "telemetry.json";
+const CRASH_FILENAME: &str = "telemetry-crash.json";
+/// The EU region of `PostHog`, so events stay under EU data-protection law.
+const DEFAULT_HOST: &str = "https://eu.i.posthog.com";
+const CAPTURE_PATH: &str = "/i/v0/e/";
+/// Short enough that a slow endpoint never holds a connection open behind the player's back.
+const SEND_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Where events go. `None` when the build carries no project key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Sink {
+    api_key: String,
+    endpoint: String,
+}
+
+impl Sink {
+    /// The destination compiled into this build, if any.
+    pub fn from_build() -> Option<Self> {
+        Self::new(
+            option_env!("REVEILLE_TELEMETRY_KEY"),
+            option_env!("REVEILLE_TELEMETRY_HOST"),
+        )
+    }
+
+    fn new(api_key: Option<&str>, host: Option<&str>) -> Option<Self> {
+        let api_key = api_key.map(str::trim).filter(|key| !key.is_empty())?;
+        let host = host
+            .map(str::trim)
+            .filter(|host| !host.is_empty())
+            .unwrap_or(DEFAULT_HOST)
+            .trim_end_matches('/');
+        Some(Self {
+            api_key: api_key.to_owned(),
+            endpoint: format!("{host}{CAPTURE_PATH}"),
+        })
+    }
+}
+
+/// Which download a batch belongs to.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadSource {
+    /// Packages from the server's own download list.
+    ServerFiles,
+    /// Maps matched in the third-party catalogue.
+    Catalogue,
+}
+
+/// Why a join did not end with the game starting. Low-cardinality on purpose: the player still
+/// sees the full message, and only this code is sent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinFailureReason {
+    /// The server left the list between selecting it and joining.
+    ServerGone,
+    /// The server's own files still have to be installed first.
+    ServerFilesPending,
+    /// The game folder no longer holds the selected game.
+    GameInstallMissing,
+    /// The selected engine program is not usable in that folder.
+    EngineMissing,
+    /// No folder Reveille may write maps into.
+    NoWritableFolder,
+    /// A map download or install failed outright.
+    DownloadFailed,
+    /// The map the server is running now is not on disk, so the game would be dropped at once.
+    CurrentMapMissing,
+    /// The join was not fully checked and the player did not confirm it.
+    Unconfirmed,
+    /// The game program could not be started.
+    LaunchFailed,
+    /// Anything not classified above.
+    Unknown,
+}
+
+/// Every event Reveille can send. Adding one here is the whole change needed to send it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum Event {
+    AppStarted,
+    /// The previous run panicked. `location` is a source position inside Reveille or a dependency.
+    AppCrashed {
+        location: String,
+        crashed_version: String,
+    },
+    GameInstallDetected {
+        games: Vec<reveille_core::install::Product>,
+    },
+    FirstRunCompleted {
+        game: TargetGame,
+        engine: EngineChoice,
+    },
+    ServerListLoaded {
+        game: TargetGame,
+        engine: EngineChoice,
+        server_count: usize,
+        cancelled: bool,
+    },
+    ServerListFailed {
+        game: TargetGame,
+        reason: crate::BrowseFailureKind,
+    },
+    ServerSelected {
+        ready: bool,
+    },
+    MapDownloadStarted {
+        source: DownloadSource,
+        count: usize,
+    },
+    MapDownloadCompleted {
+        source: DownloadSource,
+        installed: usize,
+    },
+    MapDownloadFailed {
+        source: DownloadSource,
+        failed: usize,
+    },
+    JoinClicked {
+        game: TargetGame,
+        engine: EngineChoice,
+        accept_incomplete: bool,
+    },
+    GameLaunched {
+        game: TargetGame,
+        engine: EngineChoice,
+    },
+    JoinFailed {
+        game: TargetGame,
+        engine: EngineChoice,
+        reason: JoinFailureReason,
+    },
+}
+
+/// The events the frontend may ask for. Everything else is sent from the command that observes
+/// it, so the webview cannot name an event or a property of its own.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum UiEvent {
+    FirstRunCompleted {
+        game: TargetGame,
+        engine: EngineChoice,
+    },
+    ServerSelected {
+        ready: bool,
+    },
+}
+
+/// What the player has said.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Choice {
+    Unasked,
+    Declined,
+    Shared { installation_id: Uuid },
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct StoredChoice {
+    shared: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    installation_id: Option<Uuid>,
+}
+
+/// What the frontend needs to draw the prompt and the Settings toggle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct TelemetryStatus {
+    /// Whether this build can send anything at all.
+    pub available: bool,
+    /// `None` until the player answers.
+    pub shared: Option<bool>,
+}
+
+#[derive(Debug, Error)]
+pub enum TelemetryError {
+    #[error("could not save the telemetry choice at {path}")]
+    Save {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+}
+
+/// Managed Tauri state.
+pub struct Telemetry {
+    sink: Option<Sink>,
+    directory: PathBuf,
+    app_version: String,
+    session_id: Uuid,
+    choice: Mutex<Choice>,
+    /// Read by the panic hook, which cannot take the lock.
+    sharing: Arc<AtomicBool>,
+    server_selected_sent: AtomicBool,
+    client: reqwest::Client,
+    /// False when there is no config directory to write the choice, crash marker or ID into.
+    persist: bool,
+}
+
+impl Telemetry {
+    /// Read the saved choice from `directory`. An unreadable file counts as unasked.
+    pub fn load(directory: PathBuf, app_version: String, sink: Option<Sink>) -> Self {
+        let choice = read_choice(&directory.join(CHOICE_FILENAME));
+        Self::new(directory, app_version, sink, choice, true)
+    }
+
+    /// Telemetry that can neither ask nor send, with nowhere to keep a choice.
+    pub fn unavailable(app_version: String) -> Self {
+        Self::new(PathBuf::new(), app_version, None, Choice::Unasked, false)
+    }
+
+    fn new(
+        directory: PathBuf,
+        app_version: String,
+        sink: Option<Sink>,
+        choice: Choice,
+        persist: bool,
+    ) -> Self {
+        let sharing = Arc::new(AtomicBool::new(matches!(choice, Choice::Shared { .. })));
+        let client = reqwest::Client::builder()
+            .timeout(SEND_TIMEOUT)
+            .build()
+            .unwrap_or_default();
+        Self {
+            sink,
+            directory,
+            app_version,
+            session_id: Uuid::new_v4(),
+            choice: Mutex::new(choice),
+            sharing,
+            server_selected_sent: AtomicBool::new(false),
+            client,
+            persist,
+        }
+    }
+
+    pub fn status(&self) -> TelemetryStatus {
+        let shared = match *self.lock() {
+            Choice::Unasked => None,
+            Choice::Declined => Some(false),
+            Choice::Shared { .. } => Some(true),
+        };
+        TelemetryStatus {
+            available: self.sink.is_some(),
+            shared,
+        }
+    }
+
+    /// Record the player's answer. Turning sharing on counts this run; turning it off forgets
+    /// the installation ID, so opting in again later starts a new one.
+    pub fn set_shared(&self, shared: bool) -> Result<TelemetryStatus, TelemetryError> {
+        if !self.persist {
+            return Ok(self.status());
+        }
+        let newly_shared = {
+            let mut choice = self.lock();
+            let next = match (&*choice, shared) {
+                (Choice::Shared { .. }, true) => choice.clone(),
+                (_, true) => Choice::Shared {
+                    installation_id: Uuid::new_v4(),
+                },
+                (_, false) => Choice::Declined,
+            };
+            write_choice(&self.directory, &next)?;
+            let newly_shared =
+                !matches!(*choice, Choice::Shared { .. }) && matches!(next, Choice::Shared { .. });
+            *choice = next;
+            newly_shared
+        };
+        self.sharing.store(shared, Ordering::SeqCst);
+        if !shared {
+            remove_if_present(&self.directory.join(CRASH_FILENAME));
+        }
+        if newly_shared {
+            self.track(&Event::AppStarted);
+        }
+        Ok(self.status())
+    }
+
+    /// Send the start-of-run events: a crash left by the previous run, then this start.
+    pub fn start(&self) {
+        if !self.persist {
+            return;
+        }
+        let marker = self.directory.join(CRASH_FILENAME);
+        if let Some(crash) = read_crash(&marker) {
+            self.track(&Event::AppCrashed {
+                location: crash.location,
+                crashed_version: crash.version,
+            });
+        }
+        remove_if_present(&marker);
+        self.track(&Event::AppStarted);
+    }
+
+    pub fn track_ui(&self, event: UiEvent) {
+        match event {
+            UiEvent::FirstRunCompleted { game, engine } => {
+                self.track(&Event::FirstRunCompleted { game, engine });
+            }
+            UiEvent::ServerSelected { ready } => {
+                // Once per run: selection follows the arrow keys, and the funnel only needs to
+                // know that a player got this far.
+                if !self.server_selected_sent.swap(true, Ordering::SeqCst) {
+                    self.track(&Event::ServerSelected { ready });
+                }
+            }
+        }
+    }
+
+    /// Queue `event` if the player shares and the build has a destination. Never blocks and never
+    /// fails the caller: a lost event costs a data point, not a join.
+    pub fn track(&self, event: &Event) {
+        let Some(sink) = &self.sink else { return };
+        let Choice::Shared { installation_id } = *self.lock() else {
+            return;
+        };
+        let body = payload(
+            sink,
+            event,
+            installation_id,
+            self.session_id,
+            &self.app_version,
+            SystemTime::now(),
+        );
+        let request = self.client.post(&sink.endpoint).json(&body);
+        tauri::async_runtime::spawn(async move {
+            match request
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status)
+            {
+                Ok(_) => {}
+                Err(error) => debug!(%error, "telemetry event was not delivered"),
+            }
+        });
+    }
+
+    /// Leave a marker for the next run when the process panics, if the player shares.
+    pub fn install_panic_hook(&self) {
+        if !self.persist {
+            return;
+        }
+        let sharing = Arc::clone(&self.sharing);
+        let marker = self.directory.join(CRASH_FILENAME);
+        let version = self.app_version.clone();
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            if sharing.load(Ordering::SeqCst) {
+                write_crash(&marker, &version, info);
+            }
+            previous(info);
+        }));
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Choice> {
+        self.choice.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+fn payload(
+    sink: &Sink,
+    event: &Event,
+    installation_id: Uuid,
+    session_id: Uuid,
+    app_version: &str,
+    now: SystemTime,
+) -> Value {
+    let mut properties = match serde_json::to_value(event) {
+        Ok(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    let name = properties
+        .remove("event")
+        .and_then(|name| name.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    properties.insert("session_id".to_owned(), json!(session_id));
+    properties.insert("app_version".to_owned(), json!(app_version));
+    properties.insert("os".to_owned(), json!(std::env::consts::OS));
+    // No GeoIP lookup and no person profile: the provider keeps an anonymous event stream only.
+    properties.insert("$geoip_disable".to_owned(), json!(true));
+    properties.insert("$process_person_profile".to_owned(), json!(false));
+    json!({
+        "api_key": sink.api_key,
+        "event": name,
+        "distinct_id": installation_id,
+        "properties": properties,
+        "timestamp": rfc3339(now),
+    })
+}
+
+fn read_choice(path: &Path) -> Choice {
+    let stored = match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<StoredChoice>(&bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Choice::Unasked,
+        Err(error) => {
+            warn!(%error, "could not read the telemetry choice");
+            return Choice::Unasked;
+        }
+    };
+    match stored {
+        Ok(StoredChoice {
+            shared: true,
+            installation_id: Some(installation_id),
+        }) => Choice::Shared { installation_id },
+        Ok(StoredChoice { shared: false, .. }) => Choice::Declined,
+        // Sharing without an ID is not a state this module writes; ask again rather than guess.
+        Ok(StoredChoice { shared: true, .. }) => Choice::Unasked,
+        Err(error) => {
+            warn!(%error, "the saved telemetry choice is unreadable");
+            Choice::Unasked
+        }
+    }
+}
+
+fn write_choice(directory: &Path, choice: &Choice) -> Result<(), TelemetryError> {
+    let stored = match choice {
+        Choice::Shared { installation_id } => StoredChoice {
+            shared: true,
+            installation_id: Some(*installation_id),
+        },
+        Choice::Unasked | Choice::Declined => StoredChoice::default(),
+    };
+    let path = directory.join(CHOICE_FILENAME);
+    let save = |source| TelemetryError::Save {
+        path: path.clone(),
+        source,
+    };
+    fs::create_dir_all(directory).map_err(save)?;
+    let bytes = serde_json::to_vec_pretty(&stored).map_err(|error| save(error.into()))?;
+    fs::write(&path, bytes).map_err(save)
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CrashMarker {
+    version: String,
+    location: String,
+}
+
+fn write_crash(path: &Path, version: &str, info: &PanicHookInfo<'_>) {
+    let location = info.location().map_or_else(
+        || "unknown".to_owned(),
+        |location| format!("{}:{}", source_relative(location.file()), location.line()),
+    );
+    let marker = CrashMarker {
+        version: version.to_owned(),
+        location,
+    };
+    if let Ok(bytes) = serde_json::to_vec(&marker) {
+        // Nothing useful can be done with a failure while the process is already panicking.
+        let _ = fs::write(path, bytes);
+    }
+}
+
+fn read_crash(path: &Path) -> Option<CrashMarker> {
+    serde_json::from_slice(&fs::read(path).ok()?).ok()
+}
+
+fn remove_if_present(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => warn!(%error, "could not remove a telemetry file"),
+    }
+}
+
+/// Keep only the tail of a panic's source path. Workspace files are already relative; a
+/// dependency's path is absolute on the machine that built the release, and only the crate and
+/// file matter.
+fn source_relative(file: &str) -> String {
+    let normalized = file.replace('\\', "/");
+    let drive_letter = normalized.as_bytes().get(1) == Some(&b':');
+    if !Path::new(file).is_absolute() && !normalized.starts_with('/') && !drive_letter {
+        return normalized;
+    }
+    let parts = normalized
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    parts[parts.len().saturating_sub(3)..].join("/")
+}
+
+/// UTC in RFC 3339 with millisecond precision.
+fn rfc3339(time: SystemTime) -> String {
+    let since = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let seconds = since.as_secs();
+    let days = i64::try_from(seconds / 86_400).unwrap_or(0);
+    let of_day = seconds % 86_400;
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        of_day / 3_600,
+        of_day % 3_600 / 60,
+        of_day % 60,
+        since.subsec_millis(),
+    )
+}
+
+/// Howard Hinnant's days-to-civil conversion, for the proleptic Gregorian calendar.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use serde_json::json;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    use super::{
+        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, Sink, Telemetry, UiEvent,
+        payload, rfc3339, source_relative,
+    };
+    use reveille_core::discovery::TargetGame;
+    use reveille_core::engine::EngineChoice;
+
+    fn sink() -> Sink {
+        Sink::new(Some("phc_test"), None).expect("configured sink")
+    }
+
+    fn loaded(directory: &TempDir, sink: Option<Sink>) -> Telemetry {
+        Telemetry::load(directory.path().to_path_buf(), "0.4.0".to_owned(), sink)
+    }
+
+    #[test]
+    fn a_build_without_a_key_has_no_destination() {
+        assert_eq!(Sink::new(None, None), None);
+        assert_eq!(Sink::new(Some("  "), None), None);
+    }
+
+    #[test]
+    fn the_default_destination_is_the_eu_region() {
+        assert_eq!(sink().endpoint, "https://eu.i.posthog.com/i/v0/e/");
+        let custom = Sink::new(Some("phc_test"), Some("https://example.test/")).expect("sink");
+        assert_eq!(custom.endpoint, "https://example.test/i/v0/e/");
+    }
+
+    #[test]
+    fn nothing_is_shared_before_the_player_answers() {
+        let directory = TempDir::new().expect("directory");
+        let telemetry = loaded(&directory, Some(sink()));
+        let status = telemetry.status();
+        assert!(status.available);
+        assert_eq!(status.shared, None);
+        assert!(!directory.path().join(CHOICE_FILENAME).exists());
+    }
+
+    #[test]
+    fn sharing_persists_a_random_installation_id_and_declining_forgets_it() {
+        let directory = TempDir::new().expect("directory");
+        let path = directory.path().join(CHOICE_FILENAME);
+        let telemetry = loaded(&directory, None);
+
+        telemetry.set_shared(true).expect("share");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
+        let first = saved["installation_id"].as_str().expect("id").to_owned();
+        assert!(Uuid::parse_str(&first).is_ok());
+        assert_eq!(loaded(&directory, None).status().shared, Some(true));
+
+        telemetry.set_shared(false).expect("decline");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
+        assert_eq!(saved, json!({ "shared": false }));
+        assert_eq!(loaded(&directory, None).status().shared, Some(false));
+
+        telemetry.set_shared(true).expect("share again");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
+        assert_ne!(saved["installation_id"].as_str().expect("id"), first);
+    }
+
+    #[test]
+    fn a_corrupt_choice_file_asks_again() {
+        let directory = TempDir::new().expect("directory");
+        std::fs::write(directory.path().join(CHOICE_FILENAME), b"{not json").expect("write");
+        assert_eq!(loaded(&directory, None).status().shared, None);
+    }
+
+    #[test]
+    fn declining_discards_a_pending_crash_marker() {
+        let directory = TempDir::new().expect("directory");
+        let marker = directory.path().join(CRASH_FILENAME);
+        std::fs::write(
+            &marker,
+            br#"{"version":"0.4.0","location":"src/main.rs:1"}"#,
+        )
+        .expect("write marker");
+        loaded(&directory, None).set_shared(false).expect("decline");
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn events_carry_ids_version_and_timestamp_but_no_ip_lookup() {
+        let installation = Uuid::new_v4();
+        let session = Uuid::new_v4();
+        let body = payload(
+            &sink(),
+            &Event::JoinFailed {
+                game: TargetGame::Spearhead,
+                engine: EngineChoice::Openmohaa,
+                reason: JoinFailureReason::EngineMissing,
+            },
+            installation,
+            session,
+            "0.4.0",
+            UNIX_EPOCH + Duration::from_millis(1_759_140_488_123),
+        );
+        assert_eq!(body["api_key"], "phc_test");
+        assert_eq!(body["event"], "join_failed");
+        assert_eq!(body["distinct_id"], json!(installation));
+        assert_eq!(body["timestamp"], "2025-09-29T10:08:08.123Z");
+        let properties = &body["properties"];
+        assert_eq!(properties["session_id"], json!(session));
+        assert_eq!(properties["app_version"], "0.4.0");
+        assert_eq!(properties["game"], "spearhead");
+        assert_eq!(properties["engine"], "openmohaa");
+        assert_eq!(properties["reason"], "engine_missing");
+        assert_eq!(properties["$geoip_disable"], true);
+        assert_eq!(properties["$process_person_profile"], false);
+        assert!(properties.get("event").is_none());
+    }
+
+    #[test]
+    fn the_frontend_can_only_name_its_own_events() {
+        let parsed: UiEvent =
+            serde_json::from_value(json!({ "event": "server_selected", "ready": true }))
+                .expect("known event");
+        assert_eq!(parsed, UiEvent::ServerSelected { ready: true });
+        assert!(serde_json::from_value::<UiEvent>(json!({ "event": "game_launched" })).is_err());
+        assert!(serde_json::from_value::<UiEvent>(json!({ "event": "anything" })).is_err());
+    }
+
+    #[test]
+    fn crash_locations_drop_the_build_machine_path() {
+        assert_eq!(
+            source_relative("crates/reveille-app/src/main.rs"),
+            "crates/reveille-app/src/main.rs"
+        );
+        assert_eq!(
+            source_relative("/home/runner/.cargo/registry/src/index-1/tokio-1.50.0/src/lib.rs"),
+            "tokio-1.50.0/src/lib.rs"
+        );
+        assert_eq!(
+            source_relative(r"C:\Users\runneradmin\.cargo\registry\src\x\serde-1.0.0\src\de.rs"),
+            "serde-1.0.0/src/de.rs"
+        );
+    }
+
+    #[test]
+    fn timestamps_are_utc_rfc3339() {
+        assert_eq!(rfc3339(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
+        assert_eq!(
+            rfc3339(UNIX_EPOCH + Duration::from_hours(264_384)),
+            "2000-02-29T00:00:00.000Z"
+        );
+    }
+}

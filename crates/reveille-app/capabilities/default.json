@@ -16,6 +16,9 @@
       "allow": [
         {
           "url": "https://github.com/MOHCentral/reveille/issues/new*"
+        },
+        {
+          "url": "https://github.com/MOHCentral/reveille/blob/main/README.md#telemetry"
         }
       ]
     }

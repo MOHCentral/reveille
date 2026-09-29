@@ -32,6 +32,10 @@
 //   cancel_reveille_update()                   -> void
 //   app_log_files()                            -> { current, previous }
 //   set_close_to_tray(enabled)                 -> void
+//   telemetry_status()                         -> { available, shared: boolean | null }
+//   set_telemetry_shared(shared)               -> { available, shared }
+//   track_event(event)                         -> void; `event` is one of the `UiEvent` variants
+//     in src/telemetry.rs. Every other telemetry event is sent by the command that observes it.
 //
 // A `session` is `{ path, engine, game }`: which game folder, which engine program, and which of
 // the three games — Allied Assault, Spearhead or Breakthrough. Every server-facing command takes
@@ -77,6 +81,16 @@ export const installReveilleUpdate = () => invoke("install_reveille_update");
 export const cancelReveilleUpdate = () => invoke("cancel_reveille_update");
 
 export const appLogFiles = () => invoke("app_log_files");
+
+export const telemetryStatus = () => invoke("telemetry_status");
+export const setTelemetryShared = (shared) => invoke("set_telemetry_shared", { shared });
+/** Fire and forget: a lost event must never surface as an error in the player's way. */
+export const trackEvent = (event) => {
+  invoke("track_event", { event }).catch(() => {});
+};
+
+/** What Reveille sends when the player shares statistics, in the public source. */
+export const TELEMETRY_DETAILS_URL = "https://github.com/MOHCentral/reveille/blob/main/README.md#telemetry";
 export const openExternalUrl = (url) => openUrl(url);
 
 export const pickInstallFolder = () => invoke("pick_install_folder");
