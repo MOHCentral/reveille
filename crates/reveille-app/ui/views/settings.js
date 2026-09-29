@@ -15,7 +15,11 @@ import {
   setPreference,
 } from "../lib/preferences.js";
 import { GAME_LABELS, state, update } from "../lib/store.js";
-import { TELEMETRY_LABEL, TELEMETRY_SUMMARY } from "./telemetry.js";
+
+const TELEMETRY_LABEL = "Send anonymous usage statistics and crash reports";
+const TELEMETRY_SUMMARY =
+  "Which steps of finding and joining a server worked, why a join failed, and where Reveille crashed. " +
+  "Never your player name, game folder, server passwords, CD key or computer name.";
 
 /**
  * `engine` is the engine's display name; `version` the running build, when known. The callbacks

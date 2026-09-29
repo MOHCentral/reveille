@@ -32,7 +32,7 @@
 //   cancel_reveille_update()                   -> void
 //   app_log_files()                            -> { current, previous }
 //   set_close_to_tray(enabled)                 -> void
-//   telemetry_status()                         -> { available, shared: boolean | null }
+//   telemetry_status()                         -> { available, shared }
 //   set_telemetry_shared(shared)               -> { available, shared }
 //   track_event(event)                         -> void; `event` is one of the `UiEvent` variants
 //     in src/telemetry.rs. Every other telemetry event is sent by the command that observes it.

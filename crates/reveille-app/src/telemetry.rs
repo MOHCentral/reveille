@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Anonymous product telemetry, sent only after the player has said yes (issue #44).
+//! Anonymous product telemetry, on by default and turned off in Settings (issue #44).
 //!
 //! Every event the app can send is a variant of [`Event`], so what leaves the machine can be
 //! reviewed in this one file. Properties are closed enums and counts: no paths, addresses, player
@@ -170,10 +170,9 @@ pub enum UiEvent {
     },
 }
 
-/// What the player has said.
+/// Whether this installation shares statistics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Choice {
-    Unasked,
     Declined,
     Shared { installation_id: Uuid },
 }
@@ -190,8 +189,7 @@ struct StoredChoice {
 pub struct TelemetryStatus {
     /// Whether this build can send anything at all.
     pub available: bool,
-    /// `None` until the player answers.
-    pub shared: Option<bool>,
+    pub shared: bool,
 }
 
 #[derive(Debug, Error)]
@@ -220,15 +218,28 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-    /// Read the saved choice from `directory`. An unreadable file counts as unasked.
+    /// Read the saved choice from `directory`. With no saved choice, a build that can send starts
+    /// sharing under a new installation ID; an unreadable file shares nothing and is left alone.
     pub fn load(directory: PathBuf, app_version: String, sink: Option<Sink>) -> Self {
-        let choice = read_choice(&directory.join(CHOICE_FILENAME));
+        let choice = match read_choice(&directory.join(CHOICE_FILENAME)) {
+            Some(choice) => choice,
+            None if sink.is_some() => {
+                let choice = Choice::Shared {
+                    installation_id: Uuid::new_v4(),
+                };
+                if let Err(error) = write_choice(&directory, &choice) {
+                    warn!(%error, "could not save the installation ID");
+                }
+                choice
+            }
+            None => Choice::Declined,
+        };
         Self::new(directory, app_version, sink, choice, true)
     }
 
     /// Telemetry that can neither ask nor send, with nowhere to keep a choice.
     pub fn unavailable(app_version: String) -> Self {
-        Self::new(PathBuf::new(), app_version, None, Choice::Unasked, false)
+        Self::new(PathBuf::new(), app_version, None, Choice::Declined, false)
     }
 
     fn new(
@@ -257,14 +268,9 @@ impl Telemetry {
     }
 
     pub fn status(&self) -> TelemetryStatus {
-        let shared = match *self.lock() {
-            Choice::Unasked => None,
-            Choice::Declined => Some(false),
-            Choice::Shared { .. } => Some(true),
-        };
         TelemetryStatus {
             available: self.sink.is_some(),
-            shared,
+            shared: matches!(*self.lock(), Choice::Shared { .. }),
         }
     }
 
@@ -411,28 +417,28 @@ fn payload(
     })
 }
 
-fn read_choice(path: &Path) -> Choice {
+/// `None` when nothing has been saved yet.
+fn read_choice(path: &Path) -> Option<Choice> {
     let stored = match fs::read(path) {
         Ok(bytes) => serde_json::from_slice::<StoredChoice>(&bytes),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Choice::Unasked,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
         Err(error) => {
             warn!(%error, "could not read the telemetry choice");
-            return Choice::Unasked;
+            return Some(Choice::Declined);
         }
     };
-    match stored {
+    Some(match stored {
         Ok(StoredChoice {
             shared: true,
             installation_id: Some(installation_id),
         }) => Choice::Shared { installation_id },
-        Ok(StoredChoice { shared: false, .. }) => Choice::Declined,
-        // Sharing without an ID is not a state this module writes; ask again rather than guess.
-        Ok(StoredChoice { shared: true, .. }) => Choice::Unasked,
+        Ok(_) => Choice::Declined,
+        // A player who turned sharing off must not be turned back on by a damaged file.
         Err(error) => {
             warn!(%error, "the saved telemetry choice is unreadable");
-            Choice::Unasked
+            Choice::Declined
         }
-    }
+    })
 }
 
 fn write_choice(directory: &Path, choice: &Choice) -> Result<(), TelemetryError> {
@@ -441,7 +447,7 @@ fn write_choice(directory: &Path, choice: &Choice) -> Result<(), TelemetryError>
             shared: true,
             installation_id: Some(*installation_id),
         },
-        Choice::Unasked | Choice::Declined => StoredChoice::default(),
+        Choice::Declined => StoredChoice::default(),
     };
     let path = directory.join(CHOICE_FILENAME);
     let save = |source| TelemetryError::Save {
@@ -569,12 +575,34 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_shared_before_the_player_answers() {
+    fn a_new_installation_shares_under_a_saved_random_id() {
         let directory = TempDir::new().expect("directory");
-        let telemetry = loaded(&directory, Some(sink()));
-        let status = telemetry.status();
+        let status = loaded(&directory, Some(sink())).status();
         assert!(status.available);
-        assert_eq!(status.shared, None);
+        assert!(status.shared);
+        let saved: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join(CHOICE_FILENAME)).expect("read"),
+        )
+        .expect("json");
+        let id = saved["installation_id"].as_str().expect("id").to_owned();
+        assert!(Uuid::parse_str(&id).is_ok());
+
+        let reloaded: serde_json::Value = {
+            loaded(&directory, Some(sink()));
+            serde_json::from_slice(
+                &std::fs::read(directory.path().join(CHOICE_FILENAME)).expect("read"),
+            )
+            .expect("json")
+        };
+        assert_eq!(reloaded["installation_id"].as_str(), Some(id.as_str()));
+    }
+
+    #[test]
+    fn a_build_without_a_key_writes_nothing_and_shares_nothing() {
+        let directory = TempDir::new().expect("directory");
+        let status = loaded(&directory, None).status();
+        assert!(!status.available);
+        assert!(!status.shared);
         assert!(!directory.path().join(CHOICE_FILENAME).exists());
     }
 
@@ -589,13 +617,13 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
         let first = saved["installation_id"].as_str().expect("id").to_owned();
         assert!(Uuid::parse_str(&first).is_ok());
-        assert_eq!(loaded(&directory, None).status().shared, Some(true));
+        assert!(loaded(&directory, None).status().shared);
 
         telemetry.set_shared(false).expect("decline");
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
         assert_eq!(saved, json!({ "shared": false }));
-        assert_eq!(loaded(&directory, None).status().shared, Some(false));
+        assert!(!loaded(&directory, None).status().shared);
 
         telemetry.set_shared(true).expect("share again");
         let saved: serde_json::Value =
@@ -604,10 +632,14 @@ mod tests {
     }
 
     #[test]
-    fn a_corrupt_choice_file_asks_again() {
+    fn a_corrupt_choice_file_is_never_read_as_consent() {
         let directory = TempDir::new().expect("directory");
         std::fs::write(directory.path().join(CHOICE_FILENAME), b"{not json").expect("write");
-        assert_eq!(loaded(&directory, None).status().shared, None);
+        assert!(!loaded(&directory, Some(sink())).status().shared);
+        assert_eq!(
+            std::fs::read(directory.path().join(CHOICE_FILENAME)).expect("read"),
+            b"{not json"
+        );
     }
 
     #[test]

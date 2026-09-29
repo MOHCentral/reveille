@@ -86,7 +86,6 @@ import {
 import { setupView } from "./views/setup.js";
 import { openSettings } from "./views/settings.js";
 import { openShortcuts } from "./views/shortcuts.js";
-import { openTelemetryPrompt } from "./views/telemetry.js";
 import { preferences, setPreference } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
@@ -545,16 +544,6 @@ function issueTemplate(logs) {
 }
 
 /* Anonymous statistics ------------------------------------------------------ */
-
-/** Ask once per installation, and only in a build that can send anything. */
-async function askAboutTelemetry() {
-  const status = await telemetryStatus().catch(() => null);
-  if (!status?.available || status.shared !== null) return;
-  openTelemetryPrompt({
-    onChoose: (shared) => void setTelemetryShared(shared).catch(() => {}),
-    onLearnMore: openTelemetryDetails,
-  });
-}
 
 function openTelemetryDetails() {
   void openExternalUrl(TELEMETRY_DETAILS_URL).catch(() => {});
@@ -1341,7 +1330,6 @@ notify();
 if (preferences().closeToTray) syncCloseToTray(true);
 setup.detect();
 void findReveilleUpdate();
-void askAboutTelemetry();
 
 function engineLabel(engine) {
   if (engine === "openmohaa") return "OpenMoHAA";
