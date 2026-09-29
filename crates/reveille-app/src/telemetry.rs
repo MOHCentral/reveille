@@ -4,8 +4,7 @@
 //!
 //! Every event the app can send is a variant of [`Event`], so what leaves the machine can be
 //! reviewed in this one file. Properties are closed enums and counts: no paths, addresses, player
-//! names, server names or error text. Builds made without `REVEILLE_TELEMETRY_KEY` never ask and
-//! never send.
+//! names, server names or error text. Builds made without `REVEILLE_TELEMETRY_KEY` never send.
 
 use std::fs;
 use std::io;
@@ -184,7 +183,7 @@ struct StoredChoice {
     installation_id: Option<Uuid>,
 }
 
-/// What the frontend needs to draw the prompt and the Settings toggle.
+/// What the frontend needs to draw the Settings toggle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct TelemetryStatus {
     /// Whether this build can send anything at all.
@@ -237,7 +236,7 @@ impl Telemetry {
         Self::new(directory, app_version, sink, choice, true)
     }
 
-    /// Telemetry that can neither ask nor send, with nowhere to keep a choice.
+    /// Telemetry that never sends, with nowhere to keep a choice.
     pub fn unavailable(app_version: String) -> Self {
         Self::new(PathBuf::new(), app_version, None, Choice::Declined, false)
     }

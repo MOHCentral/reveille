@@ -97,7 +97,7 @@ const ISSUE_TRACKER_URL = "https://github.com/MOHCentral/reveille/issues/new";
 loadFilters();
 state.rememberedInstall = recallInstall();
 // A remembered folder means setup finished on an earlier run, so its automatic Continue is not one.
-const firstRun = !state.rememberedInstall;
+let firstRun = !state.rememberedInstall;
 
 const servers = serversView({
   onRefresh: refresh,
@@ -119,6 +119,7 @@ const join = joinView($("#detail-slot"), {
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {
     if (firstRun) trackEvent({ event: "first_run_completed", game: state.game, engine: state.engine });
+    firstRun = false;
     enterServers();
   },
   onApply: applyInstallChange,
