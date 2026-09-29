@@ -157,7 +157,7 @@ While it is on, Reveille sends these events to PostHog's EU region:
 - Join was pressed, the game started, or the join failed (with a short reason code such as
   `engine_missing` or `download_failed`).
 
-Every event carries a random installation ID, a random ID for this run of the app, the Reveille
+Every event carries a random installation ID, a random session ID (new for each launch, and after 30 idle minutes), the Reveille
 version, the operating system (`windows` or `macos`) and a timestamp. The installation ID is
 created at random on first launch and deleted when you turn statistics off; it is not derived from
 your hardware, account or files.

@@ -29,6 +29,10 @@ const DEFAULT_HOST: &str = "https://eu.i.posthog.com";
 const CAPTURE_PATH: &str = "/i/v0/e/";
 /// Short enough that a slow endpoint never holds a connection open behind the player's back.
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
+/// The session rules of `PostHog`: a new session after 30 idle minutes, and none may outlast
+/// 24 hours, or its events drop out of session aggregations. A run kept in the tray can do both.
+const SESSION_IDLE: Duration = Duration::from_mins(30);
+const SESSION_MAX: Duration = Duration::from_hours(24);
 
 /// Where events go. `None` when the build carries no project key.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -206,7 +210,7 @@ pub struct Telemetry {
     sink: Option<Sink>,
     directory: PathBuf,
     app_version: String,
-    session_id: Uuid,
+    session: Mutex<Session>,
     choice: Mutex<Choice>,
     /// Read by the panic hook, which cannot take the lock.
     sharing: Arc<AtomicBool>,
@@ -257,7 +261,7 @@ impl Telemetry {
             sink,
             directory,
             app_version,
-            session_id: Uuid::new_v4(),
+            session: Mutex::new(Session::begin(SystemTime::now())),
             choice: Mutex::new(choice),
             sharing,
             server_selected_sent: AtomicBool::new(false),
@@ -342,13 +346,19 @@ impl Telemetry {
         let Choice::Shared { installation_id } = *self.lock() else {
             return;
         };
+        let now = SystemTime::now();
+        let session_id = self
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .touch(now);
         let body = payload(
             sink,
             event,
             installation_id,
-            self.session_id,
+            session_id,
             &self.app_version,
-            SystemTime::now(),
+            now,
         );
         let request = self.client.post(&sink.endpoint).json(&body);
         tauri::async_runtime::spawn(async move {
@@ -385,6 +395,45 @@ impl Telemetry {
     }
 }
 
+/// The `$session_id` `PostHog` expects from a backend: a `UUIDv7` whose time part is the session's
+/// start.
+#[derive(Clone, Copy, Debug)]
+struct Session {
+    id: Uuid,
+    started: SystemTime,
+    last: SystemTime,
+}
+
+impl Session {
+    fn begin(now: SystemTime) -> Self {
+        Self {
+            id: uuid_v7_at(now),
+            started: now,
+            last: now,
+        }
+    }
+
+    /// The session `now` belongs to, starting a new one when the current one has gone idle or
+    /// grown too old.
+    fn touch(&mut self, now: SystemTime) -> Uuid {
+        let elapsed = |since: SystemTime| now.duration_since(since).unwrap_or_default();
+        if elapsed(self.last) >= SESSION_IDLE || elapsed(self.started) >= SESSION_MAX {
+            *self = Self::begin(now);
+        }
+        self.last = now;
+        self.id
+    }
+}
+
+fn uuid_v7_at(time: SystemTime) -> Uuid {
+    let since = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+    Uuid::new_v7(uuid::Timestamp::from_unix(
+        uuid::NoContext,
+        since.as_secs(),
+        since.subsec_nanos(),
+    ))
+}
+
 fn payload(
     sink: &Sink,
     event: &Event,
@@ -401,7 +450,9 @@ fn payload(
         .remove("event")
         .and_then(|name| name.as_str().map(str::to_owned))
         .unwrap_or_default();
-    properties.insert("session_id".to_owned(), json!(session_id));
+    properties.insert("$session_id".to_owned(), json!(session_id));
+    properties.insert("$lib".to_owned(), json!("reveille"));
+    properties.insert("$lib_version".to_owned(), json!(app_version));
     properties.insert("app_version".to_owned(), json!(app_version));
     properties.insert("os".to_owned(), json!(std::env::consts::OS));
     // No GeoIP lookup and no person profile: the provider keeps an anonymous event stream only.
@@ -409,6 +460,8 @@ fn payload(
     properties.insert("$process_person_profile".to_owned(), json!(false));
     json!({
         "api_key": sink.api_key,
+        // Lets PostHog drop the duplicate if a retried request was in fact delivered.
+        "uuid": uuid_v7_at(now),
         "event": name,
         "distinct_id": installation_id,
         "properties": properties,
@@ -546,8 +599,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, Sink, Telemetry, UiEvent,
-        payload, rfc3339, source_relative,
+        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, Session, Sink, Telemetry,
+        UiEvent, payload, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -657,7 +710,7 @@ mod tests {
     #[test]
     fn events_carry_ids_version_and_timestamp_but_no_ip_lookup() {
         let installation = Uuid::new_v4();
-        let session = Uuid::new_v4();
+        let session = super::uuid_v7_at(UNIX_EPOCH + Duration::from_hours(488_650));
         let body = payload(
             &sink(),
             &Event::JoinFailed {
@@ -675,7 +728,11 @@ mod tests {
         assert_eq!(body["distinct_id"], json!(installation));
         assert_eq!(body["timestamp"], "2025-09-29T10:08:08.123Z");
         let properties = &body["properties"];
-        assert_eq!(properties["session_id"], json!(session));
+        assert_eq!(properties["$session_id"], json!(session));
+        assert_eq!(properties["$lib"], "reveille");
+        assert_eq!(properties["$lib_version"], "0.4.0");
+        let event_id = Uuid::parse_str(body["uuid"].as_str().expect("uuid")).expect("uuid");
+        assert_eq!(event_id.get_version_num(), 7);
         assert_eq!(properties["app_version"], "0.4.0");
         assert_eq!(properties["game"], "spearhead");
         assert_eq!(properties["engine"], "openmohaa");
@@ -709,6 +766,28 @@ mod tests {
             source_relative(r"C:\Users\runneradmin\.cargo\registry\src\x\serde-1.0.0\src\de.rs"),
             "serde-1.0.0/src/de.rs"
         );
+    }
+
+    #[test]
+    fn a_session_follows_posthogs_idle_and_age_limits() {
+        let start = UNIX_EPOCH + Duration::from_hours(488_650);
+        let mut session = Session::begin(start);
+        let first = session.id;
+        assert_eq!(first.get_version_num(), 7);
+        let (seconds, _) = first.get_timestamp().expect("v7 timestamp").to_unix();
+        assert_eq!(seconds, 488_650 * 3_600);
+
+        // Busy for 23 hours: one session.
+        for minute in (0..23 * 60).step_by(20) {
+            assert_eq!(session.touch(start + Duration::from_mins(minute)), first);
+        }
+        // Past 24 hours since it began: a new one, even though the player never went idle.
+        let renewed = session.touch(start + Duration::from_hours(24));
+        assert_ne!(renewed, first);
+
+        // Half an hour idle: another.
+        let later = start + Duration::from_hours(24) + Duration::from_mins(30);
+        assert_ne!(session.touch(later), renewed);
     }
 
     #[test]
