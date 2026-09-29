@@ -497,14 +497,41 @@ svg {
 
 .clip__steps li {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
   border-right: 1px solid var(--line);
   color: var(--faint);
   font-size: 13px;
   animation: clip-step 16s infinite;
+}
+
+.clip__steps button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.clip__steps button:hover {
+  color: var(--ink);
+}
+
+.clip__steps button:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+}
+
+/* Hovering holds the current step so a visitor can read the frame they picked. */
+.clip:hover .clip__frames img,
+.clip:hover .clip__steps li,
+.clip:hover .clip__steps li::after {
+  animation-play-state: paused;
 }
 
 .clip__steps li:last-child {
@@ -1513,8 +1540,11 @@ code {
   }
 
   .clip__steps li {
-    padding: 10px;
     font-size: 11px;
+  }
+
+  .clip__steps button {
+    padding: 10px;
   }
 
   .then-now,
@@ -1635,11 +1665,11 @@ code {
     animation: none;
   }
 
-  .clip__frames img:nth-child(2) {
+  .clip__frames img.is-current {
     opacity: 1;
   }
 
-  .clip__steps li:nth-child(2) {
+  .clip__steps li.is-current {
     color: var(--ink);
   }
 

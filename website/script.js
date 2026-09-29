@@ -40,6 +40,35 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeNavigation();
 });
 
+// --- Hero clip -----------------------------------------------------------
+//
+// The clip is four CSS animations sharing one 16 s cycle, one step every 4 s.
+// Picking a step seeks every animation to just after that step's fade-in; the
+// extra cycle keeps delayed animations out of their before-start phase.
+
+const CLIP_STEP_MS = 4000;
+const CLIP_CYCLE_MS = 4 * CLIP_STEP_MS;
+const CLIP_FADE_MS = 480;
+
+const clip = document.querySelector(".clip");
+
+function showClipStep(index) {
+  if (!(clip instanceof HTMLElement)) return;
+  const frames = clip.querySelectorAll(".clip__frames img");
+  const steps = clip.querySelectorAll(".clip__steps li");
+  for (const list of [frames, steps]) {
+    list.forEach((element, position) => element.classList.toggle("is-current", position === index));
+  }
+  const time = CLIP_CYCLE_MS + index * CLIP_STEP_MS + CLIP_FADE_MS;
+  for (const animation of clip.getAnimations({ subtree: true })) {
+    animation.currentTime = time;
+  }
+}
+
+clip?.querySelectorAll(".clip__steps button").forEach((button, index) => {
+  button.addEventListener("click", () => showClipStep(index));
+});
+
 // --- Latest release ------------------------------------------------------
 //
 // Nothing on this page hard-codes a version. The markup ships a link to
