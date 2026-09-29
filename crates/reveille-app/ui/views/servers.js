@@ -850,7 +850,7 @@ function nameCell(hostname, address, note, remembered, join = null) {
         },
         hostname || "(unnamed server)",
       ),
-      note && el("span", { className: "history-line" }, note),
+      note && el("span", { className: "history-line", title: note }, note),
       join,
     ),
   );
