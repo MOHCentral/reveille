@@ -443,21 +443,6 @@ svg {
   gap: 8px;
 }
 
-.trust-note {
-  margin-top: 10px;
-  color: var(--faint);
-  font-size: 12px;
-}
-
-.trust-note a {
-  border-bottom: 1px solid rgb(217 166 72 / 45%);
-  color: var(--dim);
-}
-
-.trust-note a:hover {
-  color: var(--brass-light);
-}
-
 .trust-row svg {
   width: 18px;
   fill: none;
