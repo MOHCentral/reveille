@@ -101,14 +101,87 @@ pub enum JoinFailureReason {
     Unknown,
 }
 
+/// A panic in the shape of `PostHog`'s manual exception capture, with its source position as the
+/// only frame.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PanicReport {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    value: String,
+    mechanism: Mechanism,
+    stacktrace: Stacktrace,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct Mechanism {
+    handled: bool,
+    synthetic: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct Stacktrace {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    frames: [Frame; 1],
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct Frame {
+    platform: &'static str,
+    lang: &'static str,
+    function: &'static str,
+    filename: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lineno: Option<u32>,
+    resolved: bool,
+    in_app: bool,
+}
+
+impl PanicReport {
+    /// `location` is `file:line` as the panic hook recorded it, or `unknown`.
+    fn at(location: &str) -> Self {
+        let (filename, lineno) = match location.rsplit_once(':') {
+            Some((file, line)) => match line.parse() {
+                Ok(line) => (file, Some(line)),
+                Err(_) => (location, None),
+            },
+            None => (location, None),
+        };
+        Self {
+            kind: "panic",
+            value: format!("Reveille stopped at {location}"),
+            mechanism: Mechanism {
+                handled: false,
+                synthetic: false,
+            },
+            stacktrace: Stacktrace {
+                kind: "raw",
+                frames: [Frame {
+                    platform: "custom",
+                    lang: "rust",
+                    // A panic location carries no function name, and PostHog requires one.
+                    function: "panic",
+                    filename: filename.to_owned(),
+                    lineno,
+                    resolved: true,
+                    in_app: filename.starts_with("crates/"),
+                }],
+            },
+        }
+    }
+}
+
 /// Every event Reveille can send. Adding one here is the whole change needed to send it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     AppStarted,
-    /// The previous run panicked. `location` is a source position inside Reveille or a dependency.
+    /// The previous run panicked. Sent under `PostHog`'s own exception event so it appears in Error
+    /// Tracking; the only detail is the panic's source position, never its message.
+    #[serde(rename = "$exception")]
     AppCrashed {
-        location: String,
+        #[serde(rename = "$exception_list")]
+        exceptions: [PanicReport; 1],
         crashed_version: String,
     },
     GameInstallDetected {
@@ -316,7 +389,7 @@ impl Telemetry {
         let marker = self.directory.join(CRASH_FILENAME);
         if let Some(crash) = read_crash(&marker) {
             self.track(&Event::AppCrashed {
-                location: crash.location,
+                exceptions: [PanicReport::at(&crash.location)],
                 crashed_version: crash.version,
             });
         }
@@ -599,8 +672,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, Session, Sink, Telemetry,
-        UiEvent, payload, rfc3339, source_relative,
+        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, PanicReport, Session, Sink,
+        Telemetry, UiEvent, payload, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -740,6 +813,56 @@ mod tests {
         assert_eq!(properties["$geoip_disable"], true);
         assert_eq!(properties["$process_person_profile"], false);
         assert!(properties.get("event").is_none());
+    }
+
+    #[test]
+    fn a_crash_is_sent_as_a_posthog_exception_without_its_message() {
+        let body = payload(
+            &sink(),
+            &Event::AppCrashed {
+                exceptions: [PanicReport::at("crates/reveille-app/src/main.rs:42")],
+                crashed_version: "0.3.0".to_owned(),
+            },
+            Uuid::new_v4(),
+            Uuid::now_v7(),
+            "0.4.0",
+            UNIX_EPOCH,
+        );
+        assert_eq!(body["event"], "$exception");
+        let properties = &body["properties"];
+        assert_eq!(properties["crashed_version"], "0.3.0");
+        assert_eq!(
+            properties["$exception_list"],
+            json!([{
+                "type": "panic",
+                "value": "Reveille stopped at crates/reveille-app/src/main.rs:42",
+                "mechanism": { "handled": false, "synthetic": false },
+                "stacktrace": {
+                    "type": "raw",
+                    "frames": [{
+                        "platform": "custom",
+                        "lang": "rust",
+                        "function": "panic",
+                        "filename": "crates/reveille-app/src/main.rs",
+                        "lineno": 42,
+                        "resolved": true,
+                        "in_app": true,
+                    }],
+                },
+            }])
+        );
+    }
+
+    #[test]
+    fn a_crash_outside_the_workspace_or_without_a_line_still_has_a_frame() {
+        let dependency =
+            serde_json::to_value(PanicReport::at("tokio-1.50.0/src/lib.rs:7")).expect("json");
+        assert_eq!(dependency["stacktrace"]["frames"][0]["in_app"], false);
+        assert_eq!(dependency["stacktrace"]["frames"][0]["lineno"], 7);
+
+        let unknown = serde_json::to_value(PanicReport::at("unknown")).expect("json");
+        assert_eq!(unknown["stacktrace"]["frames"][0]["filename"], "unknown");
+        assert!(unknown["stacktrace"]["frames"][0].get("lineno").is_none());
     }
 
     #[test]
