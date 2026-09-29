@@ -36,6 +36,15 @@ window.addEventListener("resize", () => {
   if (window.innerWidth > 900) closeNavigation();
 });
 
+// A link to a FAQ entry should land on its answer, not on a closed summary.
+function openLinkedDetails() {
+  const target = location.hash ? document.getElementById(location.hash.slice(1)) : null;
+  if (target instanceof HTMLDetailsElement) target.open = true;
+}
+
+openLinkedDetails();
+window.addEventListener("hashchange", openLinkedDetails);
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeNavigation();
 });
