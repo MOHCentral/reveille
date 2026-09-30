@@ -67,12 +67,11 @@ pub fn popup_supported() -> bool {
 
 /// Show one alert as a pop-up. Resolves to false when this desktop cannot, so the caller sends a
 /// system notification instead.
+///
+/// Async because building a window from a synchronous command deadlocks the event loop on
+/// Windows (docs.rs/tauri `WebviewWindowBuilder::new`).
 #[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri passes the app handle to commands only by value"
-)]
-pub fn show_alert_popup(app: AppHandle, card: Card, sound: bool) -> Result<bool, String> {
+pub async fn show_alert_popup(app: AppHandle, card: Card, sound: bool) -> Result<bool, String> {
     if card.event_id.is_empty()
         || card.event_id.len() > 64
         || card.hostname.len() > 256
@@ -92,8 +91,12 @@ pub fn show_alert_popup(app: AppHandle, card: Card, sound: bool) -> Result<bool,
     }
     let window = match app.get_webview_window(LABEL) {
         Some(window) => window,
-        None => build(&app).map_err(|error| error.to_string())?,
+        None => build(&app).map_err(|error| {
+            tracing::warn!(%error, "could not create the alert pop-up window");
+            error.to_string()
+        })?,
     };
+    tracing::debug!(event_id = %card.event_id, sound, "showing an alert pop-up");
     // One sound per batch: a card joining pop-ups already on screen stays quiet.
     if sound && !window.is_visible().unwrap_or(false) {
         play_sound();
