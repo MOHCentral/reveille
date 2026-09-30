@@ -167,11 +167,6 @@ export function openSettings(options) {
           redraw();
         }),
       el(
-        "p",
-        { className: "settings__hint" },
-        "Bots are never counted. Alerts that arrive while you play still appear under the bell.",
-      ),
-      el(
         "button",
         { type: "button", className: "btn btn--sm", onclick: onOpenWatching },
         "Manage watched servers",
