@@ -6,7 +6,9 @@
 //! agent on macOS, an XDG autostart entry elsewhere — because the autostart plugin would pull a
 //! second generation of several crates into a graph that `cargo deny` keeps to one.
 
+#[cfg(not(windows))]
 use std::io;
+#[cfg(not(windows))]
 use std::path::PathBuf;
 
 /// Passed by the sign-in entry, so a launch the player did not start opens hidden.

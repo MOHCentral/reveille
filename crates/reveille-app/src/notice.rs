@@ -144,7 +144,7 @@ async fn show(app: AppHandle, notice: Notice) -> Result<(), String> {
 /// as the notification plugin does.
 #[cfg(windows)]
 fn app_user_model_id(app: &AppHandle) -> String {
-    let unpackaged = std::env::current_exe().ok().is_some_and(|exe| {
+    let unpackaged = std::env::current_exe().is_ok_and(|exe| {
         exe.parent().is_some_and(|dir| {
             dir.ends_with(std::path::Path::new("target").join("debug"))
                 || dir.ends_with(std::path::Path::new("target").join("release"))
