@@ -263,14 +263,16 @@ fn play_sound() {
             .join("Media")
             .join("Windows Notify Messaging.wav");
         let mut command = std::process::Command::new("powershell");
+        // `-Command` joins trailing arguments into the script text rather than filling `$args`,
+        // so the path travels in the environment, which also needs no quoting.
         command
             .args([
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                "(New-Object Media.SoundPlayer $args[0]).PlaySync()",
+                "(New-Object Media.SoundPlayer $env:REVEILLE_SOUND).PlaySync()",
             ])
-            .arg(media)
+            .env("REVEILLE_SOUND", media)
             .creation_flags(CREATE_NO_WINDOW);
         command
     };
@@ -292,9 +294,15 @@ fn play_sound() {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     // A missing player only costs the sound.
-    if let Ok(mut child) = command.spawn() {
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        });
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || match child.wait() {
+                Ok(status) if !status.success() => {
+                    tracing::debug!(%status, "the alert sound did not play");
+                }
+                _ => {}
+            });
+        }
+        Err(error) => tracing::debug!(%error, "could not start the alert sound player"),
     }
 }
