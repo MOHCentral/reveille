@@ -74,10 +74,6 @@ window.__TAURI__ = {
     }),
     UserAttentionType: { Informational: 2 },
   },
-  notification: {
-    isPermissionGranted: () => Promise.resolve(true),
-    requestPermission: () => Promise.resolve("granted"),
-  },
 };
 
 localStorage.clear();

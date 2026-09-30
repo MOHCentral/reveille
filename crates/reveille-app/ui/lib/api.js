@@ -127,19 +127,13 @@ export const requestPlayerAlertAttention = () =>
 export const clearPlayerAlertAttention = () =>
   tauri.window.getCurrentWindow().requestUserAttention(null);
 
-export const canNotify = () => tauri.notification.isPermissionGranted();
-
-export const notificationPermission = async () => {
-  if (await canNotify()) return true;
-  return (await tauri.notification.requestPermission()) === "granted";
-};
-
-export const sendPlayerNotification = (event) =>
+export const sendPlayerNotification = (event, sound) =>
   invoke("send_player_notification", {
     eventId: event.id,
     hostname: event.hostname,
     count: event.count,
     detail: event.detail ?? null,
+    sound,
   });
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });

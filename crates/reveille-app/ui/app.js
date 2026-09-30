@@ -15,7 +15,6 @@ import {
   browseServers,
   cancelBrowse,
   cancelReveilleUpdate,
-  canNotify,
   appVersion,
   checkReveilleUpdate,
   checkServer,
@@ -32,7 +31,6 @@ import {
   onPlayerNotificationClick,
   onPreviewProgress,
   onSelfUpdateProgress,
-  notificationPermission,
   openExternalUrl,
   previewJoin,
   readWatchedServer,
@@ -170,22 +168,20 @@ const alertMonitor = startPlayerAlertMonitor(
   () => preferences().cooldownMinutes * 60_000,
 );
 
-async function deliverArrival(entry, count, reading) {
+async function deliverArrival(entry, count, reading, { toast = true } = {}) {
   if (!preferences().alertsEnabled) return;
   const event = recordArrival(entry, count, Date.now(), alertDetail(reading));
   renderArrivalBadge();
+  // Inside the cooldown the arrival still reaches the bell; only the interruption waits.
+  if (!toast) return;
   // Kept under the bell, but no toast and no flashing taskbar over a game in progress.
   if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) return;
   if (!document.hasFocus() && !attentionRequested) {
     attentionRequested = true;
     void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
   }
-  if (!(await canNotify())) {
-    update((next) => (next.alertError = "Notifications are disabled for Reveille in your system settings."));
-    return;
-  }
   try {
-    if (event) await sendPlayerNotification(event);
+    if (event) await sendPlayerNotification(event, preferences().alertSound);
     if (state.alertError) update((next) => (next.alertError = null));
   } catch {
     update((next) => (next.alertError = "Reveille could not show a system notification."));
@@ -375,17 +371,6 @@ async function togglePlayerAlert(row) {
   const game = state.game;
   if (hasPlayerAlert(game, row.address)) {
     forgetWatch(game, row.address);
-    return;
-  }
-  try {
-    if (!(await notificationPermission())) {
-      openDialog("Player alerts", el("p", null,
-        "Allow notifications for Reveille in your system settings to receive player alerts."));
-      return;
-    }
-  } catch {
-    openDialog("Player alerts", el("p", null,
-      "Reveille could not request notification permission. Check your system settings."));
     return;
   }
   if (!addPlayerAlert(row, game, preferences().defaultThreshold)) {

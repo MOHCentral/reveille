@@ -1543,6 +1543,7 @@ async fn send_player_notification(
     hostname: String,
     count: u32,
     detail: Option<String>,
+    sound: bool,
 ) -> Result<(), String> {
     let detail = detail.filter(|detail| !detail.trim().is_empty());
     if event_id.len() > 64
@@ -1561,17 +1562,25 @@ async fn send_player_notification(
     #[cfg(windows)]
     {
         let _ = event_id;
-        app.notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show()
-            .map_err(|error| error.to_string())
+        let mut builder = app.notification().builder().title(title).body(body);
+        // Without a sound name the toast is silent. "IM" is Windows' own chat-message sound, so
+        // it follows the player's sound scheme, volume and Do Not Disturb.
+        if sound {
+            builder = builder.sound("IM");
+        }
+        builder.show().map_err(|error| error.to_string())
     }
     #[cfg(not(windows))]
     tokio::task::spawn_blocking(move || {
         let mut notification = notify_rust::Notification::new();
         notification.summary(&title).body(&body).auto_icon();
+        if sound {
+            notification.sound_name(if cfg!(target_os = "macos") {
+                "default"
+            } else {
+                "message-new-instant"
+            });
+        }
         #[cfg(target_os = "macos")]
         {
             let _ = notify_rust::set_application(if tauri::is_dev() {

@@ -15,6 +15,7 @@ test("a fresh install keeps today's alert behaviour, ping colours and quits on c
     defaultThreshold: 1,
     cooldownMinutes: 15,
     quietWhilePlaying: false,
+    alertSound: true,
     pingGood: 80,
     pingFair: 150,
     refreshOnFocus: true,

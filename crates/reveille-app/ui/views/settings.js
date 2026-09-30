@@ -78,6 +78,13 @@ export function openSettings(options) {
         alertsOff,
       ),
       toggle(
+        "settings-sound",
+        "Play a sound with each alert",
+        prefs.alertSound,
+        (on) => change("alertSound", on),
+        alertsOff,
+      ),
+      toggle(
         "settings-quiet",
         "Don't notify while the game is running",
         prefs.quietWhilePlaying,
