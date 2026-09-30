@@ -22,7 +22,13 @@ import {
   errorText,
   focusReveille,
   gameClientRunning,
+  onHiddenToTray,
+  openNotificationSettings,
+  sendReveilleNotice,
   setCloseToTray,
+  setStartAtLogin,
+  setTrayTooltip,
+  startAtLogin,
   installAndLaunch,
   installServerFiles,
   installReveilleUpdate,
@@ -54,10 +60,12 @@ import {
   addPlayerAlert,
   alertId,
   hasPlayerAlert,
+  playerAlerts,
   removePlayerAlert,
   startPlayerAlertMonitor,
 } from "./lib/player-alerts.js";
-import { alertDetail, clockTime, displayPath, plural, timeAgo } from "./lib/format.js";
+import { alertDetail, clockTime, displayPath, occupancy, plural, timeAgo } from "./lib/format.js";
+import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./lib/reach.js";
 import {
   GAME_LABELS,
   SCOPES,
@@ -82,7 +90,8 @@ import {
   update,
 } from "./lib/store.js";
 import { setupView } from "./views/setup.js";
-import { openSettings } from "./views/settings.js";
+import { alertErrorLine, openSettings } from "./views/settings.js";
+import { openAlertsIntro } from "./views/alerts-intro.js";
 import { openShortcuts } from "./views/shortcuts.js";
 import { preferences, setPreference } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
@@ -150,16 +159,26 @@ void onSelfUpdateProgress(receiveReveilleUpdateProgress);
 subscribe(render);
 
 let pendingArrival = null;
+let shownTooltip = null;
+let heldWhilePlaying = [];
+let gameWatch = null;
 let openingArrival = false;
 let attentionRequested = false;
 window.addEventListener("focus", () => {
   attentionRequested = false;
+  // Seen under the bell now, so the after-game summary would only repeat it.
+  heldWhilePlaying = [];
   void clearPlayerAlertAttention().catch(() => {});
   refreshOnReturn();
 });
-void onPlayerNotificationClick(({ eventId }) => {
+void onPlayerNotificationClick(({ eventId, join }) => {
   const event = arrivalById(eventId);
-  if (event) requestOpenArrival(event);
+  if (event) requestOpenArrival(event, { join: join === true });
+});
+void onHiddenToTray(() => {
+  if (preferences().trayNoticeShown) return;
+  setPreference("trayNoticeShown", true);
+  void sendReveilleNotice(hiddenNotice(playerAlerts().length), false).catch(() => {});
 });
 const alertMonitor = startPlayerAlertMonitor(
   readWatchedServer,
@@ -175,7 +194,10 @@ async function deliverArrival(entry, count, reading, { toast = true } = {}) {
   // Inside the cooldown the arrival still reaches the bell; only the interruption waits.
   if (!toast) return;
   // Kept under the bell, but no toast and no flashing taskbar over a game in progress.
-  if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) return;
+  if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) {
+    if (event) holdUntilGameCloses(event);
+    return;
+  }
   if (!document.hasFocus() && !attentionRequested) {
     attentionRequested = true;
     void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
@@ -186,6 +208,24 @@ async function deliverArrival(entry, count, reading, { toast = true } = {}) {
   } catch {
     update((next) => (next.alertError = "Reveille could not show a system notification."));
   }
+}
+
+/** Arrivals a game kept quiet, summed up in one notice once it closes. */
+function holdUntilGameCloses(event) {
+  heldWhilePlaying.push(event);
+  gameWatch ??= setInterval(async () => {
+    if ((await gameClientRunning().catch(() => null)) !== false) return;
+    clearInterval(gameWatch);
+    gameWatch = null;
+    const notice = catchUpNotice(heldWhilePlaying);
+    heldWhilePlaying = [];
+    if (!notice || document.hasFocus()) return;
+    try {
+      await sendReveilleNotice(notice, preferences().alertSound);
+    } catch {
+      update((next) => (next.alertError = "Reveille could not show a system notification."));
+    }
+  }, 30_000);
 }
 
 function forgetWatch(game, address) {
@@ -201,6 +241,7 @@ function renderArrivalBadge() {
   badge.textContent = count > 0 ? String(count) : "";
   $("#arrival-events-btn").setAttribute("aria-label",
     count ? `Player alerts, ${count} unread` : "Player alerts");
+  renderTrayTooltip();
 }
 
 /**
@@ -219,7 +260,7 @@ function toggleArrivals() {
   openPopover(anchor, "Player alerts",
     el("div", { className: "popover__head" },
       el("h2", { className: "popover__title" }, "Player alerts"),
-      state.alertError && el("span", { className: "error", role: "alert" }, state.alertError),
+      state.alertError && alertErrorLine(openSystemNotificationSettings),
     ),
     events.length === 0
       ? el("p", { className: "popover__empty" },
@@ -251,7 +292,8 @@ function toggleArrivals() {
 
 function arrivalEntry(event) {
   const where = playableGames(state.install).length > 1 ? `${GAME_LABELS[event.game]} · ` : "";
-  return el("div", { className: `arrival${event.read ? "" : " arrival--unread"}` },
+  const classes = ["arrival", !event.read && "arrival--unread", isStale(event) && "arrival--stale"];
+  return el("div", { className: classes.filter(Boolean).join(" ") },
     el("span", { className: "arrival__title", title: event.hostname },
       el("strong", null, plural(event.count, "player")), ` on ${event.hostname}`),
     el("span", { className: "arrival__meta" },
@@ -302,9 +344,14 @@ async function openPendingArrival() {
     if (checked?.address === event.address && state.game === event.game) {
       servers.reveal(event.address);
       select(event.address);
-      // Join goes through the same path as a double-click, so a server that needs downloads
-      // stops on its priced button rather than fetching anything.
-      if (pending.join) activate(event.address);
+      if (pending.join && occupancy(checked.server).clients === 0) {
+        openDialog("No players right now", el("p", null,
+          `${event.hostname} has no players right now. It is selected in the list if you still want to join.`));
+      } else if (pending.join) {
+        // Join goes through the same path as a double-click, so a server that needs downloads
+        // stops on its priced button rather than fetching anything.
+        activate(event.address);
+      }
     } else {
       openDialog("Server unavailable", el("p", null,
         `${event.hostname} (${event.address}) is no longer answering.`));
@@ -378,14 +425,55 @@ async function togglePlayerAlert(row) {
       "Reveille could not save this server's alert. Try again after restarting the app."));
     return;
   }
+  keepWatchingInBackground();
   update(() => {});
   alertMonitor.checkNow();
+  if (!preferences().alertsIntroShown) {
+    setPreference("alertsIntroShown", true);
+    openAlertsIntro({
+      startAtLogin: await startAtLogin().catch(() => null),
+      onTest: () => sendReveilleNotice({
+        title: "Test alert from Reveille",
+        body: "This is how an alert looks when players join a server you watch.",
+      }, preferences().alertSound),
+      onCloseToTray: syncCloseToTray,
+      onStartAtLogin: changeStartAtLogin,
+      onNotificationSettings: openSystemNotificationSettings,
+    });
+  }
+}
+
+function keepWatchingInBackground() {
+  if (!needsBackgroundWatching(preferences(), playerAlerts().length)) return;
+  setPreference("closeToTray", true);
+  syncCloseToTray(true);
+}
+
+/** Resolves to whether Reveille now starts at sign-in, whatever happened to the request. */
+async function changeStartAtLogin(enabled) {
+  try {
+    await setStartAtLogin(enabled);
+  } catch {
+    openDialog("Start in the background", el("p", null,
+      enabled
+        ? "Reveille could not add itself to the programs that start when you sign in."
+        : "Reveille could not remove itself from the programs that start when you sign in."));
+  }
+  return startAtLogin().catch(() => null);
+}
+
+function openSystemNotificationSettings() {
+  openNotificationSettings().catch(() => {
+    openDialog("Notification settings", el("p", null,
+      "Open your system's notification settings and allow notifications for Reveille."));
+  });
 }
 
 async function openAppSettings() {
-  const [version, telemetry] = await Promise.all([
+  const [version, telemetry, login] = await Promise.all([
     appVersion().catch(() => null),
     telemetryStatus().catch(() => null),
+    startAtLogin().catch(() => null),
   ]);
   openSettings({
     engine: engineLabel(state.engine),
@@ -413,15 +501,28 @@ async function openAppSettings() {
     },
     onReportBug: () => void openBugReport(),
     onCloseToTray: syncCloseToTray,
+    startAtLogin: login,
+    onStartAtLogin: changeStartAtLogin,
+    onNotificationSettings: openSystemNotificationSettings,
   });
 }
 
 function syncCloseToTray(enabled) {
-  setCloseToTray(enabled).catch(() => {
+  // A new icon starts with the default text.
+  shownTooltip = null;
+  setCloseToTray(enabled).then(renderTrayTooltip, () => {
     openDialog("Keep watching", el("p", null,
       "Reveille could not add its notification-area icon, so closing the window still quits it."));
     setPreference("closeToTray", false);
   });
+}
+
+function renderTrayTooltip() {
+  if (!preferences().closeToTray) return;
+  const text = trayTooltip(playerAlerts().length, unreadArrivalCount());
+  if (text === shownTooltip) return;
+  shownTooltip = text;
+  void setTrayTooltip(text).catch(() => (shownTooltip = null));
 }
 
 function render() {
@@ -1314,6 +1415,7 @@ document.addEventListener("keydown", (event) => {
 
 notify();
 if (preferences().closeToTray) syncCloseToTray(true);
+keepWatchingInBackground();
 setup.detect();
 void findReveilleUpdate();
 

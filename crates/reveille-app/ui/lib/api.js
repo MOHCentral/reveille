@@ -114,6 +114,14 @@ export const gameClientRunning = () => invoke("game_client_running");
 
 export const setCloseToTray = (enabled) => invoke("set_close_to_tray", { enabled });
 
+export const setTrayTooltip = (text) => invoke("set_tray_tooltip", { text });
+
+export const onHiddenToTray = (handler) => on("reveille://hidden-to-tray", handler);
+
+export const startAtLogin = () => invoke("start_at_login");
+
+export const setStartAtLogin = (enabled) => invoke("set_start_at_login", { enabled });
+
 export const onPlayerNotificationClick = (handler) =>
   on("reveille://player-alert-open", handler);
 
@@ -135,6 +143,11 @@ export const sendPlayerNotification = (event, sound) =>
     detail: event.detail ?? null,
     sound,
   });
+
+export const sendReveilleNotice = ({ title, body }, sound) =>
+  invoke("send_reveille_notice", { title, body, sound });
+
+export const openNotificationSettings = () => invoke("open_notification_settings");
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });
 

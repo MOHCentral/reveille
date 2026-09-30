@@ -22,6 +22,8 @@
 //! Tauri shell. This layer owns presentation policy: it turns the pipeline's typed results into
 //! payloads and progress events, and decides nothing the core has not already established.
 
+mod autostart;
+mod notice;
 mod self_update;
 mod telemetry;
 mod tray;
@@ -65,8 +67,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
-#[cfg(windows)]
-use tauri_plugin_notification::NotificationExt as _;
 use telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry, TelemetryStatus, UiEvent};
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -80,8 +80,6 @@ const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
 const INSTALLATION_COPY_EVENT: &str = "reveille://installation-copy";
-#[cfg(not(windows))]
-const PLAYER_ALERT_OPEN_EVENT: &str = "reveille://player-alert-open";
 const APP_LOG_FILENAME: &str = "reveille.log";
 const PREVIOUS_APP_LOG_FILENAME: &str = "reveille.previous.log";
 
@@ -1529,85 +1527,6 @@ async fn read_watched_server(
     })
 }
 
-#[cfg(not(windows))]
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PlayerAlertOpen {
-    event_id: String,
-}
-
-#[tauri::command]
-async fn send_player_notification(
-    app: tauri::AppHandle,
-    event_id: String,
-    hostname: String,
-    count: u32,
-    detail: Option<String>,
-    sound: bool,
-) -> Result<(), String> {
-    let detail = detail.filter(|detail| !detail.trim().is_empty());
-    if event_id.len() > 64
-        || event_id.is_empty()
-        || count == 0
-        || hostname.len() > 256
-        || detail.as_ref().is_some_and(|detail| detail.len() > 256)
-    {
-        return Err("Invalid player alert".into());
-    }
-    let body = detail.unwrap_or_else(|| "A server you follow is no longer empty.".into());
-    let title = format!(
-        "{count} {} on {hostname}",
-        if count == 1 { "player" } else { "players" }
-    );
-    #[cfg(windows)]
-    {
-        let _ = event_id;
-        let mut builder = app.notification().builder().title(title).body(body);
-        // Without a sound name the toast is silent. "IM" is Windows' own chat-message sound, so
-        // it follows the player's sound scheme, volume and Do Not Disturb.
-        if sound {
-            builder = builder.sound("IM");
-        }
-        builder.show().map_err(|error| error.to_string())
-    }
-    #[cfg(not(windows))]
-    tokio::task::spawn_blocking(move || {
-        let mut notification = notify_rust::Notification::new();
-        notification.summary(&title).body(&body).auto_icon();
-        if sound {
-            notification.sound_name(if cfg!(target_os = "macos") {
-                "default"
-            } else {
-                "message-new-instant"
-            });
-        }
-        #[cfg(target_os = "macos")]
-        {
-            let _ = notify_rust::set_application(if tauri::is_dev() {
-                "com.apple.Terminal"
-            } else {
-                &app.config().identifier
-            });
-        }
-        let handle = notification.show().map_err(|error| error.to_string())?;
-        std::thread::spawn(move || {
-            let _ = handle.wait_for_response(|response: &notify_rust::NotificationResponse| {
-                if !matches!(response, notify_rust::NotificationResponse::Default) {
-                    return;
-                }
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-                let _ = app.emit(PLAYER_ALERT_OPEN_EVENT, PlayerAlertOpen { event_id });
-            });
-        });
-        Ok(())
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
 /// The family a checked server belongs to, when it is not this session's.
 ///
 /// A bookmark is an address, so it outlives the game it was starred under. A server that answers
@@ -2747,8 +2666,10 @@ fn main() {
     tauri::Builder::default()
         // First, so a second launch hands over before any other plugin starts. Clicking a Windows
         // toast launches Reveille again, which is how a hidden window comes back.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|arg| arg == autostart::BACKGROUND_ARG) {
+                tray::show_main(app);
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -2775,6 +2696,9 @@ fn main() {
             app.manage(AppState::default());
             app.manage(init_telemetry(app));
             app.manage(tray::TrayState::default());
+            if autostart::in_background() {
+                tray::start_hidden(app.handle());
+            }
             self_update::register(app);
             Ok(())
         })
@@ -2798,7 +2722,11 @@ fn main() {
             check_server,
             read_watched_server,
             game_client_running,
-            send_player_notification,
+            notice::send_player_notification,
+            notice::send_reveille_notice,
+            notice::open_notification_settings,
+            autostart::start_at_login,
+            autostart::set_start_at_login,
             preview_join,
             install_server_files,
             install_and_launch,
@@ -2806,6 +2734,7 @@ fn main() {
             self_update::install_reveille_update,
             self_update::cancel_reveille_update,
             tray::set_close_to_tray,
+            tray::set_tray_tooltip,
             app_log_files,
             telemetry_status,
             set_telemetry_shared,

@@ -16,6 +16,7 @@ import {
 } from "../lib/preferences.js";
 import { GAME_LABELS, state, update } from "../lib/store.js";
 
+export const START_AT_LOGIN_LABEL = "Start Reveille in the background when I sign in";
 const TELEMETRY_LABEL = "Send anonymous usage statistics and crash reports";
 const TELEMETRY_SUMMARY =
   "Which steps of finding and joining a server worked, why a join failed, and where Reveille crashed. " +
@@ -24,7 +25,8 @@ const TELEMETRY_SUMMARY =
 /**
  * `engine` is the engine's display name; `version` the running build, when known. The callbacks
  * open Setup, the Watching view, the update dialog and a bug report, and tell the shell about the
- * tray setting. `telemetry` is the saved statistics choice; `onTelemetry(shared)` saves a new one
+ * tray setting. `startAtLogin` is whether Reveille starts at sign-in, null when unknown;
+ * `onStartAtLogin(on)` changes it and resolves to the answer that holds. `telemetry` is the saved statistics choice; `onTelemetry(shared)` saves a new one
  * and resolves to the status that results.
  */
 export function openSettings(options) {
@@ -38,6 +40,8 @@ export function openSettings(options) {
     onCheckUpdate,
     onReportBug,
     onCloseToTray,
+    onStartAtLogin,
+    onNotificationSettings,
     onTelemetry,
     onTelemetryDetails,
   } = options;
@@ -58,7 +62,7 @@ export function openSettings(options) {
       toggle("settings-alerts", "Notify me when players join a watched server", prefs.alertsEnabled, (on) =>
         change("alertsEnabled", on),
       ),
-      state.alertError && el("p", { className: "error", role: "alert" }, state.alertError),
+      state.alertError && alertErrorLine(onNotificationSettings),
       choice(
         "settings-threshold",
         "New watches notify at",
@@ -95,9 +99,15 @@ export function openSettings(options) {
         "settings-tray",
         "Keep watching when I close the window",
         prefs.closeToTray,
-        (on) => {
+        async (on) => {
+          setPreference("trayChosen", true);
           change("closeToTray", on);
           onCloseToTray(on);
+          // Starting hidden at sign-in with no icon to bring the window back would be a trap.
+          if (!on && options.startAtLogin) {
+            options.startAtLogin = await onStartAtLogin(false);
+            redraw();
+          }
         },
       ),
       prefs.closeToTray &&
@@ -106,6 +116,12 @@ export function openSettings(options) {
           { className: "settings__hint" },
           "Closing the window leaves Reveille in the notification area. Right-click its icon to quit.",
         ),
+      prefs.closeToTray &&
+        options.startAtLogin !== null &&
+        toggle("settings-login", START_AT_LOGIN_LABEL, options.startAtLogin === true, async (on) => {
+          options.startAtLogin = await onStartAtLogin(on);
+          redraw();
+        }),
       el(
         "p",
         { className: "settings__hint" },
@@ -232,7 +248,21 @@ function section(title, ...children) {
   return el("section", { className: "settings__section" }, el("h3", { className: "label" }, title), ...children);
 }
 
-function toggle(id, label, on, onChange, disabled = false) {
+/** The notification failure, with the way to fix it where the system has a page for it. */
+export function alertErrorLine(onNotificationSettings) {
+  return el(
+    "p",
+    { className: "error", role: "alert" },
+    `${state.alertError} `,
+    el(
+      "button",
+      { type: "button", className: "btn btn--sm btn--utility", onclick: onNotificationSettings },
+      "Open notification settings",
+    ),
+  );
+}
+
+export function toggle(id, label, on, onChange, disabled = false) {
   return el(
     "label",
     { className: "settings__toggle", for: id },

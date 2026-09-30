@@ -21,6 +21,10 @@ const DEFAULTS = {
   pingFair: 150,
   refreshOnFocus: true,
   closeToTray: false,
+  // Not settings, but one-time choices and explanations that must not come back.
+  trayChosen: false,
+  trayNoticeShown: false,
+  alertsIntroShown: false,
 };
 
 const RULES = {
@@ -33,6 +37,9 @@ const RULES = {
   pingFair: (value) => PING_FAIR_CHOICES.includes(value),
   refreshOnFocus: (value) => typeof value === "boolean",
   closeToTray: (value) => typeof value === "boolean",
+  trayChosen: (value) => typeof value === "boolean",
+  trayNoticeShown: (value) => typeof value === "boolean",
+  alertsIntroShown: (value) => typeof value === "boolean",
 };
 
 let cached = null;

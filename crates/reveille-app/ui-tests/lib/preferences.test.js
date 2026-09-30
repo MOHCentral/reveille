@@ -20,6 +20,9 @@ test("a fresh install keeps today's alert behaviour, ping colours and quits on c
     pingFair: 150,
     refreshOnFocus: true,
     closeToTray: false,
+    trayChosen: false,
+    trayNoticeShown: false,
+    alertsIntroShown: false,
   });
 });
 

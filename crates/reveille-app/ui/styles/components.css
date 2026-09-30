@@ -725,6 +725,10 @@ dialog::backdrop {
   color: var(--faint);
 }
 
+.arrival--stale .arrival__title {
+  color: var(--faint);
+}
+
 .arrival__actions {
   grid-column: 2;
   grid-row: 1 / span 2;
