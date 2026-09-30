@@ -78,6 +78,8 @@ function render() {
     if (!nodes.has(card.eventId)) nodes.set(card.eventId, cardNode(card));
     return nodes.get(card.eventId);
   });
+  // The window hides under the pointer when its last card goes, so no mouseleave may follow.
+  if (stack.length === 0) pausedAt = null;
   const more = hiddenCount(stack);
   root.replaceChildren(
     ...shown,

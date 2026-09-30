@@ -28,6 +28,9 @@ const MARGIN: f64 = 16.0;
 #[derive(Default)]
 pub struct PopupState {
     ready: AtomicBool,
+    /// Whether the batch now on screen has played its sound. The window only shows once the page
+    /// has measured its cards, so visibility cannot tell a new batch from one being drawn.
+    sounded: AtomicBool,
     pending: Mutex<Vec<Card>>,
 }
 
@@ -97,21 +100,23 @@ pub async fn show_alert_popup(app: AppHandle, card: Card, sound: bool) -> Result
         })?,
     };
     tracing::debug!(event_id = %card.event_id, sound, "showing an alert pop-up");
+    let state = app.state::<PopupState>();
     // One sound per batch: a card joining pop-ups already on screen stays quiet.
-    if sound && !window.is_visible().unwrap_or(false) {
+    if sound && !state.sounded.swap(true, Ordering::SeqCst) {
         play_sound();
     }
-    let state = app.state::<PopupState>();
+    // `ready` is read under the queue's lock, so a card cannot be queued after the page drained it.
+    let mut pending = state
+        .pending
+        .lock()
+        .map_err(|_| "Reveille's pop-up state is unavailable".to_owned())?;
     if state.ready.load(Ordering::SeqCst) {
+        drop(pending);
         window
             .emit_to(LABEL, CARD_EVENT, card)
             .map_err(|error| error.to_string())?;
     } else {
-        state
-            .pending
-            .lock()
-            .map_err(|_| "Reveille's pop-up state is unavailable".to_owned())?
-            .push(card);
+        pending.push(card);
     }
     Ok(true)
 }
@@ -144,6 +149,9 @@ pub fn fit_alert_popup(app: AppHandle, height: f64) -> Result<(), String> {
         return Ok(());
     };
     if !height.is_finite() || height <= 0.0 {
+        app.state::<PopupState>()
+            .sounded
+            .store(false, Ordering::SeqCst);
         return window.hide().map_err(|error| error.to_string());
     }
     let height = height.min(720.0);
