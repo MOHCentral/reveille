@@ -86,8 +86,8 @@ export function openSettings(options) {
         el(
           "p",
           { className: "settings__hint" },
-          "The pop-up has a Join button and shows even during Do Not Disturb or Focus. " +
-            "Turn on \"Don't notify while the game is running\" below to keep it out of your games.",
+          "The pop-up shows even during Do Not Disturb or Focus, and over a game in windowed or " +
+            "borderless mode. Turn on \"Don't notify while the game is running\" below to keep it out of your games.",
         ),
       el(
         "button",
