@@ -3,6 +3,7 @@
 // The Reveille pop-up window. Rust owns where it sits and when it is shown; this page owns the
 // cards, and tells Rust how tall they are, or 0 to hide.
 
+import { playChime } from "./lib/chime.js";
 import { $, el } from "./lib/dom.js";
 import {
   addCard,
@@ -44,6 +45,7 @@ await tauri.event.listen("reveille://popup-card", (event) => receive(event.paylo
 for (const card of await invoke("alert_popup_ready").catch(() => [])) receive(card);
 
 function receive(card) {
+  if (card.chime) void playChime().catch(() => {});
   stack = addCard(stack, card, Date.now());
   render();
 }

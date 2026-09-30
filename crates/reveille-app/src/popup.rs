@@ -45,6 +45,9 @@ pub struct Card {
     /// Replaces the player count as the headline: the test alert names no server.
     title: Option<String>,
     detail: Option<String>,
+    /// Set here, never by the caller: whether the page plays Reveille's chime with this card.
+    #[serde(default, skip_deserializing)]
+    chime: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -74,7 +77,7 @@ pub fn popup_supported() -> bool {
 /// Async because building a window from a synchronous command deadlocks the event loop on
 /// Windows (docs.rs/tauri `WebviewWindowBuilder::new`).
 #[tauri::command]
-pub async fn show_alert_popup(app: AppHandle, card: Card, sound: bool) -> Result<bool, String> {
+pub async fn show_alert_popup(app: AppHandle, mut card: Card, sound: bool) -> Result<bool, String> {
     if card.event_id.is_empty()
         || card.event_id.len() > 64
         || card.hostname.len() > 256
@@ -102,9 +105,7 @@ pub async fn show_alert_popup(app: AppHandle, card: Card, sound: bool) -> Result
     tracing::debug!(event_id = %card.event_id, sound, "showing an alert pop-up");
     let state = app.state::<PopupState>();
     // One sound per batch: a card joining pop-ups already on screen stays quiet.
-    if sound && !state.sounded.swap(true, Ordering::SeqCst) {
-        play_sound();
-    }
+    card.chime = sound && !state.sounded.swap(true, Ordering::SeqCst);
     // `ready` is read under the queue's lock, so a card cannot be queued after the page drained it.
     let mut pending = state
         .pending
@@ -248,61 +249,4 @@ fn to_physical(logical: f64, scale: f64) -> i32 {
 
 fn physical_extent(extent: u32) -> i32 {
     i32::try_from(extent).unwrap_or(i32::MAX)
-}
-
-/// The system's own message sound, played by the platform's player. The pop-up is not a system
-/// notification, so nothing else would make one.
-fn play_sound() {
-    #[cfg(windows)]
-    let command = {
-        use std::os::windows::process::CommandExt as _;
-        /// learn.microsoft.com/windows/win32/procthread/process-creation-flags
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let media = std::env::var_os("SystemRoot")
-            .map_or_else(|| "C:\\Windows".into(), std::path::PathBuf::from)
-            .join("Media")
-            .join("Windows Notify Messaging.wav");
-        let mut command = std::process::Command::new("powershell");
-        // `-Command` joins trailing arguments into the script text rather than filling `$args`,
-        // so the path travels in the environment, which also needs no quoting.
-        command
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "(New-Object Media.SoundPlayer $env:REVEILLE_SOUND).PlaySync()",
-            ])
-            .env("REVEILLE_SOUND", media)
-            .creation_flags(CREATE_NO_WINDOW);
-        command
-    };
-    #[cfg(target_os = "macos")]
-    let command = {
-        let mut command = std::process::Command::new("afplay");
-        command.arg("/System/Library/Sounds/Glass.aiff");
-        command
-    };
-    #[cfg(not(any(windows, target_os = "macos")))]
-    let command = {
-        let mut command = std::process::Command::new("canberra-gtk-play");
-        command.args(["--id", "message-new-instant"]);
-        command
-    };
-    let mut command = command;
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // A missing player only costs the sound.
-    match command.spawn() {
-        Ok(mut child) => {
-            std::thread::spawn(move || match child.wait() {
-                Ok(status) if !status.success() => {
-                    tracing::debug!(%status, "the alert sound did not play");
-                }
-                _ => {}
-            });
-        }
-        Err(error) => tracing::debug!(%error, "could not start the alert sound player"),
-    }
 }
