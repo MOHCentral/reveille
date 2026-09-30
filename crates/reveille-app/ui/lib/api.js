@@ -32,6 +32,8 @@
 //   cancel_reveille_update()                   -> void
 //   app_log_files()                            -> { current, previous }
 //   set_close_to_tray(enabled)                 -> void
+//   popup_supported()                          -> boolean
+//   show_alert_popup(card, sound)              -> boolean; false where the desktop cannot draw one
 //   telemetry_status()                         -> { available, shared }
 //   set_telemetry_shared(shared)               -> { available, shared }
 //   track_event(event)                         -> void; `event` is one of the `UiEvent` variants
@@ -148,6 +150,14 @@ export const sendReveilleNotice = ({ title, body }, sound) =>
   invoke("send_reveille_notice", { title, body, sound });
 
 export const openNotificationSettings = () => invoke("open_notification_settings");
+
+export const popupSupported = () => invoke("popup_supported");
+
+/** `card` is `{ eventId, game, address, hostname, count, title, detail }`. */
+export const showAlertPopup = (card, sound) => invoke("show_alert_popup", { card, sound });
+
+export const onPopupSnooze = (handler) => on("reveille://popup-snooze", handler);
+export const onPopupMore = (handler) => on("reveille://popup-more", handler);
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });
 

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "popup",
+  "description": "The alert pop-up window: its cards arrive as events",
+  "windows": [
+    "alert-popup"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

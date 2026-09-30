@@ -8,6 +8,7 @@ import { openDialog } from "../lib/dialog.js";
 import { displayPath } from "../lib/format.js";
 import { THRESHOLDS } from "../lib/player-alerts.js";
 import {
+  ALERT_STYLES,
   COOLDOWN_CHOICES,
   PING_FAIR_CHOICES,
   PING_GOOD_CHOICES,
@@ -17,6 +18,10 @@ import {
 import { GAME_LABELS, state, update } from "../lib/store.js";
 
 export const START_AT_LOGIN_LABEL = "Start Reveille in the background when I sign in";
+const ALERT_STYLE_LABELS = {
+  system: "System notification (recommended)",
+  popup: "Reveille pop-up",
+};
 const TELEMETRY_LABEL = "Send anonymous usage statistics and crash reports";
 const TELEMETRY_SUMMARY =
   "Which steps of finding and joining a server worked, why a join failed, and where Reveille crashed. " +
@@ -27,7 +32,8 @@ const TELEMETRY_SUMMARY =
  * open Setup, the Watching view, the update dialog and a bug report, and tell the shell about the
  * tray setting. `startAtLogin` is whether Reveille starts at sign-in, null when unknown;
  * `onStartAtLogin(on)` changes it and resolves to the answer that holds. `telemetry` is the saved statistics choice; `onTelemetry(shared)` saves a new one
- * and resolves to the status that results.
+ * and resolves to the status that results. `popupSupported` is whether this desktop can draw the
+ * Reveille pop-up; `onTestAlert()` sends a test alert in the chosen style.
  */
 export function openSettings(options) {
   const {
@@ -44,6 +50,7 @@ export function openSettings(options) {
     onNotificationSettings,
     onTelemetry,
     onTelemetryDetails,
+    onTestAlert,
   } = options;
   const redraw = () => preserveFocus($("#info-dialog-body"), () => openSettings(options));
   const change = (name, value) => {
@@ -63,6 +70,43 @@ export function openSettings(options) {
         change("alertsEnabled", on),
       ),
       state.alertError && alertErrorLine(onNotificationSettings),
+      options.popupSupported &&
+        choice(
+          "settings-alert-style",
+          "Show alerts as",
+          ALERT_STYLES,
+          prefs.alertStyle,
+          (value) => ALERT_STYLE_LABELS[value],
+          (value) => change("alertStyle", value),
+          alertsOff,
+          String,
+        ),
+      options.popupSupported &&
+        prefs.alertStyle === "popup" &&
+        el(
+          "p",
+          { className: "settings__hint" },
+          "The pop-up has a Join button and shows even during Do Not Disturb or Focus. " +
+            "Turn on \"Don't notify while the game is running\" below to keep it out of your games.",
+        ),
+      el(
+        "button",
+        {
+          type: "button",
+          className: "btn btn--sm",
+          disabled: alertsOff,
+          dataset: { focusKey: "settings-test-alert" },
+          onclick: async () => {
+            try {
+              await onTestAlert();
+            } catch {
+              update((next) => (next.alertError = "Reveille could not show a system notification."));
+              redraw();
+            }
+          },
+        },
+        "Send test alert",
+      ),
       choice(
         "settings-threshold",
         "New watches notify at",
@@ -278,7 +322,7 @@ export function toggle(id, label, on, onChange, disabled = false) {
   );
 }
 
-function choice(id, label, values, current, text, onChange, disabled = false) {
+function choice(id, label, values, current, text, onChange, disabled = false, parse = Number) {
   return el(
     "label",
     { className: "settings__choice", for: id },
@@ -289,7 +333,7 @@ function choice(id, label, values, current, text, onChange, disabled = false) {
         id,
         disabled,
         dataset: { focusKey: id },
-        onchange: (event) => onChange(Number(event.target.value)),
+        onchange: (event) => onChange(parse(event.target.value)),
       },
       values.map((value) =>
         el("option", { value: String(value), selected: value === current }, text(value)),

@@ -10,6 +10,7 @@ const KEY = "reveille.preferences";
 export const COOLDOWN_CHOICES = [5, 15, 30, 60];
 export const PING_GOOD_CHOICES = [50, 80, 100];
 export const PING_FAIR_CHOICES = [120, 150, 200];
+export const ALERT_STYLES = ["system", "popup"];
 
 const DEFAULTS = {
   alertsEnabled: true,
@@ -17,6 +18,7 @@ const DEFAULTS = {
   cooldownMinutes: 15,
   quietWhilePlaying: false,
   alertSound: true,
+  alertStyle: "system",
   pingGood: 80,
   pingFair: 150,
   refreshOnFocus: true,
@@ -33,6 +35,7 @@ const RULES = {
   cooldownMinutes: (value) => COOLDOWN_CHOICES.includes(value),
   quietWhilePlaying: (value) => typeof value === "boolean",
   alertSound: (value) => typeof value === "boolean",
+  alertStyle: (value) => ALERT_STYLES.includes(value),
   pingGood: (value) => PING_GOOD_CHOICES.includes(value),
   pingFair: (value) => PING_FAIR_CHOICES.includes(value),
   refreshOnFocus: (value) => typeof value === "boolean",

@@ -12,6 +12,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime, Window, WindowEvent};
 
+use crate::popup;
+
 const OPEN_ID: &str = "tray-open";
 const HIDDEN_EVENT: &str = "reveille://hidden-to-tray";
 const QUIT_ID: &str = "tray-quit";
@@ -53,11 +55,16 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     let WindowEvent::CloseRequested { api, .. } = event else {
         return;
     };
+    if window.label() != "main" {
+        return;
+    }
     if !window
         .state::<TrayState>()
         .close_to_tray
         .load(Ordering::SeqCst)
     {
+        // The hidden pop-up window would otherwise keep Reveille running with no way back.
+        popup::close(window.app_handle());
         return;
     }
     api.prevent_close();

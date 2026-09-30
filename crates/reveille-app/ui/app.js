@@ -23,6 +23,10 @@ import {
   focusReveille,
   gameClientRunning,
   onHiddenToTray,
+  onPopupMore,
+  onPopupSnooze,
+  popupSupported,
+  showAlertPopup,
   openNotificationSettings,
   sendReveilleNotice,
   setCloseToTray,
@@ -175,6 +179,16 @@ void onPlayerNotificationClick(({ eventId, join }) => {
   const event = arrivalById(eventId);
   if (event) requestOpenArrival(event, { join: join === true });
 });
+// Snoozed from a pop-up: arrivals still reach the bell, without a pop-up or notification.
+const snoozedUntil = new Map();
+const SNOOZE_MS = 60 * 60_000;
+void onPopupSnooze(({ game, address }) => {
+  snoozedUntil.set(alertId({ game, address }), Date.now() + SNOOZE_MS);
+});
+void onPopupMore(() => {
+  if (popoverAnchor() !== $("#arrival-events-btn")) toggleArrivals();
+});
+const popupAvailable = popupSupported().catch(() => false);
 void onHiddenToTray(() => {
   if (preferences().trayNoticeShown) return;
   setPreference("trayNoticeShown", true);
@@ -193,6 +207,7 @@ async function deliverArrival(entry, count, reading, { toast = true } = {}) {
   renderArrivalBadge();
   // Inside the cooldown the arrival still reaches the bell; only the interruption waits.
   if (!toast) return;
+  if ((snoozedUntil.get(alertId(entry)) ?? 0) > Date.now()) return;
   // Kept under the bell, but no toast and no flashing taskbar over a game in progress.
   if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) {
     if (event) holdUntilGameCloses(event);
@@ -203,11 +218,52 @@ async function deliverArrival(entry, count, reading, { toast = true } = {}) {
     void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
   }
   try {
-    if (event) await sendPlayerNotification(event, preferences().alertSound);
+    if (event && !(await showPopup(popupCard(event)))) {
+      await sendPlayerNotification(event, preferences().alertSound);
+    }
     if (state.alertError) update((next) => (next.alertError = null));
   } catch {
     update((next) => (next.alertError = "Reveille could not show a system notification."));
   }
+}
+
+/**
+ * Resolves to whether the alert went out as a Reveille pop-up. False when the player chose system
+ * notifications or this desktop cannot draw one, so the caller sends a notification instead.
+ */
+async function showPopup(card) {
+  if (preferences().alertStyle !== "popup" || !(await popupAvailable)) return false;
+  return showAlertPopup(card, preferences().alertSound).catch(() => false);
+}
+
+function popupCard(event) {
+  return {
+    eventId: event.id,
+    game: event.game,
+    address: event.address,
+    hostname: event.hostname,
+    count: event.count,
+    title: null,
+    detail: event.detail ?? null,
+  };
+}
+
+const TEST_ALERT = {
+  title: "Test alert from Reveille",
+  body: "This is how an alert looks when players join a server you watch.",
+};
+
+async function sendTestAlert() {
+  const card = {
+    eventId: `test-${Date.now()}`,
+    game: state.game ?? "",
+    address: "",
+    hostname: "",
+    count: 1,
+    title: TEST_ALERT.title,
+    detail: TEST_ALERT.body,
+  };
+  if (!(await showPopup(card))) await sendReveilleNotice(TEST_ALERT, preferences().alertSound);
 }
 
 /** Arrivals a game kept quiet, summed up in one notice once it closes. */
@@ -432,10 +488,7 @@ async function togglePlayerAlert(row) {
     setPreference("alertsIntroShown", true);
     openAlertsIntro({
       startAtLogin: await startAtLogin().catch(() => null),
-      onTest: () => sendReveilleNotice({
-        title: "Test alert from Reveille",
-        body: "This is how an alert looks when players join a server you watch.",
-      }, preferences().alertSound),
+      onTest: sendTestAlert,
       onCloseToTray: syncCloseToTray,
       onStartAtLogin: changeStartAtLogin,
       onNotificationSettings: openSystemNotificationSettings,
@@ -504,6 +557,8 @@ async function openAppSettings() {
     startAtLogin: login,
     onStartAtLogin: changeStartAtLogin,
     onNotificationSettings: openSystemNotificationSettings,
+    popupSupported: await popupAvailable,
+    onTestAlert: sendTestAlert,
   });
 }
 

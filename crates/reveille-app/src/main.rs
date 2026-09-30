@@ -24,6 +24,7 @@
 
 mod autostart;
 mod notice;
+mod popup;
 mod self_update;
 mod telemetry;
 mod tray;
@@ -2696,6 +2697,7 @@ fn main() {
             app.manage(AppState::default());
             app.manage(init_telemetry(app));
             app.manage(tray::TrayState::default());
+            app.manage(popup::PopupState::default());
             if autostart::in_background() {
                 tray::start_hidden(app.handle());
             }
@@ -2725,6 +2727,11 @@ fn main() {
             notice::send_player_notification,
             notice::send_reveille_notice,
             notice::open_notification_settings,
+            popup::popup_supported,
+            popup::show_alert_popup,
+            popup::alert_popup_ready,
+            popup::fit_alert_popup,
+            popup::alert_popup_action,
             autostart::start_at_login,
             autostart::set_start_at_login,
             preview_join,

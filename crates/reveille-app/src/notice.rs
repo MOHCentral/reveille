@@ -100,7 +100,7 @@ pub fn open_notification_settings() -> Result<(), String> {
     tauri_plugin_opener::open_url(target, None::<&str>).map_err(|error| error.to_string())
 }
 
-fn opened(app: &AppHandle, event_id: String, join: bool) {
+pub fn opened(app: &AppHandle, event_id: String, join: bool) {
     tray::show_main(app);
     let _ = app.emit(PLAYER_ALERT_OPEN_EVENT, PlayerAlertOpen { event_id, join });
 }
