@@ -10,7 +10,7 @@ const KEY = "reveille.preferences";
 export const COOLDOWN_CHOICES = [5, 15, 30, 60];
 export const PING_GOOD_CHOICES = [50, 80, 100];
 export const PING_FAIR_CHOICES = [120, 150, 200];
-export const ALERT_STYLES = ["system", "popup"];
+export const ALERT_STYLES = ["popup", "system"];
 
 const DEFAULTS = {
   alertsEnabled: true,
@@ -18,7 +18,8 @@ const DEFAULTS = {
   cooldownMinutes: 15,
   quietWhilePlaying: false,
   alertSound: true,
-  alertStyle: "system",
+  // Falls back to the system notification wherever the pop-up cannot be drawn.
+  alertStyle: "popup",
   pingGood: 80,
   pingFair: 150,
   refreshOnFocus: true,

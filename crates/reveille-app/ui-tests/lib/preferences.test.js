@@ -16,7 +16,7 @@ test("a fresh install keeps today's alert behaviour, ping colours and quits on c
     cooldownMinutes: 15,
     quietWhilePlaying: false,
     alertSound: true,
-    alertStyle: "system",
+    alertStyle: "popup",
     pingGood: 80,
     pingFair: 150,
     refreshOnFocus: true,
@@ -33,7 +33,7 @@ test("a setting is saved, survives a restart, and refuses values it does not off
   assert.equal(setPreference("cooldownMinutes", 30), true);
   assert.equal(setPreference("cooldownMinutes", 7), false);
   assert.equal(setPreference("unknown", true), false);
-  assert.equal(setPreference("alertStyle", "popup"), true);
+  assert.equal(setPreference("alertStyle", "system"), true);
   assert.equal(setPreference("alertStyle", "banner"), false);
   reloadPreferences();
   assert.equal(preferences().cooldownMinutes, 30);

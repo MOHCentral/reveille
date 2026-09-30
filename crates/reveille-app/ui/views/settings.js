@@ -19,8 +19,8 @@ import { GAME_LABELS, state, update } from "../lib/store.js";
 
 export const START_AT_LOGIN_LABEL = "Start Reveille in the background when I sign in";
 const ALERT_STYLE_LABELS = {
-  system: "System notification (recommended)",
-  popup: "Reveille pop-up",
+  popup: "Reveille pop-up (recommended)",
+  system: "System notification",
 };
 const TELEMETRY_LABEL = "Send anonymous usage statistics and crash reports";
 const TELEMETRY_SUMMARY =

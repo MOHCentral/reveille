@@ -253,6 +253,7 @@ const TEST_ALERT = {
   body: "This is how an alert looks when players join a server you watch.",
 };
 
+/** Resolves to whether the test went out as a pop-up rather than a system notification. */
 async function sendTestAlert() {
   const card = {
     eventId: `test-${Date.now()}`,
@@ -263,7 +264,9 @@ async function sendTestAlert() {
     title: TEST_ALERT.title,
     detail: TEST_ALERT.body,
   };
-  if (!(await showPopup(card))) await sendReveilleNotice(TEST_ALERT, preferences().alertSound);
+  if (await showPopup(card)) return true;
+  await sendReveilleNotice(TEST_ALERT, preferences().alertSound);
+  return false;
 }
 
 /** Arrivals a game kept quiet, summed up in one notice once it closes. */

@@ -9,8 +9,8 @@ import { preferences, setPreference } from "../lib/preferences.js";
 import { START_AT_LOGIN_LABEL, toggle } from "./settings.js";
 
 /**
- * `startAtLogin` is the sign-in state, null when unknown. `onTest()` sends a test alert and
- * rejects with the reason it could not; `onCloseToTray(on)` and `onStartAtLogin(on)` work as in
+ * `startAtLogin` is the sign-in state, null when unknown. `onTest()` sends a test alert,
+ * resolves to whether it was a Reveille pop-up, and rejects with the reason it could not; `onCloseToTray(on)` and `onStartAtLogin(on)` work as in
  * Settings; `onNotificationSettings()` opens the system page.
  */
 export function openAlertsIntro(options) {
@@ -39,8 +39,7 @@ export function openAlertsIntro(options) {
           dataset: { focusKey: "intro-test" },
           onclick: async () => {
             try {
-              await onTest();
-              options.test = "sent";
+              options.test = (await onTest()) ? "shown" : "sent";
             } catch {
               options.test = "failed";
             }
