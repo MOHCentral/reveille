@@ -845,13 +845,15 @@
   gap: var(--space-2);
 }
 
-/* Borderless until hovered: the marks beside it are settings, this is an action on the figures. */
+/* Outlined like the marks beside it, and as tall, so the row reads as one set of controls. */
 .pane-reload {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  align-self: stretch;
   margin-left: auto;
-  padding: 5px;
-  border: 1px solid transparent;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: transparent;
   color: var(--dim);
@@ -865,7 +867,7 @@
 
 .pane-reload:hover:not([aria-disabled="true"]) {
   color: var(--ink);
-  border-color: var(--line-strong);
+  border-color: var(--faint-deco);
 }
 
 .pane-reload[aria-disabled="true"] {
