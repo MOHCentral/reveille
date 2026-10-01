@@ -40,7 +40,6 @@ import {
   shortVersion,
   stateExplanation,
   stateName,
-  timeAgo,
 } from "../lib/format.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.js";
 import { icon } from "../lib/icons.js";
@@ -61,8 +60,6 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
   // cannot push it out of reach.
   const actions = el("div", { className: "actions" });
   fill(root, scroll);
-  // "2 min ago" is relative, so it has to be rewritten as time passes; nothing else would.
-  setInterval(() => paintReloadAge(root), 30_000)?.unref?.();
   // Set by a double-click or Enter on a row that needs something first. Join is disabled while the
   // downloads are being priced, so focus waits for the first render where it can land.
   let focusJoinFor = null;
@@ -192,9 +189,8 @@ function header(row, server, onRecheck, onTogglePlayerAlert) {
 }
 
 /**
- * The selected server, asked again on its own, beside how old its figures are. Shaped like the
- * toolbar's Refresh so the two read as the same act at two sizes. No Stop: one server gives up
- * within the probe timeout, too soon for a Stop to be worth reaching for.
+ * The selected server, asked again on its own. No Stop, unlike the toolbar's Refresh: one server
+ * gives up within the probe timeout, too soon for a Stop to be worth reaching for.
  */
 function reloadButton(row, onRecheck) {
   const checking = state.checks.get(row.address)?.status === "checking";
@@ -218,19 +214,10 @@ function reloadButton(row, onRecheck) {
           : "Refresh this server (R)",
       onclick: () => onRecheck(row),
     },
-    el(
-      "span",
-      { className: "pane-reload__age", dataset: { at: checking ? "" : (at ?? "") } },
-      checking ? "checking" : (timeAgo(at) ?? ""),
-    ),
     icon("reload", { outline: true }),
   );
 }
 
-function paintReloadAge(root) {
-  const age = root.querySelector(".pane-reload__age");
-  if (age?.dataset.at) age.textContent = timeAgo(age.dataset.at) ?? "";
-}
 
 /** The watch's one rule: how many players make it worth a notification. Bots never count. */
 function openWatchRule(anchor, row, watch, onTogglePlayerAlert) {
