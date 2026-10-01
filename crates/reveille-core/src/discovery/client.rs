@@ -17,12 +17,14 @@ use tokio::time::timeout;
 
 use super::model::{
     BotsReported, BrowseReport, ClientCapacity, ClientsReported, DownloadFlags, GamePort,
-    JoinWindowSeconds, MasterEndpoint, NonResult, NonResultReason, PingMillis, ProbeOutcome,
-    ProbeStage, ReportedOccupancy, ReservedSlots, RoundTripMillis, Server, TargetGame,
+    JoinWindowSeconds, MasterEndpoint, NonResult, NonResultReason, PingMillis, Player,
+    ProbeOutcome, ProbeStage, ReportedOccupancy, ReservedSlots, RoundTripMillis, Server,
+    TargetGame,
 };
 use super::protocol::{
-    CryptoError, FieldMap, OOB_SEND_HEADER, ParseError, build_master_query, parse_gamespy_status,
-    parse_master_challenge, parse_master_response, parse_oob_getinfo, parse_oob_getstatus,
+    CryptoError, FieldMap, OOB_SEND_HEADER, ParseError, StatusResponse, build_master_query,
+    gamespy_players, parse_gamespy_status, parse_master_challenge, parse_master_response,
+    parse_oob_getinfo, parse_oob_getstatus,
 };
 use crate::bsp::Checksum;
 
@@ -250,7 +252,7 @@ pub async fn query_getstatus(
 ) -> Result<FieldMap, RequestError> {
     query_getstatus_measured(address, port, deadline)
         .await
-        .map(|(fields, _)| fields)
+        .map(|(reply, _)| reply.info)
 }
 
 /// `getstatus`, keeping the round trip the request already had to wait for.
@@ -261,12 +263,12 @@ async fn query_getstatus_measured(
     address: Ipv4Addr,
     port: GamePort,
     deadline: Duration,
-) -> Result<(FieldMap, RoundTripMillis), RequestError> {
+) -> Result<(StatusResponse, RoundTripMillis), RequestError> {
     let mut request = Vec::from(OOB_SEND_HEADER);
     request.extend_from_slice(b"getstatus");
     let (response, round_trip) = udp_request(address, port.get(), &request, deadline).await?;
-    let fields = parse_oob_getstatus(&response).map_err(RequestError::from)?;
-    Ok((fields, round_trip))
+    let reply = parse_oob_getstatus(&response).map_err(RequestError::from)?;
+    Ok((reply, round_trip))
 }
 
 /// Send MOHAA `getinfo` with the required five-byte directional header.
@@ -354,7 +356,12 @@ async fn probe_server(endpoint: MasterEndpoint, deadline: Duration) -> ProbeOutc
         endpoint,
         gamespy_reachable: true,
         server: Some(build_server(
-            endpoint, game_port, &gamespy, &status, round_trip,
+            endpoint,
+            game_port,
+            &gamespy,
+            &status.info,
+            status.players,
+            round_trip,
         )),
         non_result: None,
     }
@@ -417,6 +424,7 @@ fn build_server(
     game_port: GamePort,
     gamespy: &FieldMap,
     status: &FieldMap,
+    status_players: Vec<Player>,
     status_round_trip: RoundTripMillis,
 ) -> Server {
     let version = nonempty(status, "version");
@@ -465,9 +473,30 @@ fn build_server(
         client_capacity: parse_u32(gamespy, "maxplayers")
             .or_else(|| parse_u32(status, "sv_maxclients"))
             .map(ClientCapacity::new),
+        players: merge_players(status_players, gamespy_players(gamespy)),
         pure: nonempty(status, "pure"),
         status_round_trip,
     }
+}
+
+/// The `getstatus` list is the roster because it comes from the game port that a join uses; the
+/// `GameSpy` list only lends its kills and deaths, matched by name. It stands in for the roster
+/// only when `getstatus` listed nobody.
+fn merge_players(roster: Vec<Player>, mut scored: Vec<Player>) -> Vec<Player> {
+    if roster.is_empty() {
+        return scored;
+    }
+    roster
+        .into_iter()
+        .map(|mut player| {
+            if let Some(index) = scored.iter().position(|other| other.name == player.name) {
+                let other = scored.remove(index);
+                player.kills = other.kills;
+                player.deaths = other.deaths;
+            }
+            player
+        })
+        .collect()
 }
 
 fn is_openmohaa_version(version: &str) -> bool {
@@ -538,12 +567,52 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        build_server, game_port_from_gamespy, record_duplicate_game_endpoints, round_trip_millis,
+        build_server, game_port_from_gamespy, merge_players, record_duplicate_game_endpoints,
+        round_trip_millis,
     };
     use crate::discovery::{
-        BrowseReport, FieldMap, GamePort, MasterEndpoint, NonResultReason, ProbeOutcome,
-        ProbeStage, QueryPort, RoundTripMillis, TargetGame,
+        BrowseReport, Deaths, FieldMap, GamePort, Kills, MasterEndpoint, NonResultReason, Player,
+        PlayerPing, ProbeOutcome, ProbeStage, QueryPort, RoundTripMillis, TargetGame,
     };
+
+    fn player(name: &str, ping: Option<u32>, score: Option<(i32, i32)>) -> Player {
+        Player {
+            name: name.to_owned(),
+            ping: ping.map(PlayerPing::new),
+            kills: score.map(|(kills, _)| Kills::new(kills)),
+            deaths: score.map(|(_, deaths)| Deaths::new(deaths)),
+        }
+    }
+
+    #[test]
+    fn lends_gamespy_scores_to_the_getstatus_roster_by_name() {
+        let roster = vec![
+            player("Goat", Some(35), None),
+            player("Raven", Some(60), None),
+            player("Goat", Some(80), None),
+        ];
+        let scored = vec![
+            player("Raven", Some(61), Some((7, 2))),
+            player("Goat", Some(34), Some((3, 4))),
+            player("Goat", Some(79), Some((1, 0))),
+            player("Leaving", Some(90), Some((9, 9))),
+        ];
+
+        assert_eq!(
+            merge_players(roster, scored),
+            [
+                player("Goat", Some(35), Some((3, 4))),
+                player("Raven", Some(60), Some((7, 2))),
+                player("Goat", Some(80), Some((1, 0))),
+            ]
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_gamespy_list_when_getstatus_lists_nobody() {
+        let scored = vec![player("Goat", Some(34), Some((3, 4)))];
+        assert_eq!(merge_players(Vec::new(), scored.clone()), scored);
+    }
 
     /// Stand-in for a measurement the tests do not make; no default exists in production.
     const MEASURED: RoundTripMillis = RoundTripMillis::new(41);
@@ -562,6 +631,7 @@ mod tests {
             GamePort::new(game_port),
             &gamespy,
             &FieldMap::new(),
+            Vec::new(),
             MEASURED,
         );
         ProbeOutcome {
@@ -650,6 +720,7 @@ mod tests {
             game_port_from_gamespy(&gamespy).expect("reply carries hostport"),
             &gamespy,
             &status,
+            Vec::new(),
             MEASURED,
         );
         assert_eq!(server.endpoint.query_port.get(), 12_300);
@@ -710,6 +781,7 @@ mod tests {
             game_port_from_gamespy(&gamespy).expect("reply carries hostport"),
             &gamespy,
             &status,
+            Vec::new(),
             MEASURED,
         );
         assert_eq!(
@@ -789,6 +861,7 @@ mod tests {
             game_port_from_gamespy(&gamespy).expect("reply carries hostport"),
             &gamespy,
             &status,
+            Vec::new(),
             MEASURED,
         );
 
@@ -810,6 +883,7 @@ mod tests {
             game_port_from_gamespy(&gamespy).expect("reply carries hostport"),
             &gamespy,
             &status,
+            Vec::new(),
             MEASURED,
         );
 
@@ -834,6 +908,7 @@ mod tests {
             game_port_from_gamespy(&gamespy).expect("reply carries hostport"),
             &gamespy,
             &status,
+            Vec::new(),
             MEASURED,
         );
 
@@ -859,6 +934,7 @@ mod tests {
             game_port_from_gamespy(&gamespy).expect("reply carries hostport"),
             &gamespy,
             &status,
+            Vec::new(),
             RoundTripMillis::new(137),
         );
 

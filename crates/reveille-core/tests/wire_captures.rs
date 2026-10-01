@@ -3,8 +3,8 @@
 use std::net::Ipv4Addr;
 
 use reveille_core::discovery::{
-    GamePort, ParseError, parse_gamespy_status, parse_master_response, parse_oob_getinfo,
-    parse_oob_getstatus,
+    Deaths, GamePort, Kills, ParseError, PlayerPing, gamespy_players, parse_gamespy_status,
+    parse_master_response, parse_oob_getinfo, parse_oob_getstatus,
 };
 
 #[test]
@@ -34,7 +34,8 @@ fn reads_hostport_from_the_frozen_gamespy_reply() {
 #[test]
 fn parses_the_five_byte_oob_getstatus_capture() {
     let response = decode_hex(include_str!("fixtures/oob_getstatus.hex"));
-    let fields = parse_oob_getstatus(&response).expect("captured MOHAA getstatus reply");
+    let reply = parse_oob_getstatus(&response).expect("captured MOHAA getstatus reply");
+    let fields = &reply.info;
 
     assert_eq!(fields["protocol"], "8");
     assert_eq!(fields["sv_allowDownload"], "0");
@@ -43,6 +44,47 @@ fn parses_the_five_byte_oob_getstatus_capture() {
     assert_eq!(fields["sv_maplist"].split_whitespace().count(), 14);
     assert!(!fields.contains_key("sv_mapChecksum"));
     assert!(!fields.contains_key("pure"));
+}
+
+#[test]
+fn reads_the_player_line_after_the_getstatus_serverinfo() {
+    let response = decode_hex(include_str!("fixtures/oob_getstatus.hex"));
+    let reply = parse_oob_getstatus(&response).expect("captured MOHAA getstatus reply");
+
+    assert_eq!(reply.players.len(), 1);
+    assert_eq!(reply.players[0].name, "<[TFC]>Goat");
+    assert_eq!(reply.players[0].ping, Some(PlayerPing::new(35)));
+    assert_eq!(reply.players[0].kills, None);
+}
+
+#[test]
+fn reads_kills_and_deaths_from_a_gapped_gamespy_player_index() {
+    let response = decode_hex(include_str!("fixtures/gamespy_status.hex"));
+    let fields = parse_gamespy_status(&response).expect("captured GameSpy status reply");
+    let players = gamespy_players(&fields);
+
+    assert_eq!(players.len(), 1);
+    assert_eq!(players[0].name, "<[TFC]>Goat");
+    assert_eq!(players[0].kills, Some(Kills::new(0)));
+    assert_eq!(players[0].deaths, Some(Deaths::new(0)));
+    assert_eq!(players[0].ping, Some(PlayerPing::new(34)));
+}
+
+#[test]
+fn skips_malformed_player_lines_and_strips_control_characters() {
+    let mut response = vec![0xff, 0xff, 0xff, 0xff, 0x01];
+    response.extend_from_slice(
+        b"statusResponse\n\\protocol\\8\n48 \"Ra\x07ven \"\nnot a player\n3 999 \"Quake\"\n",
+    );
+    let reply = parse_oob_getstatus(&response).expect("MOHAA getstatus response");
+
+    let names = reply
+        .players
+        .iter()
+        .map(|player| player.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Raven", "Quake"]);
+    assert_eq!(reply.players[1].ping, Some(PlayerPing::new(999)));
 }
 
 #[test]

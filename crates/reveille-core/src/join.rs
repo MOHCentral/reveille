@@ -868,6 +868,7 @@ mod tests {
             reserved_slots: None,
             occupancy: ReportedOccupancy::default(),
             client_capacity: None,
+            players: Vec::new(),
             pure: None,
             status_round_trip: RoundTripMillis::new(0),
         }

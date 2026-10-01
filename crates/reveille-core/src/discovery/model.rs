@@ -89,6 +89,32 @@ numeric_newtype!(
     /// Slots reserved behind the private password.
     ReservedSlots(u32);
 );
+numeric_newtype!(
+    /// One client's ping as the server last measured it (`cl->ping`).
+    PlayerPing(u32);
+);
+numeric_newtype!(
+    /// Kills the game module counts for one client (`STAT_KILLS`). Signed because the engine
+    /// prints it with `%d`.
+    Kills(i32);
+);
+numeric_newtype!(
+    /// Deaths the game module counts for one client (`STAT_DEATHS`).
+    Deaths(i32);
+);
+
+/// One connected client as the server lists it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Player {
+    /// Display name with control characters removed.
+    pub name: String,
+    /// Server-measured ping, when listed.
+    pub ping: Option<PlayerPing>,
+    /// Kills, published only by the `GameSpy` reply.
+    pub kills: Option<Kills>,
+    /// Deaths, published only by the `GameSpy` reply.
+    pub deaths: Option<Deaths>,
+}
 
 /// Disjoint occupancy quantities reported or inferred for one server.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
@@ -248,6 +274,9 @@ pub struct Server {
     /// Public capacity reported by GameSpy/serverinfo. Do not derive free slots from this when
     /// bots are present: the server's `sv_sharedbots` setting is not exposed by either reply.
     pub client_capacity: Option<ClientCapacity>,
+    /// Connected clients by name. Both replies stop listing players when their buffer fills, so
+    /// this can be shorter than `occupancy.clients_reported`.
+    pub players: Vec<Player>,
     /// Raw `pure` value, when exposed.
     pub pure: Option<String>,
     /// Round trip measured on this sweep's `getstatus` request. Every listed server answered one,

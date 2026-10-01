@@ -3363,6 +3363,7 @@ mod tests {
             reserved_slots: None,
             occupancy: reveille_core::discovery::ReportedOccupancy::default(),
             client_capacity: None,
+            players: Vec::new(),
             pure: None,
             status_round_trip: reveille_core::discovery::RoundTripMillis::new(12),
         }

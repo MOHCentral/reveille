@@ -7,10 +7,19 @@ use std::net::Ipv4Addr;
 
 use thiserror::Error;
 
-use super::model::{MasterEndpoint, QueryPort, TargetGame};
+use super::model::{Deaths, Kills, MasterEndpoint, Player, PlayerPing, QueryPort, TargetGame};
 
 /// Parsed backslash-delimited protocol fields.
 pub type FieldMap = BTreeMap<String, String>;
+
+/// A parsed MOHAA `getstatus` reply.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StatusResponse {
+    /// Serverinfo fields.
+    pub info: FieldMap,
+    /// Player lines in the order the server sent them. This reply carries no kills or deaths.
+    pub players: Vec<Player>,
+}
 
 // fake_client.py, verified against the engine's connectionless packet handling.
 pub(crate) const OOB_SEND_HEADER: [u8; 5] = [0xff, 0xff, 0xff, 0xff, 0x02];
@@ -206,13 +215,50 @@ pub fn parse_gamespy_status(response: &[u8]) -> Result<FieldMap, ParseError> {
     parse_backslash_fields(response)
 }
 
+/// Read the player list carried in a `GameSpy` `\\status\\` reply's fields.
+///
+/// Indices follow the server's client slots and can have gaps, so every `player_N` key is read
+/// rather than counting up from zero.
+#[must_use]
+pub fn gamespy_players(fields: &FieldMap) -> Vec<Player> {
+    let mut indexed = fields
+        .iter()
+        .filter_map(|(key, name)| {
+            let index = key.strip_prefix("player_")?.parse::<u32>().ok()?;
+            Some((index, name))
+        })
+        .collect::<Vec<_>>();
+    indexed.sort_unstable_by_key(|(index, _)| *index);
+    // sv_gamespy.c:252 publishes player_N, frags_N (STAT_KILLS), deaths_N and ping_N.
+    indexed
+        .into_iter()
+        .map(|(index, name)| Player {
+            name: player_name(name),
+            ping: indexed_field(fields, "ping", index).map(PlayerPing::new),
+            kills: indexed_field(fields, "frags", index).map(Kills::new),
+            deaths: indexed_field(fields, "deaths", index).map(Deaths::new),
+        })
+        .collect()
+}
+
+fn indexed_field<T: std::str::FromStr>(fields: &FieldMap, prefix: &str, index: u32) -> Option<T> {
+    fields.get(&format!("{prefix}_{index}"))?.parse().ok()
+}
+
 /// Parse a five-byte MOHAA `getstatus` response.
 ///
 /// # Errors
 ///
 /// Returns an error for the wrong header/response marker or malformed serverinfo fields.
-pub fn parse_oob_getstatus(response: &[u8]) -> Result<FieldMap, ParseError> {
-    parse_oob(response, "statusResponse")
+/// Malformed player lines are skipped rather than failing the reply.
+pub fn parse_oob_getstatus(response: &[u8]) -> Result<StatusResponse, ParseError> {
+    let payload = oob_payload(response, "statusResponse")?;
+    let mut lines = payload.lines();
+    let info = lines.next().ok_or(ParseError::MissingServerInfo)?;
+    Ok(StatusResponse {
+        info: parse_backslash_text(info)?,
+        players: lines.filter_map(parse_status_player).collect(),
+    })
 }
 
 /// Parse a five-byte MOHAA `getinfo` response.
@@ -221,24 +267,53 @@ pub fn parse_oob_getstatus(response: &[u8]) -> Result<FieldMap, ParseError> {
 ///
 /// Returns an error for the wrong header/response marker or malformed serverinfo fields.
 pub fn parse_oob_getinfo(response: &[u8]) -> Result<FieldMap, ParseError> {
-    parse_oob(response, "infoResponse")
+    let payload = oob_payload(response, "infoResponse")?;
+    let info = payload
+        .lines()
+        .next()
+        .ok_or(ParseError::MissingServerInfo)?;
+    parse_backslash_text(info)
 }
 
-fn parse_oob(response: &[u8], expected: &'static str) -> Result<FieldMap, ParseError> {
+/// Check the header and response marker, returning the text after the marker line.
+fn oob_payload(response: &[u8], expected: &'static str) -> Result<String, ParseError> {
     if !response.starts_with(&OOB_RECV_HEADER) {
         return Err(ParseError::InvalidOobHeader);
     }
     let payload = latin1(&response[OOB_RECV_HEADER.len()..]);
-    let mut lines = payload.lines();
-    let actual = lines.next().unwrap_or_default().trim_end_matches('\r');
+    let (actual, rest) = payload.split_once('\n').unwrap_or((&payload, ""));
+    let actual = actual.trim_end_matches('\r');
     if actual != expected {
         return Err(ParseError::UnexpectedOobResponse {
             expected,
             actual: actual.to_owned(),
         });
     }
-    let info = lines.next().ok_or(ParseError::MissingServerInfo)?;
-    parse_backslash_text(info)
+    Ok(rest.to_owned())
+}
+
+/// One `getstatus` player line, `<ping> "<name>"` (`sv_main.c:545`).
+///
+/// Only the number just before the name is read as the ping, so a Quake III style
+/// `<score> <ping> "<name>"` line still yields the right ping.
+fn parse_status_player(line: &str) -> Option<Player> {
+    let (head, quoted) = line.split_once('"')?;
+    let name = quoted.rsplit_once('"').map_or(quoted, |(name, _)| name);
+    let ping = head.split_whitespace().next_back()?.parse().ok()?;
+    Some(Player {
+        name: player_name(name),
+        ping: Some(PlayerPing::new(ping)),
+        kills: None,
+        deaths: None,
+    })
+}
+
+fn player_name(raw: &str) -> String {
+    raw.chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
 
 fn parse_backslash_fields(response: &[u8]) -> Result<FieldMap, ParseError> {
