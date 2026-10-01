@@ -248,8 +248,10 @@ test("the four state names are measurements, not verdicts", () => {
   assert.equal(format.stateName(null), "Map list not published");
 });
 
-test("a ready server explains nothing, because silence is the rendering of nothing to do", () => {
+test("a server that leaves nothing to do explains nothing", () => {
   assert.equal(format.stateExplanation({ state: "compatible" }), null);
+  // The current map was checked; the unpublished rest is nothing a player can act on before joining.
+  assert.equal(format.stateExplanation({ state: "cant_tell" }), null);
 });
 
 test("every other state explains how it was arrived at", () => {
@@ -257,9 +259,6 @@ test("every other state explains how it was arrived at", () => {
   // Singular and plural are separate sentences rather than one with an "(s)".
   assert.match(format.stateExplanation({ state: "no_source", count: 1 }), /This map is/u);
   assert.match(format.stateExplanation({ state: "no_source", count: 2 }), /These maps are/u);
-  // "Checked only the map it is running now" is the whole of the claim: one checked map is not a
-  // rotation check, and calling it Compatible would claim one that never happened.
-  assert.match(format.stateExplanation({ state: "cant_tell" }), /only the map it is running now/u);
 });
 
 /* Non-result reasons -------------------------------------------------------- */
@@ -377,14 +376,14 @@ test("a launch with no usable timestamp still says how many, not when", () => {
   assert.equal(format.launchedLabel({ launches: 2, lastLaunchedAt: null }), "Played 2×");
 });
 
-test("the map cell says nothing for a ready server and counts the maps otherwise", () => {
+test("the map cell counts the maps a server needs and says nothing otherwise", () => {
   assert.equal(format.mapNeed({ state: "compatible" }), null);
+  assert.equal(format.mapNeed({ state: "cant_tell" }), null);
   assert.deepEqual(
     { ...format.mapNeed({ state: "needs_maps", count: 3 }), title: undefined },
     { kind: "download", text: "3", title: undefined },
   );
   assert.equal(format.mapNeed({ state: "no_source", count: 1 }).kind, "missing");
-  assert.equal(format.mapNeed({ state: "cant_tell" }).text, "?");
 });
 
 test("the Played column says how long ago, and how often once it is more than once", () => {

@@ -3,16 +3,16 @@
 // The detail pane. Selecting a server previews the join in place, so the list
 // never disappears and servers stay comparable.
 //
-// This is where three of the four canonical state names are rendered — Needs N
-// maps, No download for N maps, Map list not published — because this is where
-// the decision is made. The list deliberately does not repeat them as badges.
-// Each name states what Reveille measured rather than how confident it feels
-// about it (lib/format.js `stateName`).
+// This is where two of the four canonical state names are rendered — Needs N
+// maps and No download for N maps — because this is where the decision is made.
+// The list deliberately does not repeat them as badges. Each name states what
+// Reveille measured rather than how confident it feels about it (lib/format.js
+// `stateName`).
 //
-// The fourth, Compatible, is rendered nowhere. A ready server has nothing to
-// qualify, and a heading reading `Compatible` above a button reading `Join`
-// restates the control beneath it. Silence is the correct rendering of "nothing
-// to do".
+// Compatible and Map list not published are rendered nowhere before the join.
+// Neither leaves the player anything to do, and a heading above a button reading
+// `Join` restates the control beneath it. Silence is the correct rendering of
+// "nothing to do". A missing current map is still called out by the action bar.
 //
 // The join gate is about the map running *now*, not the whole rotation. A server
 // with one unobtainable map later in its rotation is perfectly playable until it
@@ -630,7 +630,7 @@ function needsSection(assessment, preview, server) {
   const resolving = state.previewProgress && !preview;
   const totals = preview ? shoppingTotals(preview) : null;
   const explanation = stateExplanation(assessment.state);
-  const notes = caveats(server, assessment.state?.state === "compatible");
+  const notes = caveats(server, ["compatible", "cant_tell"].includes(assessment.state?.state));
   const costly = Boolean(totals && (totals.count > 0 || totals.serverFiles > 0));
   const serverStageUnresolved =
     Number(totals?.serverFiles ?? 0) > 0 || Boolean(totals?.retryServerFiles);
@@ -836,7 +836,11 @@ function outcomeSection(result) {
     el(
       "h3",
       { className: "display heading-sm" },
-      launched ? "The game is starting" : stateName(result.assessment.state),
+      launched
+        ? "The game is starting"
+        : result.assessment.state?.state === "cant_tell"
+          ? "Cannot join"
+          : stateName(result.assessment.state),
     ),
     el(
       "p",
@@ -1059,8 +1063,7 @@ function joinLabel(kind, totals) {
   if (totals.serverFiles > 0) return `Get ${plural(totals.serverFiles, "server file")}`;
   if (totals.retryServerFiles) return "Retry server files";
   if (totals.count > 0) return `Get ${bytes(totals.size)} & join`;
-  if (kind === "compatible") return "Join";
-  if (kind === "cant_tell") return "Join without a map list";
+  if (kind === "compatible" || kind === "cant_tell") return "Join";
   return "Join anyway";
 }
 

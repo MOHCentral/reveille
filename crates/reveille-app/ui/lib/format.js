@@ -197,12 +197,12 @@ export function mapName(value) {
 
 /**
  * What the Map cell adds after the map name: how many maps this server needs, so "can I join
- * right now?" is answered on every row without selecting it. Nothing for a ready server.
+ * right now?" is answered on every row without selecting it. Nothing for a ready server, nor for
+ * one that publishes no map list: its current map was checked, and the rest is nothing a player
+ * can act on before joining.
  */
 export function mapNeed(state) {
   switch (state?.state) {
-    case "compatible":
-      return null;
     case "needs_maps":
       return {
         kind: "download",
@@ -216,11 +216,7 @@ export function mapNeed(state) {
         title: `No download found for ${plural(state.count, "map")}.`,
       };
     default:
-      return {
-        kind: "unknown",
-        text: "?",
-        title: "This server publishes no map list, so Reveille can only check the map running now.",
-      };
+      return null;
   }
 }
 
@@ -254,13 +250,11 @@ export function stateName(state) {
  * Not a tooltip. This is the sentence that turns a two-word noun into a decision, and a `title`
  * is unreachable by keyboard and by touch and fails WCAG 2.2 SC 1.4.13 outright.
  *
- * `Compatible` returns null on purpose. A ready server says nothing: silence is the correct
- * rendering of "nothing to do".
+ * `Compatible` and `Map list not published` return null on purpose. Neither leaves the player
+ * anything to do, and silence is the correct rendering of "nothing to do".
  */
 export function stateExplanation(state) {
   switch (state?.state) {
-    case "compatible":
-      return null;
     case "needs_maps":
       return "This server's map list includes maps you do not have. Reveille can download them before you join.";
     case "no_source":
@@ -268,7 +262,7 @@ export function stateExplanation(state) {
         ? "This map is in no catalogue Reveille can reach. You can play until the map list reaches it, then you are dropped."
         : "These maps are in no catalogue Reveille can reach. You can play until the map list reaches them, then you are dropped.";
     default:
-      return "This server published no map list. Reveille checked only the map it is running now.";
+      return null;
   }
 }
 

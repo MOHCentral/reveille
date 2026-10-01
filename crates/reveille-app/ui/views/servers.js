@@ -875,7 +875,7 @@ function nameCell(hostname, address, note, remembered, join = null, found = []) 
  * fetching anything.
  */
 function inlineJoin(item, onActivate) {
-  const ready = item.compatibility?.state?.state === "compatible";
+  const ready = ["compatible", "cant_tell"].includes(item.compatibility?.state?.state);
   const downloads = item.compatibility?.state?.state === "needs_maps";
   return el(
     "button",

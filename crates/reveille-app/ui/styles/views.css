@@ -626,10 +626,6 @@
   height: 12px;
 }
 
-.need--unknown {
-  color: var(--faint);
-}
-
 .need--missing {
   color: var(--bad-text);
 }
