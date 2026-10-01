@@ -73,7 +73,6 @@
   color: var(--ink);
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
 .popup-card__title {
@@ -105,7 +104,6 @@
   font: inherit;
   font-size: var(--text-sm);
   text-align: left;
-  cursor: pointer;
 }
 
 .popup__more:hover {

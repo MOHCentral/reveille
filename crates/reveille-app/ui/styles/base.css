@@ -53,6 +53,7 @@ select {
   color: inherit;
 }
 
+/* The desktop convention, as in Windows and macOS apps: the hand marks a link, not a control. */
 button {
   cursor: default;
 }

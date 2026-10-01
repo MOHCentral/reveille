@@ -382,7 +382,6 @@
   font-size: var(--text-sm);
   font-weight: 600;
   line-height: 18px;
-  cursor: pointer;
 }
 
 .row-join:hover {
@@ -857,7 +856,6 @@
   border-radius: var(--radius);
   background: transparent;
   color: var(--dim);
-  cursor: pointer;
 }
 
 .pane-reload .icon {
@@ -868,10 +866,6 @@
 .pane-reload:hover:not([aria-disabled="true"]) {
   color: var(--ink);
   border-color: var(--faint-deco);
-}
-
-.pane-reload[aria-disabled="true"] {
-  cursor: default;
 }
 
 .pane-reload[aria-disabled="true"]:not(.pane-reload--running) {
@@ -902,7 +896,6 @@
   color: var(--dim);
   font-family: var(--face-display);
   font-size: var(--text-sm);
-  cursor: pointer;
 }
 
 .mark-toggle .icon {
@@ -1097,7 +1090,6 @@
   color: var(--dim);
   font-family: var(--face-display);
   font-size: var(--text-sm);
-  cursor: pointer;
 }
 
 .detail__more-toggle::before {
@@ -1579,7 +1571,6 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 2px var(--space-3);
-  cursor: pointer;
 }
 
 .program__name {
