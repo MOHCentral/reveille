@@ -25,6 +25,24 @@ const LIVE = [
   ["Mod Party | Zombies & Freeze", "dm/zombie_bridge", "Zombies", 5, 24, 4, 88, "x"],
 ];
 
+const PLAYER_NAMES = [
+  "<[TFC]>Goat", "=|LuV|=Hawk", "Sgt. Pepper", "[DSB]Wolf", "ArmyOfOne", "-=[PN]=-Ghost",
+  "Kraut_Killer_1944", "Medic!", "=[v]=Viper", "Rifleman Joe", "NoScope", "Old Timer",
+  "Bazooka Bill", "[FORTE]Raven", "Unknown Soldier", "{UK}Tommy",
+];
+
+// Every third server sends no scores and harzCore lists two players short, so the preview shows
+// both fallbacks.
+function roster(index, count) {
+  const listed = index === 7 ? count - 2 : count;
+  return Array.from({ length: listed }, (_, slot) => ({
+    name: `${PLAYER_NAMES[(index + slot) % PLAYER_NAMES.length]}${slot >= PLAYER_NAMES.length ? ` #${Math.floor(slot / PLAYER_NAMES.length) + 1}` : ""}`,
+    ping: 20 + ((index * 7 + slot * 31) % 180),
+    kills: index % 3 === 2 ? null : (index * 5 + slot * 13) % 27,
+    deaths: index % 3 === 2 ? null : (index * 3 + slot * 7) % 15,
+  }));
+}
+
 const EMPTY_NAMES = [
   "##{EGY}## AFTERMATH FFA 2025", "PART1CL3.NET MOHAA", "=MFC= FFA CUSTOM MAP SNIPER II map",
   "***** Death Run Server ***** | RIP EaTmEiNtHeBuTt", "=|LuV|= Custom Maps Server @ www.luvclan.eu #3",
@@ -80,6 +98,7 @@ function server(index, [hostname, map, mode, players, capacity, bots, ping, need
       reserved_slots: index % 6 === 0 ? 4 : null,
       occupancy: { clients_reported: players, bots_reported: bots },
       client_capacity: capacity,
+      players: roster(index, players),
       pure: null,
       status_round_trip: ping,
     },

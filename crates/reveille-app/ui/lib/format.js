@@ -42,6 +42,25 @@ export function occupancy(server) {
   };
 }
 
+/**
+ * The players a server listed, most kills first. Kills and deaths come only from the GameSpy reply,
+ * so a server that sent none keeps its own order rather than one Reveille made up.
+ */
+export function playerRoster(server) {
+  const listed = Array.isArray(server.players) ? server.players : [];
+  if (!listed.some((player) => Number.isInteger(player.kills))) return listed;
+  const kills = (player) => (Number.isInteger(player.kills) ? player.kills : Number.MIN_SAFE_INTEGER);
+  const deaths = (player) => (Number.isInteger(player.deaths) ? player.deaths : Number.MAX_SAFE_INTEGER);
+  return [...listed].sort((a, b) => kills(b) - kills(a) || deaths(a) - deaths(b));
+}
+
+/** Said only when the names fall short of the count, which the server's reply buffer can cause. */
+export function rosterShortfall(server, listed) {
+  const clients = server.occupancy?.clients_reported ?? null;
+  if (clients === null || listed >= clients) return null;
+  return `The server listed ${listed} of its ${plural(clients, "player")}.`;
+}
+
 /** Share of capacity above which a server reads as nearly full. */
 export const NEARLY_FULL = 0.85;
 

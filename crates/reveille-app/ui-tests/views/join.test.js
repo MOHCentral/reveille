@@ -168,6 +168,45 @@ test("the More fold holds the address, map list, download policy and build", () 
   view.render();
 });
 
+test("the players table lists names with scores and folds after eight", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  assert.doesNotMatch(textOf(root), /Kills/u);
+
+  store.state.servers[0].server.players = Array.from({ length: 10 }, (_, index) => ({
+    name: index === 3 ? "" : `Player ${index}`,
+    ping: 40 + index,
+    kills: index,
+    deaths: 1,
+  }));
+  view.render();
+  let text = textOf(root);
+  assert.match(text, /Kills/u);
+  assert.match(text, /Player 9/u);
+  assert.doesNotMatch(text, /Player 1\b/u);
+  assert.match(text, /The server listed 10 of its 12 players\./u);
+
+  root.querySelector('[data-focus-key="detail-players"]').dispatch("click");
+  view.render();
+  text = textOf(root);
+  assert.match(text, /Player 1\b/u);
+  assert.match(text, /No name/u);
+  assert.match(text, /Show fewer/u);
+
+  root.querySelector('[data-focus-key="detail-players"]').dispatch("click");
+  view.render();
+});
+
+test("players without scores show only name and ping", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  store.state.servers[0].server.players = [{ name: "<[TFC]>Goat", ping: 35, kills: null, deaths: null }];
+  view.render();
+  const text = textOf(root);
+  assert.match(text, /<\[TFC\]>Goat/u);
+  assert.match(text, /35/u);
+  assert.doesNotMatch(text, /Kills/u);
+  assert.equal(root.querySelector('[data-focus-key="detail-players"]'), null);
+});
+
 test("an activated row that needs downloads focuses the priced Join once it can take focus", () => {
   const { root, view } = renderView({ assessment: assessment(), catalogue: exactCatalogue() });
   store.state.preview = null;

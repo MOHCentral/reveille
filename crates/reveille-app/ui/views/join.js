@@ -32,7 +32,9 @@ import {
   nonResultReason,
   occupancy,
   occupancyText,
+  playerRoster,
   plural,
+  rosterShortfall,
   roundTrip,
   shortVersion,
   stateExplanation,
@@ -125,6 +127,7 @@ function body(row, actions, onRecheck, onTogglePlayerAlert) {
     run ? installSection(run) : null,
     !run && !result ? needsSection(assessment, preview, server) : null,
     actions,
+    playersSection(server),
     freshness(row, onRecheck),
     more(row, server),
   );
@@ -291,6 +294,86 @@ function facts(server) {
 
 function fact(term, value, title = null) {
   return el("div", { className: "fact", title }, el("dt", null, term), el("dd", null, value));
+}
+
+const PLAYERS_SHOWN = 8;
+
+// Module state for the same reason as `moreOpen` below.
+let allPlayersShown = false;
+
+/**
+ * Who is on the server, from the same reading as the figures above, so the freshness line covers
+ * it. Placed after the action bar because it informs the join without deciding it.
+ */
+function playersSection(server) {
+  const roster = playerRoster(server);
+  if (roster.length === 0) return null;
+  const scored = roster.some((player) => Number.isInteger(player.kills));
+  const shown = allPlayersShown ? roster : roster.slice(0, PLAYERS_SHOWN);
+  const shortfall = rosterShortfall(server, roster.length);
+  return el(
+    "section",
+    { className: "detail__section players", "aria-label": "Players on this server" },
+    el(
+      "table",
+      { className: "players__table" },
+      el(
+        "thead",
+        null,
+        el(
+          "tr",
+          null,
+          el("th", { scope: "col" }, "Player"),
+          scored && el("th", { scope: "col", className: "players__num" }, "Kills"),
+          scored && el("th", { scope: "col", className: "players__num" }, "Deaths"),
+          el(
+            "th",
+            {
+              scope: "col",
+              className: "players__num",
+              title: "The ping this server measured for each player, in milliseconds.",
+            },
+            "Ping",
+          ),
+        ),
+      ),
+      el(
+        "tbody",
+        null,
+        shown.map((player) => playerRow(player, scored)),
+      ),
+    ),
+    roster.length > PLAYERS_SHOWN &&
+      el(
+        "button",
+        {
+          type: "button",
+          className: "detail__more-toggle",
+          "aria-expanded": allPlayersShown ? "true" : "false",
+          dataset: { focusKey: "detail-players" },
+          onclick: () => {
+            allPlayersShown = !allPlayersShown;
+            update(() => {});
+          },
+        },
+        allPlayersShown ? "Show fewer" : `Show all ${roster.length}`,
+      ),
+    shortfall && el("p", { className: "players__note" }, shortfall),
+  );
+}
+
+function playerRow(player, scored) {
+  const figure = (value) => (Number.isInteger(value) ? String(value) : "—");
+  return el(
+    "tr",
+    null,
+    player.name
+      ? el("td", { className: "players__name", title: player.name }, player.name)
+      : el("td", { className: "players__name players__name--unnamed" }, "No name"),
+    scored && el("td", { className: "players__num" }, figure(player.kills)),
+    scored && el("td", { className: "players__num" }, figure(player.deaths)),
+    el("td", { className: "players__num" }, figure(player.ping)),
+  );
 }
 
 // Module state rather than store state: whether the fold is open is a reading preference that
