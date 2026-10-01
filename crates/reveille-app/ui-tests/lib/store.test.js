@@ -204,13 +204,18 @@ test("the search box finds a server by a player on it and names who it found", (
   assert.deepEqual(store.playersFound(store.state.servers[1]), []);
 });
 
-test("a search that matches the server itself names no player", () => {
+test("a clan tag search names the members on the clan's own server", () => {
   reset();
-  store.state.servers = [row("a:1", { hostname: "<[TFC]> Clan Server", players: ["<[TFC]>Goat"] })];
+  store.state.servers = [
+    row("a:1", {
+      hostname: "-=[PN]=- Custom Objectives | Bots + Squads",
+      players: ["-=[PN]=- Feho", "Raven"],
+    }),
+  ];
 
-  store.state.filters.query = "tfc";
+  store.state.filters.query = "[pn]";
   assert.equal(store.visibleServers().length, 1);
-  assert.deepEqual(store.playersFound(store.state.servers[0]), []);
+  assert.deepEqual(store.playersFound(store.state.servers[0]), ["-=[PN]=- Feho"]);
 
   store.state.filters.query = "";
   assert.deepEqual(store.playersFound(store.state.servers[0]), []);

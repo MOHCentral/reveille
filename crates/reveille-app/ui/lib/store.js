@@ -395,15 +395,14 @@ function matchedPlayers(row, query) {
 }
 
 /**
- * The players that put a live row in the search results, or an empty list.
+ * The players on a live row whose names match the search, or an empty list.
  *
- * Empty when the server's own name, address, map or mode already matched: a clan searching its tag
- * would otherwise see a note on its own server repeating what the name says.
+ * Named even when the server matched too: searching a clan tag lists the clan's own server by its
+ * name, and this is the only place that says which members are on it.
  */
 export function playersFound(row) {
   const query = state.filters.query.trim().toLowerCase();
-  if (!query || serverFieldsMatch(row, query)) return [];
-  return matchedPlayers(row, query);
+  return query ? matchedPlayers(row, query) : [];
 }
 
 /**
