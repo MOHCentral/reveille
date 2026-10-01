@@ -25,6 +25,10 @@ project_repository := "MOHCentral/reveille"
 default:
     @just --list
 
+# Remove development build artifacts to reclaim disk space.
+clean:
+    cargo clean --profile dev
+
 # ---------------------------------------------------------------------------
 # Gates. `just check` is the repository gate, and CI runs exactly these recipes — one `ci-*` recipe
 # per CI job, and nothing else. A job in `.github/workflows/ci.yml` may contain no check of its
