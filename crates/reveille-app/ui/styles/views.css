@@ -176,15 +176,20 @@
   background: currentColor;
 }
 
-.toolbar__progress {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 210px;
+.toolbar__refresh-slot {
+  position: relative;
+  display: inline-flex;
 }
 
-.toolbar__progress .meter {
-  flex: 1;
+/* Sits on the button's bottom edge so a sweep's progress takes no room of its own. */
+.toolbar__meter {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  left: 1px;
+  height: 2px;
+  border-radius: 0;
+  pointer-events: none;
 }
 
 /* Main split --------------------------------------------------------------- */

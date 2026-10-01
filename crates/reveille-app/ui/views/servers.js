@@ -124,6 +124,8 @@ function columnsShown(table) {
   return shown || COLUMNS.length;
 }
 
+const STOP_GRACE_MS = 500;
+
 const SCOPE_LABELS = { all: "Servers", favorites: "Favorites", watching: "Watching", history: "History" };
 const SCOPE_ICONS = { all: "list", favorites: "star", watching: "bell", history: "clock" };
 
@@ -250,26 +252,21 @@ export function serversView({
     readyChip,
     clearChips,
   );
-  // Both browse controls are built once and shown or hidden, never rebuilt. A
-  // sweep notifies several times a second, and replacing a button between its
-  // mousedown and mouseup swallows the click — which is why Stop appeared dead.
+  // Refresh turns into Stop for the length of a sweep, so the toolbar keeps one button in one place
+  // instead of growing a progress block that pushed it onto a second line. It is built once and
+  // rewritten in place: a sweep notifies several times a second, and replacing a button between
+  // its mousedown and mouseup swallows the click.
   const meterFill = el("span", { className: "meter__fill" });
   const meter = el(
     "div",
-    { className: "meter", role: "progressbar", "aria-label": "Getting the server list" },
+    { className: "meter toolbar__meter", role: "progressbar", "aria-label": "Getting the server list" },
     meterFill,
   );
-  const meterCount = el("span", { className: "quiet data" });
-  const stopButton = el(
-    "button",
-    { type: "button", className: "btn btn--sm", dataset: { focusKey: "browse-stop" }, onclick: onCancel },
-    "Stop",
-  );
-  const progress = el("div", { className: "toolbar__progress" }, meter, meterCount, stopButton);
   // Primary only before the first sweep. Afterwards Join is the one primary action on screen, and
   // Refresh carries the list's age instead, which is what decides whether to press it.
   const refreshLabel = el("span", null, "Find servers");
   const refreshAge = el("span", { className: "toolbar__age" });
+  let sweepShownAt = 0;
   const refresh = el(
     "button",
     {
@@ -277,11 +274,19 @@ export function serversView({
       className: "btn btn--primary",
       dataset: { focusKey: "browse-refresh" },
       title: "Get the server list again (Ctrl+R)",
-      onclick: onRefresh,
+      onclick: () => {
+        if (!state.browse.running) {
+          onRefresh();
+          return;
+        }
+        // The second click of a double-click on Refresh would otherwise land on Stop.
+        if (!state.browse.stopping && Date.now() - sweepShownAt > STOP_GRACE_MS) onCancel();
+      },
     },
     refreshLabel,
     refreshAge,
   );
+  const refreshSlot = el("span", { className: "toolbar__refresh-slot" }, refresh, meter);
   const detailToggle = el(
     "button",
     {
@@ -292,7 +297,7 @@ export function serversView({
     },
     el("span", { className: "toolbar__pane-glyph", "aria-hidden": "true" }),
   );
-  const actionSlot = el("div", { className: "toolbar__action" }, progress, refresh, detailToggle);
+  const actionSlot = el("div", { className: "toolbar__action" }, refreshSlot, detailToggle);
   const toolbar = el(
     "div",
     { className: "toolbar" },
@@ -392,42 +397,44 @@ export function serversView({
   };
 
   const paintAction = () => {
-    const running = state.browse.running;
-    progress.classList.toggle("hidden", !running);
-    refresh.classList.toggle("hidden", running);
+    const { running, stopping, probed, inspected } = state.browse;
+    if (running && !refresh.classList.contains("toolbar__refresh--running")) sweepShownAt = Date.now();
     const listed = state.servers.length > 0;
-    refresh.className = listed ? "btn btn--ghost toolbar__refresh" : "btn btn--primary";
-    refreshLabel.textContent = listed ? "⟳ Refresh" : "Find servers";
-    const age = listed ? timeAgo(state.browse.finishedAt) : null;
-    refreshAge.textContent = age ?? "";
-    refreshAge.classList.toggle("hidden", !age);
-    const stale = listed && listIsStale();
-    refresh.classList.toggle("toolbar__refresh--stale", stale);
-    refresh.title = stale
-      ? `This list is from ${age}, so player counts have likely moved. Get it again (Ctrl+R)`
-      : "Get the server list again (Ctrl+R)";
+    refresh.className = running || listed ? "btn btn--ghost toolbar__refresh" : "btn btn--primary";
+    refresh.classList.toggle("toolbar__refresh--running", running);
+    // The sweep spawns no further probes once stopped, but the ones already in
+    // flight still have to time out. Say so rather than leaving Stop looking inert.
+    refresh.setAttribute("aria-disabled", running && stopping ? "true" : "false");
+    meter.classList.toggle("hidden", !running);
+    if (running) {
+      const known = inspected > 0;
+      refreshLabel.textContent = stopping ? "Stopping…" : "✕ Stop";
+      refreshAge.textContent = known ? `${probed}/${inspected}` : "contacting master";
+      refreshAge.classList.remove("hidden");
+      refresh.title = "Stop getting the list. Servers found so far stay";
+      meter.classList.toggle("meter--indeterminate", !known);
+      meterFill.style.width = known ? `${Math.min(100, Math.round((probed / inspected) * 100))}%` : "";
+      if (known) {
+        meter.setAttribute("aria-valuenow", String(probed));
+        meter.setAttribute("aria-valuemin", "0");
+        meter.setAttribute("aria-valuemax", String(inspected));
+      }
+    } else {
+      refreshLabel.textContent = listed ? "⟳ Refresh" : "Find servers";
+      const age = listed ? timeAgo(state.browse.finishedAt) : null;
+      refreshAge.textContent = age ?? "";
+      refreshAge.classList.toggle("hidden", !age);
+      const stale = listed && listIsStale();
+      refresh.classList.toggle("toolbar__refresh--stale", stale);
+      refresh.title = stale
+        ? `This list is from ${age}, so player counts have likely moved. Get it again (Ctrl+R)`
+        : "Get the server list again (Ctrl+R)";
+    }
     const collapsed = state.detailCollapsed;
     detailToggle.setAttribute("aria-pressed", collapsed ? "false" : "true");
     detailToggle.setAttribute("aria-label", "Server details");
     detailToggle.title = collapsed ? "Show server details (Ctrl+D)" : "Hide server details (Ctrl+D)";
     table.classList.toggle("servers--inline-join", collapsed);
-    if (!running) return;
-    // The sweep spawns no further probes once stopped, but the ones already in
-    // flight still have to time out. Say so rather than leaving Stop looking inert.
-    stopButton.disabled = state.browse.stopping;
-    stopButton.textContent = state.browse.stopping ? "Stopping…" : "Stop";
-    const { probed, inspected } = state.browse;
-    const known = inspected > 0;
-    meter.classList.toggle("meter--indeterminate", !known);
-    meterFill.style.width = known
-      ? `${Math.min(100, Math.round((probed / inspected) * 100))}%`
-      : "";
-    meterCount.textContent = known ? `${probed}/${inspected}` : "contacting master";
-    if (known) {
-      meter.setAttribute("aria-valuenow", String(probed));
-      meter.setAttribute("aria-valuemin", "0");
-      meter.setAttribute("aria-valuemax", String(inspected));
-    }
   };
 
   // "2 min ago" is relative, so it has to be rewritten as time passes; nothing else would.
