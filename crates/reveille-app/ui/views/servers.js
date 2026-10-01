@@ -33,6 +33,7 @@ import {
   occupancyFill,
   occupancyText,
   playedLabel,
+  playersFoundText,
   roundTrip,
   shortVersion,
   sweepProgressText,
@@ -59,6 +60,7 @@ import {
   modeChoices,
   playableGames,
   playerTrend,
+  playersFound,
   savedEntries,
   saveFilters,
   scopedAbsent,
@@ -173,9 +175,9 @@ export function serversView({
     type: "search",
     autocomplete: "off",
     spellcheck: false,
-    placeholder: "Search servers, maps or modes",
+    placeholder: "Search servers, maps, modes or players",
     title: "Search (Ctrl+F or /)",
-    "aria-label": "Search servers, maps or modes",
+    "aria-label": "Search servers, maps, modes or players",
     oninput: (event) => update((next) => (next.filters.query = event.target.value)),
   });
 
@@ -840,9 +842,10 @@ function setMark(button, kind, on) {
 /**
  * The server name on one line. The address is in the tooltip, the detail pane and the context
  * menu: a second line under every name halved how many servers fit on screen for a detail almost
- * nobody scans.
+ * nobody scans. The exception is the players a search found there: they are the reason the row is
+ * listed, so they take a second line rather than lose their width to the name.
  */
-function nameCell(hostname, address, note, remembered, join = null) {
+function nameCell(hostname, address, note, remembered, join = null, found = []) {
   return el(
     "td",
     { role: "gridcell", className: "col-name" },
@@ -860,6 +863,8 @@ function nameCell(hostname, address, note, remembered, join = null) {
       note && el("span", { className: "history-line", title: note }, note),
       join,
     ),
+    found.length > 0 &&
+      el("span", { className: "found-line", title: found.join("\n") }, playersFoundText(found)),
   );
 }
 
@@ -961,6 +966,7 @@ function row(item, starred, watched, launches, alerted, onSelect, onActivate, on
   const mode = gameType(item.server);
   const played = launches ? playedLabel(launches.get(item.address)) : null;
   const seen = alerted ? watchedLine(item.address, alerted) : null;
+  const foundNames = playersFound(item);
   const choose = () => {
     if (state.selected !== item.address) onSelect(item.address);
   };
@@ -986,7 +992,7 @@ function row(item, starred, watched, launches, alerted, onSelect, onActivate, on
       onfocus: choose,
     },
     marksCell(item, item.address, item.server.hostname, starred, watched, onToggleWatch),
-    nameCell(item.server.hostname, item.address, seen, false, inlineJoin(item, onActivate)),
+    nameCell(item.server.hostname, item.address, seen, false, inlineJoin(item, onActivate), foundNames),
     occupancyCell(counts, playerTrend(item)),
     el(
       "td",

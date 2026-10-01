@@ -61,6 +61,13 @@ export function rosterShortfall(server, listed) {
   return `The server listed ${listed} of its ${plural(clients, "player")}.`;
 }
 
+/** The line under a server's name saying who the search found there. The name leads so it survives truncation. */
+export function playersFoundText(names) {
+  if (names.length === 0) return null;
+  if (names.length === 1) return `Playing: ${names[0]}`;
+  return `Playing: ${names[0]} and ${names.length - 1} more`;
+}
+
 /** Share of capacity above which a server reads as nearly full. */
 export const NEARLY_FULL = 0.85;
 

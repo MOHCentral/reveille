@@ -379,8 +379,37 @@ const SORTERS = {
  */
 export const PING_LIMITS = [null, 80, 150, 250];
 
+function serverFieldsMatch(row, query) {
+  const fields = [
+    row.server.hostname,
+    row.address,
+    row.server.current_map ?? "",
+    row.server.game_type ?? "",
+  ];
+  return fields.some((field) => field.toLowerCase().includes(query));
+}
+
+function matchedPlayers(row, query) {
+  const players = Array.isArray(row.server.players) ? row.server.players : [];
+  return players.map((player) => player.name).filter((name) => name.toLowerCase().includes(query));
+}
+
+/**
+ * The players that put a live row in the search results, or an empty list.
+ *
+ * Empty when the server's own name, address, map or mode already matched: a clan searching its tag
+ * would otherwise see a note on its own server repeating what the name says.
+ */
+export function playersFound(row) {
+  const query = state.filters.query.trim().toLowerCase();
+  if (!query || serverFieldsMatch(row, query)) return [];
+  return matchedPlayers(row, query);
+}
+
 /**
  * Whether a live row survives the search box and the toolbar filters.
+ *
+ * The query matches player names too, so a player can find where a friend is playing.
  *
  * The query matches the **address** as well as the name. It matched only the name here while
  * `partitionScope` below matched both, so pasting an IP into All said "Nothing matches" with the
@@ -388,14 +417,8 @@ export const PING_LIMITS = [null, 80, 150, 250];
  */
 function matchesFilters(row) {
   const query = state.filters.query.trim().toLowerCase();
-  if (query) {
-    const fields = [
-      row.server.hostname,
-      row.address,
-      row.server.current_map ?? "",
-      row.server.game_type ?? "",
-    ];
-    if (!fields.some((field) => field.toLowerCase().includes(query))) return false;
+  if (query && !serverFieldsMatch(row, query) && matchedPlayers(row, query).length === 0) {
+    return false;
   }
   const limit = state.filters.maxPing;
   // A server that published no round trip is not gated by a ceiling it cannot be measured

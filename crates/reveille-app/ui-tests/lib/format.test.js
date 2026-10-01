@@ -98,6 +98,12 @@ test("the roster admits a shortfall only when names fall short of the count", ()
   assert.equal(format.rosterShortfall({}, 3), null);
 });
 
+test("the search note names the first player found and counts the rest", () => {
+  assert.equal(format.playersFoundText([]), null);
+  assert.equal(format.playersFoundText(["Goat"]), "Playing: Goat");
+  assert.equal(format.playersFoundText(["Goat", "Goat #2", "Goat #3"]), "Playing: Goat and 2 more");
+});
+
 test("zero bots are null so nothing draws a +0", () => {
   const counts = format.occupancy({ occupancy: { clients_reported: 4, bots_reported: 0 } });
   assert.equal(counts.bots, null);

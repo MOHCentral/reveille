@@ -25,6 +25,7 @@ function row(address, extra = {}) {
       game_type: "mode" in extra ? extra.mode : "Deathmatch",
       endpoint: { query_port: extra.queryPort ?? 12300 },
       client_capacity: extra.capacity ?? 32,
+      players: (extra.players ?? []).map((name) => ({ name, ping: 40, kills: null, deaths: null })),
     },
     compatibility: { state: { state: extra.needs ? "needs_maps" : "compatible", count: extra.needs } },
   };
@@ -188,6 +189,31 @@ test("the search box also matches the map and the mode", () => {
 
   store.state.filters.query = "objective";
   assert.deepEqual(store.visibleServers().map((item) => item.address), ["a:1"]);
+});
+
+test("the search box finds a server by a player on it and names who it found", () => {
+  reset();
+  store.state.servers = [
+    row("a:1", { hostname: "Omaha 24/7", players: ["<[TFC]>Goat", "Raven"] }),
+    row("b:1", { hostname: "Sniper Town", players: ["Fox"] }),
+  ];
+
+  store.state.filters.query = "goat";
+  assert.deepEqual(store.visibleServers().map((item) => item.address), ["a:1"]);
+  assert.deepEqual(store.playersFound(store.state.servers[0]), ["<[TFC]>Goat"]);
+  assert.deepEqual(store.playersFound(store.state.servers[1]), []);
+});
+
+test("a search that matches the server itself names no player", () => {
+  reset();
+  store.state.servers = [row("a:1", { hostname: "<[TFC]> Clan Server", players: ["<[TFC]>Goat"] })];
+
+  store.state.filters.query = "tfc";
+  assert.equal(store.visibleServers().length, 1);
+  assert.deepEqual(store.playersFound(store.state.servers[0]), []);
+
+  store.state.filters.query = "";
+  assert.deepEqual(store.playersFound(store.state.servers[0]), []);
 });
 
 test("equally busy servers sort nearest first", () => {
