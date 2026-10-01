@@ -1252,7 +1252,7 @@ async function check(subject) {
     }
     if (generation !== checkGeneration) return;
     update((next) => {
-      if (result.row) applyCheckedRow(next, entry, result, dropped, clockTime());
+      if (result.row) applyCheckedRow(next, entry, result, dropped, new Date().toISOString());
       else applyCheckNonResult(next, entry, result, dropped);
     });
     checked = result.row;

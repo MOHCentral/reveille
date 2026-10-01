@@ -1771,7 +1771,7 @@ function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch 
         },
       },
       queryPort !== null && {
-        label: "Check this server",
+        label: "Refresh this server",
         hint: "R",
         disabled: !canRecheck(address),
         onSelect: () => onCheck({ address, queryPort }),

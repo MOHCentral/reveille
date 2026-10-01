@@ -13,7 +13,7 @@ export const SHORTCUTS = [
       [["Enter"], "Join, or show what joining needs"],
       [["F"], "Add to or remove from Favorites"],
       [["W"], "Watch for players, or stop watching"],
-      [["R"], "Check this server again"],
+      [["R"], "Refresh this server"],
       [["Shift", "F10"], "Open the server's menu"],
     ],
   },

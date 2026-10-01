@@ -841,7 +841,57 @@
 
 .detail__marks {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
+}
+
+/* Borderless until hovered: the marks beside it are settings, this is an action on the figures. */
+.pane-reload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.pane-reload .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.pane-reload:hover:not([aria-disabled="true"]) {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.pane-reload[aria-disabled="true"] {
+  cursor: default;
+}
+
+.pane-reload[aria-disabled="true"]:not(.pane-reload--running) {
+  opacity: 0.45;
+}
+
+.pane-reload__age {
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.pane-reload--running .icon {
+  color: var(--brass);
+  animation: pane-reload-spin 0.9s linear infinite;
+}
+
+@keyframes pane-reload-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Labelled, unlike the list's bare icons: this is where the two are told apart, so each says
@@ -1086,21 +1136,12 @@
   color: var(--dim);
 }
 
-/* When this row was measured, and the button that measures it again, over a line for a check that
-   could not run at all. The paragraph keeps its place in the row even when there is no time to
-   show, so the button does not slide left. */
+/* A failed check and the last launch, under the actions. */
 .detail__freshness {
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--line);
-}
-
-.detail__freshness-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
 }
 
 .detail__section {
