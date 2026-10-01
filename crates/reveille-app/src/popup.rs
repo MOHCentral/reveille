@@ -50,13 +50,6 @@ pub struct Card {
     chime: bool,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Snooze {
-    game: String,
-    address: String,
-}
-
 /// Whether this desktop lets a window choose its place and stay above others.
 #[tauri::command]
 pub fn popup_supported() -> bool {
@@ -173,18 +166,12 @@ pub fn fit_alert_popup(app: AppHandle, height: f64) -> Result<(), String> {
     clippy::needless_pass_by_value,
     reason = "Tauri passes the app handle to commands only by value"
 )]
-pub fn alert_popup_action(
-    app: AppHandle,
-    action: String,
-    event_id: String,
-    game: String,
-    address: String,
-) -> Result<(), String> {
+pub fn alert_popup_action(app: AppHandle, action: String, event_id: String) -> Result<(), String> {
     match action.as_str() {
         "open" => notice::opened(&app, event_id, false),
         "join" => notice::opened(&app, event_id, true),
         "snooze" => {
-            let _ = app.emit_to("main", SNOOZE_EVENT, Snooze { game, address });
+            let _ = app.emit_to("main", SNOOZE_EVENT, ());
         }
         "more" => {
             tray::show_main(&app);

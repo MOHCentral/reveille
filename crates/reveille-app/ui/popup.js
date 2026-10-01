@@ -63,13 +63,8 @@ function leave(eventId) {
   }, reducedMotion.matches ? 0 : FADE_MS);
 }
 
-function act(action, card) {
-  void invoke("alert_popup_action", {
-    action,
-    eventId: card.eventId,
-    game: card.game,
-    address: card.address,
-  }).catch(() => {});
+function act(action, eventId = "") {
+  void invoke("alert_popup_action", { action, eventId }).catch(() => {});
 }
 
 function render() {
@@ -90,7 +85,7 @@ function render() {
           type: "button",
           className: "popup__more",
           onclick: () => {
-            act("more", { eventId: "", game: "", address: "" });
+            act("more");
             stack = [];
             render();
           },
@@ -119,7 +114,7 @@ function cardNode(card) {
       className: "popup-card__body",
       title: server ? "Show this server in Reveille" : null,
       onclick: () => {
-        act("open", card);
+        act("open", card.eventId);
         leave(card.eventId);
       },
     },
@@ -131,17 +126,18 @@ function cardNode(card) {
         type: "button",
         className: "btn btn--sm btn--primary",
         onclick: () => {
-          act("join", card);
+          act("join", card.eventId);
           leave(card.eventId);
         },
       }, "Join"),
       el("button", {
         type: "button",
         className: "btn btn--sm btn--utility",
-        title: "No pop-up or notification for this server for an hour. Alerts still appear under the bell.",
+        title: "No pop-up or notification for an hour. Alerts still appear under the bell.",
         onclick: () => {
-          act("snooze", card);
-          leave(card.eventId);
+          act("snooze");
+          stack = [];
+          render();
         },
       }, "Snooze 1 hour"),
     ),

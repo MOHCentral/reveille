@@ -180,10 +180,10 @@ void onPlayerNotificationClick(({ eventId, join }) => {
   if (event) requestOpenArrival(event, { join: join === true });
 });
 // Snoozed from a pop-up: arrivals still reach the bell, without a pop-up or notification.
-const snoozedUntil = new Map();
+let snoozedUntil = 0;
 const SNOOZE_MS = 60 * 60_000;
-void onPopupSnooze(({ game, address }) => {
-  snoozedUntil.set(alertId({ game, address }), Date.now() + SNOOZE_MS);
+void onPopupSnooze(() => {
+  snoozedUntil = Date.now() + SNOOZE_MS;
 });
 void onPopupMore(() => {
   if (popoverAnchor() !== $("#arrival-events-btn")) toggleArrivals();
@@ -207,7 +207,7 @@ async function deliverArrival(entry, count, reading, { toast = true } = {}) {
   renderArrivalBadge();
   // Inside the cooldown the arrival still reaches the bell; only the interruption waits.
   if (!toast) return;
-  if ((snoozedUntil.get(alertId(entry)) ?? 0) > Date.now()) return;
+  if (snoozedUntil > Date.now()) return;
   // Kept under the bell, but no toast and no flashing taskbar over a game in progress.
   if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) {
     if (event) holdUntilGameCloses(event);
