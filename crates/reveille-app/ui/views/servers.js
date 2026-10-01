@@ -265,7 +265,7 @@ export function serversView({
     meterFill,
   );
   // Primary only before the first sweep. Afterwards Join is the one primary action on screen, and
-  // Refresh carries the list's age instead, which is what decides whether to press it.
+  // Refresh carries the list's age once it is stale, which is what decides whether to press it.
   const refreshLabel = el("span", null, "Find servers");
   const refreshAge = el("span", { className: "toolbar__age" });
   let sweepShownAt = 0;
@@ -424,9 +424,10 @@ export function serversView({
     } else {
       refreshLabel.textContent = listed ? "⟳ Refresh" : "Find servers";
       const age = listed ? timeAgo(state.browse.finishedAt) : null;
-      refreshAge.textContent = age ?? "";
-      refreshAge.classList.toggle("hidden", !age);
       const stale = listed && listIsStale();
+      // Only an old list says its age: a fresh one has nothing to warn about.
+      refreshAge.textContent = stale ? (age ?? "") : "";
+      refreshAge.classList.toggle("hidden", !stale || !age);
       refresh.classList.toggle("toolbar__refresh--stale", stale);
       refresh.title = stale
         ? `This list is from ${age}, so player counts have likely moved. Get it again (Ctrl+R)`
