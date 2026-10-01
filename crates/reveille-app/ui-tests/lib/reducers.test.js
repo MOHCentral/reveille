@@ -246,3 +246,68 @@ test("the sweep says what it is doing before it knows how much there is", () => 
   );
   assert.equal(sweepProgressText({ probed: 0, inspected: 190 }), "Checking 190 servers.");
 });
+
+/* A refresh that ran behind the list on screen ------------------------------ */
+
+function behind(servers, selected) {
+  return {
+    ...draft(servers),
+    selected,
+    joinResult: { address: selected },
+    summary: { old: true },
+    nonResults: [],
+    staleAt: null,
+    autoCheckedAt: "14:00",
+    browse: { running: true, background: true, completedAt: "14:00", finishedAt: "old" },
+  };
+}
+
+test("a refresh behind the list swaps rows in and keeps the selection and pane", () => {
+  const next = behind([row("a:1", { clients: 3 }), row("b:1")], "a:1");
+  const preview = next.preview;
+  const reselect = store.adoptBackgroundSweep(
+    next,
+    { servers: [row("a:1", { clients: 6 }), row("c:1")], summary: { fresh: true }, non_results: [] },
+    "14:10",
+    "now",
+  );
+  assert.equal(reselect, false);
+  assert.deepEqual(next.servers.map((r) => r.address), ["a:1", "c:1"]);
+  assert.equal(next.selected, "a:1");
+  assert.equal(next.preview, preview);
+  assert.equal(next.browse.running, false);
+  assert.equal(next.browse.completedAt, "14:10");
+  // The arrows compare against the list the player was looking at.
+  assert.equal(next.previousCounts.get("a:1"), 3);
+});
+
+test("a refresh behind the list re-asks the pane when the selected map changed", () => {
+  const next = behind([row("a:1")], "a:1");
+  const moved = row("a:1");
+  moved.server.current_map = "obj/obj_team2";
+  const payload = { servers: [moved], summary: {}, non_results: [] };
+  const reselect = store.adoptBackgroundSweep(next, payload, "14:10", "now");
+  assert.equal(reselect, true);
+  assert.equal(next.selected, "a:1");
+});
+
+test("a refresh behind the list drops the selection when the server is gone", () => {
+  const next = behind([row("a:1"), row("b:1")], "a:1");
+  store.adoptBackgroundSweep(next, { servers: [row("b:1")], summary: {}, non_results: [] }, "14:10", "now");
+  assert.equal(next.selected, null);
+  assert.equal(next.preview, null);
+  assert.equal(next.joinResult, null);
+});
+
+test("a stopped refresh behind the list leaves the old list as it was", () => {
+  const next = behind([row("a:1"), row("b:1")], "a:1");
+  store.adoptBackgroundSweep(
+    next,
+    { servers: [row("a:1")], summary: {}, non_results: [], cancelled: true },
+    "14:10",
+    "now",
+  );
+  assert.deepEqual(next.servers.map((r) => r.address), ["a:1", "b:1"]);
+  assert.equal(next.browse.completedAt, "14:00");
+  assert.equal(next.browse.running, false);
+});

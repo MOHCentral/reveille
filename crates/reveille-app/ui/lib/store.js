@@ -60,6 +60,8 @@ export const state = {
     running: false,
     /** Stop was pressed; probes already in flight are still draining. */
     stopping: false,
+    /** Running behind the list on screen, which stays until the sweep finishes. */
+    background: false,
     registered: 0,
     inspected: 0,
     probed: 0,
@@ -517,6 +519,45 @@ export function countsByAddress(rows) {
     if (Number.isInteger(clients)) counts.set(row.address, clients);
   }
   return counts;
+}
+
+/**
+ * Swap in a sweep that ran behind the list already on screen.
+ *
+ * The automatic refresh on return keeps the old rows, selection and pane up while it runs, because
+ * clearing them under a player who just came back took away what they were reading. A stopped sweep
+ * leaves the old list as it was rather than replacing a full table with a partial one.
+ *
+ * Returns true when the selected server is still listed but its map or readiness changed, so the
+ * pane's sources have to be worked out again.
+ */
+export function adoptBackgroundSweep(next, payload, at, finishedAt) {
+  next.browse.running = false;
+  if (payload.cancelled) return false;
+  const before = next.servers.find((row) => row.address === next.selected);
+  const after = payload.servers.find((row) => row.address === next.selected);
+  next.previousCounts = countsByAddress(next.servers);
+  next.servers = payload.servers;
+  next.summary = payload.summary;
+  next.nonResults = payload.non_results;
+  next.browse.completedAt = at;
+  next.browse.finishedAt = finishedAt;
+  next.staleAt = null;
+  next.checks = new Map();
+  next.checkedAt = new Map();
+  next.autoCheckedAt = null;
+  if (!after) {
+    next.selected = null;
+    next.preview = null;
+    next.previewProgress = null;
+    next.previewError = null;
+    next.joinResult = null;
+    return false;
+  }
+  return (
+    before?.server.current_map !== after.server.current_map ||
+    JSON.stringify(before?.compatibility) !== JSON.stringify(after.compatibility)
+  );
 }
 
 /** "up" or "down" when a server's player count moved since the last measurement, else null. */

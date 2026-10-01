@@ -73,6 +73,7 @@ import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTool
 import {
   GAME_LABELS,
   SCOPES,
+  adoptBackgroundSweep,
   applyCheckNonResult,
   applyCheckedRow,
   canRecheck,
@@ -897,17 +898,51 @@ async function selectGame(game) {
 /* Browsing ----------------------------------------------------------------- */
 
 /**
- * Coming back to a list more than five minutes old gets it again, once, keeping the selected
- * server selected. Not while a join owns the pane or a dialog is open over the list.
+ * Coming back to a list more than five minutes old gets it again, once, behind the list on screen.
+ * Not while a join owns the pane or a dialog is open over the list.
  */
 function refreshOnReturn() {
   if (!preferences().refreshOnFocus || !state.install || state.browse.running || state.joining) return;
   if (!state.servers.length || !listIsForCurrentSession() || !listIsStale()) return;
   if (document.querySelector("dialog[open]")) return;
-  const kept = state.selected;
-  void refresh().then(() => {
-    if (kept && !state.selected && state.servers.some((row) => row.address === kept)) select(kept);
+  void refreshBehind();
+}
+
+async function refreshBehind() {
+  checkGeneration += 1;
+  const swept = session();
+  update((next) => {
+    next.browse = {
+      ...next.browse,
+      running: true,
+      stopping: false,
+      background: true,
+      registered: 0,
+      inspected: 0,
+      probed: 0,
+      answered: 0,
+      nonResults: 0,
+      cancelled: false,
+      error: null,
+    };
   });
+
+  try {
+    const payload = await browseServers(swept);
+    let reselect = false;
+    update((next) => {
+      reselect = adoptBackgroundSweep(next, payload, clockTime(), new Date().toISOString());
+      next.browse.background = false;
+    });
+    if (reselect && state.selected) select(state.selected);
+  } catch (error) {
+    update((next) => {
+      next.browse.running = false;
+      next.browse.background = false;
+      next.browse.error = browseFailure(error);
+      next.staleAt = next.browse.completedAt;
+    });
+  }
 }
 
 async function refresh() {
@@ -932,6 +967,7 @@ async function refresh() {
     next.browse = {
       running: true,
       stopping: false,
+      background: false,
       registered: 0,
       inspected: 0,
       probed: 0,
@@ -1000,7 +1036,7 @@ onBrowseProgress((progress) => {
     next.browse.nonResults = progress.non_results;
     // Streamed rows are pre-deduplication; the payload that arrives when the
     // sweep ends replaces this list with the authoritative one.
-    if (progress.row) next.servers = [...next.servers, progress.row];
+    if (progress.row && !next.browse.background) next.servers = [...next.servers, progress.row];
   });
 });
 

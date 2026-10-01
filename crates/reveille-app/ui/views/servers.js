@@ -413,7 +413,9 @@ export function serversView({
       refreshLabel.textContent = stopping ? "Stopping…" : "✕ Stop";
       refreshAge.textContent = known ? `${probed}/${inspected}` : "contacting master";
       refreshAge.classList.remove("hidden");
-      refresh.title = "Stop getting the list. Servers found so far stay";
+      refresh.title = state.browse.background
+        ? "Stop getting the list. The list on screen stays"
+        : "Stop getting the list. Servers found so far stay";
       meter.classList.toggle("meter--indeterminate", !known);
       meterFill.style.width = known ? `${Math.min(100, Math.round((probed / inspected) * 100))}%` : "";
       if (known) {
