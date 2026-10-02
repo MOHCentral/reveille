@@ -1631,17 +1631,22 @@ code {
   }
 
   .clip__frames img,
-  .clip__steps li,
+  .clip__steps li {
+    animation-timing-function: step-end;
+  }
+
   .clip__steps li::after {
     animation: none;
   }
 
-  .clip__frames img:nth-child(2) {
-    opacity: 1;
+  @keyframes clip-frame {
+    0% { opacity: 1; }
+    25%, 100% { opacity: 0; }
   }
 
-  .clip__steps li:nth-child(2) {
-    color: var(--ink);
+  @keyframes clip-step {
+    0% { color: var(--ink); }
+    25%, 100% { color: var(--faint); }
   }
 
 }
