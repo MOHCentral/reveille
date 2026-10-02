@@ -154,10 +154,11 @@ svg {
 }
 
 .brand-mark {
+  display: block;
+  flex-shrink: 0;
   width: 38px;
   height: 38px;
-  fill: var(--brass);
-  filter: drop-shadow(0 0 12px rgb(217 166 72 / 28%));
+  object-fit: contain;
 }
 
 .primary-nav {
@@ -1188,9 +1189,9 @@ code {
 
 .final-mark {
   width: 74px;
+  height: 74px;
   margin-bottom: 22px;
-  fill: var(--brass);
-  filter: drop-shadow(0 0 28px rgb(217 166 72 / 38%));
+  object-fit: contain;
 }
 
 .final-cta h2 {
