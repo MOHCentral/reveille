@@ -22,6 +22,8 @@
 //! Tauri shell. This layer owns presentation policy: it turns the pipeline's typed results into
 //! payloads and progress events, and decides nothing the core has not already established.
 
+#[cfg(windows)]
+mod app_icon;
 mod autostart;
 mod notice;
 mod popup;
@@ -2698,6 +2700,10 @@ fn main() {
             app.manage(init_telemetry(app));
             app.manage(tray::TrayState::default());
             app.manage(popup::PopupState::default());
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(app_icon::window(window.scale_factor()?))?;
+            }
             if autostart::in_background() {
                 tray::start_hidden(app.handle());
             }

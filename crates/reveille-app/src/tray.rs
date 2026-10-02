@@ -52,6 +52,22 @@ pub fn set_close_to_tray(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 /// Hide instead of closing while close-to-tray is on.
 pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
+    #[cfg(windows)]
+    if let WindowEvent::ScaleFactorChanged { scale_factor, .. } = event {
+        if window.label() == "main" {
+            if let Err(error) = window.set_icon(crate::app_icon::window(*scale_factor)) {
+                tracing::warn!(%error, "could not update the title-bar icon");
+            }
+            let state = window.state::<TrayState>();
+            if let Ok(icon) = state.icon.lock()
+                && let Some(icon) = icon.as_ref()
+                && let Err(error) = icon.set_icon(Some(crate::app_icon::small(*scale_factor)))
+            {
+                tracing::warn!(%error, "could not update the tray icon");
+            }
+        }
+        return;
+    }
     let WindowEvent::CloseRequested { api, .. } = event else {
         return;
     };
@@ -140,6 +156,15 @@ fn build(app: &AppHandle) -> tauri::Result<TrayIcon> {
                 show_main(tray.app_handle());
             }
         });
+    #[cfg(windows)]
+    {
+        let scale = app
+            .get_webview_window("main")
+            .and_then(|window| window.scale_factor().ok())
+            .unwrap_or(1.0);
+        builder = builder.icon(crate::app_icon::small(scale));
+    }
+    #[cfg(not(windows))]
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
