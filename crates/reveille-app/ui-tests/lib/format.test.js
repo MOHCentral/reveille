@@ -326,6 +326,13 @@ test("an unknown failure kind falls back to internal rather than inventing a cau
   assert.equal(unknown.detail, "raw");
 });
 
+test("a saved folder or engine that no longer fits sends the player to change it", () => {
+  for (const kind of ["game_unavailable", "engine_unavailable"]) {
+    assert.match(format.browseFailureText({ kind }).remedy, /Change folder or engine/u, kind);
+  }
+  assert.ok(format.browseFailureText({ kind: "maps_unreadable" }).remedy);
+});
+
 /* Freshness — locale-dependent, so shape and invariants only ---------------- */
 
 test("the clock label is absolute, and two different minutes read differently", () => {

@@ -199,6 +199,7 @@ pub enum Event {
     },
     ServerListFailed {
         game: TargetGame,
+        engine: EngineChoice,
         reason: crate::BrowseFailureKind,
     },
     ServerSelected {
