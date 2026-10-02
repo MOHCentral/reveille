@@ -8,6 +8,7 @@
 //   detect_install(selectedPath?)              -> Installation | null
 //     Installation.products is what is on disk; Installation.playable is what can be run — an
 //     expansion needs the base game underneath it. Offer `playable`.
+//   identify_install(path)                     -> Installation; rejects when the folder no longer reads
 //   openmohaa_status(path, channel)            -> OpenMohaaStatus
 //   install_openmohaa(path, offerId)           -> OpenMohaaInstallResult
 //   cancel_openmohaa_install()                 -> void
@@ -56,6 +57,7 @@ const listen = tauri.event.listen;
 const openUrl = tauri.opener.openUrl;
 
 export const detectInstall = (selectedPath = null) => invoke("detect_install", { selectedPath });
+export const identifyInstall = (path) => invoke("identify_install", { path });
 
 export const engineOverview = (path, savedEngine = null) =>
   invoke("engine_overview", { path, savedEngine });

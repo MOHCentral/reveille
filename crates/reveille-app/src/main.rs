@@ -667,6 +667,13 @@ fn detect_install(
     Ok(found)
 }
 
+/// Re-read a folder the player already chose. Unlike `detect_install` it sends no event: reopening
+/// the change dialog is not a new detection.
+#[tauri::command]
+fn identify_install(path: String) -> Result<Installation, String> {
+    install::identify(path).map_err(|error| error.to_string())
+}
+
 fn find_install(selected_path: Option<String>) -> Result<Option<Installation>, String> {
     if let Some(path) = selected_path.filter(|path| !path.trim().is_empty()) {
         return install::identify(path)
@@ -2753,6 +2760,7 @@ fn main() {
         .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             detect_install,
+            identify_install,
             engine_overview,
             select_engine,
             install_reborn,
