@@ -182,7 +182,7 @@ async function reopenSavedFolder(saved, render) {
   let install = null;
   try { install = await identifyInstall(saved.root); } catch { /* Shown as a missing folder. */ }
   if (token !== loadToken) return;
-  if (!install) { view.missing = saved.root; render(); return; }
+  if (!install || playableGames(install).length === 0) { view.missing = saved.root; render(); return; }
   adoptCandidate(install);
   render();
   await Promise.all([loadOverview(install, render), loadStorage(install, render)]);
