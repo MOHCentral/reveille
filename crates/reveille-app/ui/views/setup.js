@@ -3,7 +3,7 @@
 import { el, fill } from "../lib/dom.js";
 import {
   cancelGameInstallationCopy, cancelOpenMohaaInstall, cancelRebornInstall, copyGameInstallation,
-  detectInstall, engineOverview, errorText, installOpenMohaa, installReborn,
+  detectInstall, engineOverview, errorText, identifyInstall, installOpenMohaa, installReborn,
   installationStorage, onInstallationCopyProgress, onOpenMohaaInstallProgress,
   onRebornInstallProgress, openMohaaStatus, pickCopyDestination, pickInstallFolder, selectEngine,
 } from "../lib/api.js";
@@ -32,7 +32,7 @@ const RECOMMENDED = "openmohaa";
  */
 const view = {
   mode: "first-run", current: null, found: false,
-  candidate: null, message: "", busy: true, error: null, manualPath: "", overview: null,
+  candidate: null, missing: null, message: "", busy: true, error: null, manualPath: "", overview: null,
   selected: null, channel: "stable", game: null, openStatus: null, openError: null,
   installing: null, stopping: false, progress: null, result: null,
   storage: null, copyDestination: null, copying: false, copyStopping: false, copyProgress: null,
@@ -163,14 +163,29 @@ function openChange(dialog, render) {
   if (!state.install || dialog.open) return;
   resetCandidate();
   view.mode = "change";
-  view.current = { root: state.install.root, engine: state.engine };
+  view.current = { root: state.install.root, engine: state.engine, game: state.game, playable: playableGames(state.install).join() };
   view.found = false; view.busy = false; view.error = null; view.message = "";
-  adoptCandidate(state.install);
   view.game = state.game;
   render();
   dialog.showModal();
-  const install = view.candidate;
-  void Promise.all([loadOverview(install, render), loadStorage(install, render)]);
+  void reopenSavedFolder(state.install, render);
+}
+
+/**
+ * Read the session's folder again before offering its programs.
+ *
+ * The server list sends a player here when that folder moved or was deleted. Loading programs for
+ * a folder that is gone only produces errors, so say plainly that it must be chosen again.
+ */
+async function reopenSavedFolder(saved, render) {
+  const token = loadToken;
+  let install = null;
+  try { install = await identifyInstall(saved.root); } catch { /* Shown as a missing folder. */ }
+  if (token !== loadToken) return;
+  if (!install || playableGames(install).length === 0) { view.missing = saved.root; render(); return; }
+  adoptCandidate(install);
+  render();
+  await Promise.all([loadOverview(install, render), loadStorage(install, render)]);
 }
 
 function closeChange() {
@@ -182,9 +197,11 @@ function dialogBody(render) {
   const action = primaryAction();
   return [
     el("section", { className: "setup-section" }, el("h3", { className: "label" }, "Game folder"),
-      install ? folderBox(install, render) : el("div", { className: "meter meter--indeterminate" }, el("span", { className: "meter__fill" }))),
+      install ? folderBox(install, render)
+        : view.missing ? missingFolderBox(view.missing, render)
+          : el("div", { className: "meter meter--indeterminate" }, el("span", { className: "meter__fill" }))),
     el("section", { className: "setup-section" }, el("h3", { className: "label" }, "Game program"),
-      install && programList(install, render),
+      install ? programList(install, render) : view.missing && el("p", { className: "quiet" }, "Choose the game folder first."),
       action.run && changed() && el("p", { className: "quiet" }, "Reveille searches the server list again after the switch.")),
     view.installing && installProgress(render),
     view.error && el("p", { className: "error", role: "alert" }, view.error),
@@ -202,7 +219,9 @@ function dialogFoot(render) {
 
 function changed() {
   return view.mode === "change" && Boolean(view.candidate) &&
-    (view.candidate.root !== view.current?.root || view.selected !== view.current?.engine);
+    (view.candidate.root !== view.current?.root || view.selected !== view.current?.engine ||
+      // The folder is read again on open, so its games may differ from the session's.
+      view.game !== view.current?.game || playableGames(view.candidate).join() !== view.current?.playable);
 }
 
 /* Folder ------------------------------------------------------------------- */
@@ -217,6 +236,14 @@ function folderBox(install, render) {
       ? products.map((name) => el("span", { className: "folder-box__game" }, name))
       : el("span", { className: "quiet" }, "No recognised game data")),
     storageNote(install, render));
+}
+
+function missingFolderBox(path, render) {
+  return el("div", { className: "folder-box" },
+    el("span", { className: "folder-box__path data selectable" }, displayPath(path)),
+    el("button", { type: "button", className: "btn btn--sm", disabled: locked(), onclick: () => void browse(render) }, "Change folder…"),
+    el("p", { className: "folder-box__warn" },
+      "Reveille cannot find the game in this folder any more. It may have moved, been deleted, or be on a drive that is not connected. Choose the game folder again."));
 }
 
 /**
@@ -459,6 +486,7 @@ function installProgress(render) {
  * installed here says why instead.
  */
 function primaryAction() {
+  if (view.missing && !view.candidate) return { label: "Choose a game folder" };
   const verb = view.mode === "change" ? "switch" : "continue";
   const engine = view.selected;
   if (!view.overview || !engine) return { label: "Choose a game program" };
@@ -732,7 +760,7 @@ async function accept(render) {
 }
 
 function resetCandidate() {
-  loadToken += 1; view.candidate = null; view.overview = null; view.selected = null; view.game = null;
+  loadToken += 1; view.candidate = null; view.missing = null; view.overview = null; view.selected = null; view.game = null;
   view.openStatus = null; view.openError = null; view.result = null;
   view.storage = null; view.copyDestination = null; view.copyProgress = null; view.copying = false;
   view.copyStopping = false;

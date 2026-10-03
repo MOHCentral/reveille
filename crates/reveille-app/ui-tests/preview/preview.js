@@ -21,6 +21,7 @@ const install = params.has("games")
 let sweeps = 0;
 const RESULTS = {
   detect_install: install,
+  identify_install: install,
   engine_overview: OVERVIEW,
   select_engine: OVERVIEW,
   installation_storage: { status: "writable" },

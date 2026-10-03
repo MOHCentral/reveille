@@ -112,6 +112,7 @@ test("check_server carries the query port the master published, not the game por
 test("each wrapper invokes the command it is named for", async () => {
   const cases = [
     [() => api.detectInstall(), "detect_install"],
+    [() => api.identifyInstall("C:/Game"), "identify_install"],
     [() => api.engineOverview("C:/Game"), "engine_overview"],
     [() => api.selectEngine("C:/Game", "reborn"), "select_engine"],
     [() => api.installReborn("C:/Game"), "install_reborn"],

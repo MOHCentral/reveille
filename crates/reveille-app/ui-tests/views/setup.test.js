@@ -44,6 +44,7 @@ function answer({ storage = { status: "writable" }, installed, resolved } = {}) 
   const engines = overview({ installed, resolved });
   bridge.results = {
     detect_install: INSTALL,
+    identify_install: INSTALL,
     engine_overview: engines,
     select_engine: engines,
     openmohaa_status: OPEN_STATUS,
@@ -165,4 +166,75 @@ test("the change dialog keeps the session's game and reports only a real change"
   assert.equal(dialog.open, false);
   assert.deepEqual(applied, [{ install: INSTALL, engine: "reborn", game: "spearhead" }]);
   assert.ok(bridge.calls.some((call) => call.command === "select_engine" && call.args.engine === "reborn"));
+});
+
+test("a saved folder that is gone asks for the folder again instead of showing raw errors", async () => {
+  const { dialog, setup } = await firstRun();
+  store.state.install = INSTALL;
+  store.state.engine = "openmohaa";
+  store.state.game = "allied_assault";
+  bridge.fail("identify_install", `install path is not a directory: ${INSTALL.root}`);
+  bridge.calls.length = 0;
+
+  setup.change();
+  await settle();
+  const text = textOf(dialog.body);
+  assert.match(text, /cannot find the game in this folder any more/u);
+  assert.doesNotMatch(text, /not a directory|could not be checked/u);
+  assert.ok(!bridge.calls.some((call) => ["engine_overview", "installation_storage"].includes(call.command)),
+    "no program or storage check runs against a folder that is gone");
+  assert.ok(button(dialog.body, /^Change folder…$/u));
+  assert.equal(textOf(button(dialog.foot, /Choose a game folder/u)), "Choose a game folder");
+  assert.ok(!bridge.calls.some((call) => call.command === "detect_install"),
+    "reopening the dialog is not reported as a new detection");
+});
+
+test("a saved folder with only expansion data asks for a playable game folder", async () => {
+  const { dialog, setup, applied } = await firstRun();
+  const expansionOnly = { ...INSTALL, products: ["spearhead"], playable: [] };
+  bridge.results.identify_install = expansionOnly;
+  store.state.install = INSTALL;
+  store.state.engine = "original";
+  store.state.game = "spearhead";
+  bridge.calls.length = 0;
+
+  setup.change();
+  await settle();
+
+  const action = button(dialog.foot, /^Choose a game folder$/u);
+  assert.ok(action && action.disabled, "a folder without a playable game cannot replace the session");
+  assert.match(textOf(dialog.body), /Choose the game folder again/u);
+  assert.ok(!bridge.calls.some((call) => ["engine_overview", "installation_storage", "select_engine"].includes(call.command)));
+  assert.deepEqual(applied, []);
+  assert.equal(store.state.install, INSTALL);
+  assert.equal(store.state.game, "spearhead");
+
+  const replacement = { ...INSTALL, root: "D:\\Games\\MOHAA" };
+  bridge.results.pick_install_folder = replacement.root;
+  bridge.results.detect_install = replacement;
+  button(dialog.body, /^Change folder…$/u).dispatch("click");
+  await settle();
+  const use = button(dialog.foot, /^Use this folder$/u);
+  assert.ok(use && !use.disabled, "a playable replacement can be applied");
+  use.dispatch("click");
+  await settle();
+  assert.deepEqual(applied, [{ install: replacement, engine: "original", game: "spearhead" }]);
+});
+
+test("a saved folder that lost the session's game offers to apply the game it still has", async () => {
+  const { dialog, setup, applied } = await firstRun();
+  const shrunk = { ...INSTALL, products: ["allied_assault"], playable: ["allied_assault"] };
+  bridge.results.identify_install = shrunk;
+  store.state.install = INSTALL;
+  store.state.engine = "original";
+  store.state.game = "spearhead";
+
+  setup.change();
+  await settle();
+  const action = button(dialog.foot, /^Use this folder$/u);
+  assert.ok(action && !action.disabled, "the refreshed folder is not reported as no change");
+  action.dispatch("click");
+  await settle();
+
+  assert.deepEqual(applied, [{ install: shrunk, engine: "original", game: "allied_assault" }]);
 });

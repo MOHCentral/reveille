@@ -566,6 +566,12 @@ enum BrowseFailureKind {
     /// The master answered and the answer could not be read: a truncated body, a missing
     /// terminator, a challenge of the wrong length.
     MasterUnreadable,
+    /// The saved game folder no longer reads, or no longer holds the selected game.
+    GameUnavailable,
+    /// The saved engine is missing from the folder or cannot run on this PC.
+    EngineUnavailable,
+    /// The folder resolved but the maps in it could not be indexed.
+    MapsUnreadable,
     /// A failure outside the master exchange, carried through with its own message rather than
     /// dressed up as one of the causes above.
     Internal,
@@ -616,7 +622,23 @@ impl From<DiscoveryError> for BrowseFailure {
     }
 }
 
-/// Every other way `browse_servers` can stop: a folder that will not read, a poisoned lock. These
+impl From<SessionError> for BrowseFailure {
+    fn from(error: SessionError) -> Self {
+        let kind = match &error {
+            SessionError::Folder(_) | SessionError::GameMissing(_) => {
+                BrowseFailureKind::GameUnavailable
+            }
+            SessionError::Engine(_) => BrowseFailureKind::EngineUnavailable,
+            SessionError::Maps(_) => BrowseFailureKind::MapsUnreadable,
+        };
+        Self {
+            kind,
+            detail: error.to_string(),
+        }
+    }
+}
+
+/// Every other way `browse_servers` can stop: a poisoned lock or a sweep that did not finish. These
 /// carry their own message and are not classified as anything about the network.
 impl From<String> for BrowseFailure {
     fn from(detail: String) -> Self {
@@ -643,6 +665,13 @@ fn detect_install(
         });
     }
     Ok(found)
+}
+
+/// Re-read a folder the player already chose. Unlike `detect_install` it sends no event: reopening
+/// the change dialog is not a new detection.
+#[tauri::command]
+fn identify_install(path: String) -> Result<Installation, String> {
+    install::identify(path).map_err(|error| error.to_string())
 }
 
 fn find_install(selected_path: Option<String>) -> Result<Option<Installation>, String> {
@@ -1250,6 +1279,7 @@ async fn browse_servers(
         },
         Err(failure) => Event::ServerListFailed {
             game,
+            engine,
             reason: failure.kind,
         },
     });
@@ -1591,12 +1621,12 @@ struct Session {
 /// This path is deliberately read-only. Browsing and joining a server whose map is already on disk
 /// need no writable destination, so a Program Files installation must reach them without a probe.
 /// The index still covers every directory the engine reads, including `main` beneath an expansion.
-fn installed_maps(session: &Session) -> Result<MapIndex, String> {
+fn installed_maps(session: &Session) -> Result<MapIndex, SessionError> {
     let search = session_search_path(session)?;
-    MapIndex::scan_chain(&search).map_err(|error| error.to_string())
+    MapIndex::scan_chain(&search).map_err(SessionError::Maps)
 }
 
-fn session_search_path(session: &Session) -> Result<Vec<PathBuf>, String> {
+fn session_search_path(session: &Session) -> Result<Vec<PathBuf>, SessionError> {
     let installation = session_installation(session)?;
     Ok(platform::content_search_path(
         &installation.root,
@@ -1619,22 +1649,39 @@ fn install_destination(session: &Session) -> Result<platform::InstallTarget, Str
     .map_err(|error| error.to_string())
 }
 
-fn session_installation(session: &Session) -> Result<Installation, String> {
-    let installation = install::identify(&session.path).map_err(|error| error.to_string())?;
+/// Why a saved session no longer matches the PC it runs on: the folder, the game in it, the engine
+/// program, or the maps it holds. Typed so the server list can tell a player which one to fix.
+#[derive(Debug, Error)]
+enum SessionError {
+    #[error(transparent)]
+    Folder(install::Error),
+    // The directory name is what the check actually looked at, and it is exactly the detail a
+    // newcomer cannot act on. Say which game is missing from the folder they picked.
+    #[error("{} cannot be run from this game folder: its game files are not there.", .0.label())]
+    GameMissing(TargetGame),
+    #[error(transparent)]
+    Engine(platform::engine::EngineError),
+    #[error(transparent)]
+    Maps(reveille_core::mapindex::Error),
+}
+
+impl From<SessionError> for String {
+    fn from(error: SessionError) -> Self {
+        error.to_string()
+    }
+}
+
+fn session_installation(session: &Session) -> Result<Installation, SessionError> {
+    let installation = install::identify(&session.path).map_err(SessionError::Folder)?;
     if !installation.provides(session.game) {
-        // The directory name is what the check actually looked at, and it is exactly the detail a
-        // newcomer cannot act on. Say which game is missing from the folder they picked.
-        return Err(format!(
-            "{} cannot be run from this game folder: its game files are not there.",
-            session.game.label()
-        ));
+        return Err(SessionError::GameMissing(session.game));
     }
     platform::engine::resolve_choice(
         &installation.root,
         Some(session.engine),
         &platform::HostCapabilities::current(),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(SessionError::Engine)?;
     Ok(installation)
 }
 
@@ -2713,6 +2760,7 @@ fn main() {
         .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             detect_install,
+            identify_install,
             engine_overview,
             select_engine,
             install_reborn,
@@ -2881,7 +2929,8 @@ mod tests {
             engine: EngineChoice::Openmohaa,
             game: TargetGame::Spearhead,
         })
-        .expect_err("an absent expansion is refused");
+        .expect_err("an absent expansion is refused")
+        .to_string();
         assert!(refusal.contains("Spearhead"), "{refusal}");
         assert!(!refusal.contains("mainta"), "{refusal}");
 
@@ -2894,8 +2943,51 @@ mod tests {
             engine: EngineChoice::Original,
             game: TargetGame::Spearhead,
         })
-        .expect_err("an absent expansion is refused whatever the engine");
+        .expect_err("an absent expansion is refused whatever the engine")
+        .to_string();
         assert!(refusal.contains("Spearhead"), "{refusal}");
+    }
+
+    #[test]
+    fn a_saved_session_that_no_longer_fits_the_pc_is_not_reported_as_internal() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir(temporary.path().join("main")).expect("main directory");
+        fs::write(
+            platform::default_client(
+                temporary.path(),
+                TargetGame::AlliedAssault,
+                platform::ClientKind::OpenMohaa,
+            ),
+            [],
+        )
+        .expect("client marker");
+        let path = temporary.path().to_string_lossy().into_owned();
+        let browse_kind = |path: &str, engine, game| {
+            let error = installed_maps(&Session {
+                path: path.to_owned(),
+                engine,
+                game,
+            })
+            .expect_err("the session is refused");
+            BrowseFailure::from(error).kind
+        };
+
+        assert_eq!(
+            browse_kind(
+                &temporary.path().join("moved").to_string_lossy(),
+                EngineChoice::Openmohaa,
+                TargetGame::AlliedAssault,
+            ),
+            BrowseFailureKind::GameUnavailable
+        );
+        assert_eq!(
+            browse_kind(&path, EngineChoice::Openmohaa, TargetGame::Spearhead),
+            BrowseFailureKind::GameUnavailable
+        );
+        assert_eq!(
+            browse_kind(&path, EngineChoice::Reborn, TargetGame::AlliedAssault),
+            BrowseFailureKind::EngineUnavailable
+        );
     }
 
     #[test]

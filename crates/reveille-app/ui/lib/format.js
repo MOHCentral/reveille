@@ -424,6 +424,19 @@ const BROWSE_FAILURES = {
     title: "The master server sent a reply Reveille could not read",
     remedy: "Nothing on this PC caused it. Try again; the reply may have been cut short.",
   },
+  game_unavailable: {
+    title: "Reveille could not find the game in the saved folder",
+    remedy:
+      "The folder may have moved or changed. Choose it again in Settings → Change folder or engine.",
+  },
+  engine_unavailable: {
+    title: "The selected engine is no longer available",
+    remedy: "Choose an installed engine in Settings → Change folder or engine.",
+  },
+  maps_unreadable: {
+    title: "Reveille could not read the maps in the game folder",
+    remedy: "Check that the game folder is readable, then try again.",
+  },
   internal: {
     title: "The server list could not be built",
     remedy: null,
