@@ -342,7 +342,7 @@ fn parse_backslash_text(text: &str) -> Result<FieldMap, ParseError> {
     Ok(fields)
 }
 
-fn latin1(bytes: &[u8]) -> String {
+pub(super) fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| char::from(*byte)).collect()
 }
 

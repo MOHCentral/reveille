@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Test build
+
+# An unsigned Windows executable for trying a branch, attached to a prerelease. It is not the
+# installer `release.yml` produces: no installer, no updater key, no signing.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install the Tauri CLI
+        working-directory: crates/reveille-app
+        run: npm ci
+
+      # `--no-bundle` still embeds the interface into the executable, which a plain
+      # `cargo build --release` does not.
+      - name: Build the executable
+        working-directory: crates/reveille-app
+        run: npx -- tauri build --no-bundle -- --locked
+
+      - name: Zip it
+        shell: pwsh
+        run: Compress-Archive -Path target/release/reveille-app.exe -DestinationPath reveille-windows-test.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reveille-windows-test
+          path: reveille-windows-test.zip
+
+      - name: Attach it to a prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="rcon-test-$GITHUB_RUN_NUMBER"
+          gh release create "$tag" reveille-windows-test.zip --target "$GITHUB_SHA" \
+            --prerelease --title "Test build $tag" \
+            --notes "Unsigned test build with the rcon console. Not an official release."

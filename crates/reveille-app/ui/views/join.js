@@ -54,7 +54,10 @@ import {
   update,
 } from "../lib/store.js";
 
-export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert }) {
+export function joinView(
+  root,
+  { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert, onRcon },
+) {
   const scroll = el("div", { className: "detail-pane__scroll" });
   // Rendered inside the scroll, right under what it acts on, and sticky so a long list of choices
   // cannot push it out of reach.
@@ -83,7 +86,7 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
       fill(
         scroll,
         row
-          ? body(row, actions, onRecheck, onTogglePlayerAlert)
+          ? body(row, actions, onRecheck, onTogglePlayerAlert, onRcon)
           : frag(gonePane(state.selected, gone), actions),
       );
     });
@@ -114,7 +117,7 @@ function idlePlaceholder() {
   );
 }
 
-function body(row, actions, onRecheck, onTogglePlayerAlert) {
+function body(row, actions, onRecheck, onTogglePlayerAlert, onRcon) {
   const { server, compatibility } = row;
   const preview = state.preview?.address === row.address ? state.preview : null;
   const assessment = preview?.assessment ?? compatibility;
@@ -122,7 +125,7 @@ function body(row, actions, onRecheck, onTogglePlayerAlert) {
   const result = state.joinResult?.address === row.address ? state.joinResult : null;
 
   return frag(
-    header(row, server, onRecheck, onTogglePlayerAlert),
+    header(row, server, onRecheck, onTogglePlayerAlert, onRcon),
     facts(server),
     result ? outcomeSection(result) : null,
     run ? installSection(run) : null,
@@ -134,7 +137,7 @@ function body(row, actions, onRecheck, onTogglePlayerAlert) {
   );
 }
 
-function header(row, server, onRecheck, onTogglePlayerAlert) {
+function header(row, server, onRecheck, onTogglePlayerAlert, onRcon) {
   const starred = isFavorite(row.address);
   const watch = playerAlert(state.game, row.address);
   const watched = Boolean(watch);
@@ -184,7 +187,28 @@ function header(row, server, onRecheck, onTogglePlayerAlert) {
           el("span", { className: "mark-toggle__caret", "aria-hidden": "true" }, "▾"),
         ),
       reloadButton(row, onRecheck),
+      consoleButton(row, onRcon),
     ),
+  );
+}
+
+/**
+ * The remote console for this server. It sits with the other controls that act on one server and
+ * asks nothing of the sweep: rcon talks to the game port directly, whatever the join check says.
+ */
+function consoleButton(row, onRcon) {
+  return el(
+    "button",
+    {
+      type: "button",
+      className: "pane-reload",
+      dataset: { focusKey: "detail-console" },
+      "aria-haspopup": "dialog",
+      "aria-label": "Remote console",
+      title: "Send console commands to this server (needs its rcon password)",
+      onclick: () => onRcon(row),
+    },
+    icon("terminal", { outline: true }),
   );
 }
 

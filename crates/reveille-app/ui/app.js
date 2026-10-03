@@ -98,6 +98,7 @@ import { setupView } from "./views/setup.js";
 import { alertErrorLine, openSettings } from "./views/settings.js";
 import { openAlertsIntro } from "./views/alerts-intro.js";
 import { openShortcuts } from "./views/shortcuts.js";
+import { openRconConsole } from "./views/rcon.js";
 import { preferences, setPreference } from "./lib/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
@@ -121,12 +122,14 @@ const servers = serversView({
   onGame: selectGame,
   onToggleWatch: togglePlayerAlert,
   onToggleDetail: toggleDetail,
+  onRcon: openRconConsole,
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
   onJoin: getAndJoin,
   onRecheck: recheck,
   onTogglePlayerAlert: togglePlayerAlert,
+  onRcon: openRconConsole,
 });
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {

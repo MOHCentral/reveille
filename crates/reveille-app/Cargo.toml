@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 notify-rust = "=4.18.0"
+keyring-core = "1"
 reveille-core = { path = "../reveille-core" }
 reveille-platform = { path = "../reveille-platform" }
 reqwest.workspace = true
@@ -33,6 +34,10 @@ uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "=0.7.3"
+windows-native-keyring-store = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", default-features = false, features = ["keychain"] }
 
 [lints]
 workspace = true

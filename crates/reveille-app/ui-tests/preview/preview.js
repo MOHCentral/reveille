@@ -56,7 +56,47 @@ const RESULTS = {
       round_trip: server?.status_round_trip ?? 48,
     };
   },
+  // The password is `hunter2`; once sent with "remember" it is "saved" until forgotten.
+  // `map …` stays silent, as a server mid-change does.
+  send_rcon_command: (args) => rconFake(args, args.command),
+  rcon_list_players: (args) => {
+    const response = rconFake(args, "status");
+    if (response.outcome.verdict !== "executed") return response;
+    response.players = [
+      { slot: 0, score: 7, ping: 42, state: "playing", name: "Goat", address: "198.51.100.7:12203", bannable: true },
+      { slot: 1, score: 3, ping: 61, state: "playing", name: "Raven", address: "198.51.100.9:12203", bannable: true },
+      { slot: 2, score: 0, ping: null, state: "connecting", name: "Bot", address: "bot", bannable: false },
+    ];
+    return response;
+  },
+  rcon_local_maps: () => ["custom/dm_arena_v2", "dm/mohdm1", "dm/mohdm2", "obj/obj_team1", "obj/obj_team2"],
+  rcon_password_saved: () => rconSaved,
+  rcon_forget_password: () => {
+    rconSaved = false;
+    return true;
+  },
 };
+
+let rconSaved = false;
+function rconFake({ password, remember }, command) {
+  const effective = password ?? (rconSaved ? "hunter2" : "");
+  const flat = (outcome) => ({ outcome, password: "unchanged" });
+  if (effective !== "hunter2") {
+    const note = password === null && rconSaved ? "forgotten" : "unchanged";
+    if (note === "forgotten") rconSaved = false;
+    return { outcome: { status: "reply", output: "Bad rconpassword.\n", verdict: "wrong_password", packets: 1, truncated: false, round_trip: 31 }, password: note };
+  }
+  if (command.startsWith("map ")) return flat({ status: "no_answer" });
+  const output = command === "status"
+    ? "map: dm/mohdm1\nnum score ping name            lastmsg address\n--- ----- ---- --------------- ------- ---------------------\n  0     7   42 Goat                  0 198.51.100.7:12203\n"
+    : "";
+  const saving = password !== null && remember && !rconSaved;
+  if (saving) rconSaved = true;
+  return {
+    outcome: { status: "reply", output, verdict: "executed", packets: 1, truncated: false, round_trip: 28 },
+    password: saving ? "saved" : "unchanged",
+  };
+}
 
 window.__TAURI__ = {
   core: {

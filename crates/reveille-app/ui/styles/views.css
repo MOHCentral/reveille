@@ -1741,3 +1741,136 @@
   font-size: var(--text-sm);
   line-height: 1.5;
 }
+
+/* Remote console ----------------------------------------------------------- */
+
+dialog:has(.rcon) {
+  width: min(640px, 94vw);
+  max-width: none;
+}
+
+.rcon {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.rcon__target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rcon__field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.rcon__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Capped so the command box and Send stay inside the dialog on a 760px-high window; the log
+   scrolls instead of pushing them below the fold. */
+.rcon__log {
+  min-height: 90px;
+  max-height: 20vh;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--void);
+  font-size: var(--text-sm);
+}
+
+.rcon__log:empty::before {
+  content: attr(data-placeholder);
+  color: var(--faint);
+}
+
+.rcon__entry {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.rcon__entry + .rcon__entry {
+  margin-top: var(--space-2);
+}
+
+.rcon__entry--output {
+  color: var(--ink);
+}
+
+.rcon__entry--echo {
+  color: var(--brass);
+}
+
+.rcon__entry--notice {
+  color: var(--warn-text);
+}
+
+.rcon__entry--error {
+  color: var(--bad-text);
+}
+
+.rcon__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.rcon__send {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+}
+
+/* The console sits beside the refresh button; only the first of the pair is pushed right. */
+.pane-reload + .pane-reload {
+  margin-left: 0;
+}
+
+.rcon__remember {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.rcon__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rcon__tools {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rcon__buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rcon [hidden] {
+  display: none;
+}
+
+.rcon__tools select {
+  width: 100%;
+  min-width: 0;
+}

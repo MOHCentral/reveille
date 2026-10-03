@@ -5,6 +5,8 @@
 mod client;
 mod model;
 mod protocol;
+mod rcon;
+mod rcon_parse;
 
 pub use client::{
     BrowseConfig, BrowseEvent, DiscoveryError, RequestError, browse, browse_streaming,
@@ -21,3 +23,8 @@ pub use protocol::{
     gs_encode, gs_encrypt, parse_gamespy_status, parse_master_challenge, parse_master_response,
     parse_oob_getinfo, parse_oob_getstatus,
 };
+pub use rcon::{
+    RconCommand, RconError, RconInputError, RconPassword, RconReply, RconTiming, RconVerdict,
+    send_rcon,
+};
+pub use rcon_parse::{RconPlayer, RconPlayerState, is_safe_map_name, parse_status_players};
