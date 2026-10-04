@@ -10,7 +10,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "GPL-3.0-only"
 # Equal to `rust-toolchain.toml`'s channel, and `tools/check-sources.mjs` requires it to stay so.
