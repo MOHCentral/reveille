@@ -16,7 +16,7 @@
 // event dispatch and bubbling, real focus semantics, and — importantly — the ARIA and tabindex
 // reflection that `views/servers.js`'s one-tab-stop behaviour depends on. A fake that approximated
 // those would hand back confidence it had not earned, so those behaviours stay guarded by the
-// source-text tests in `main.rs`.
+// source-text tests in `ui-tests/source/`.
 //
 // The `key in node` branch in `el()` is the subtle one: `className` must be a property and
 // `aria-label` must not, or the builder would put the wrong things in the wrong place. REFLECTED
