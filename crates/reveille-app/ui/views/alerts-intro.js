@@ -6,7 +6,7 @@
 import { $, el, preserveFocus } from "../lib/dom.js";
 import { closeDialog, openDialog } from "../lib/dialog.js";
 import { preferences, setPreference } from "../lib/preferences.js";
-import { START_AT_LOGIN_LABEL, toggle } from "./settings.js";
+import { START_AT_LOGIN_LABEL, toggle } from "../features/settings/index.js";
 
 /**
  * `startAtLogin` is the sign-in state, null when unknown. `onTest()` sends a test alert,
