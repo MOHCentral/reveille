@@ -1474,7 +1474,7 @@ async fn check_server(
             other_game: None,
         });
     };
-    if let Some(published) = answered_for_another_game(&server, session.game) {
+    if let Some(published) = server.answered_for_another_game(session.game) {
         info!(published_game = ?published, "checked server answered for another game");
         // It answered, for a game this session's client cannot join. Not a joinable entry either.
         forget_checked_server(&state, address)?;
@@ -1540,7 +1540,7 @@ async fn read_watched_server(
     let server = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT)
         .await
         .server?;
-    if answered_for_another_game(&server, game).is_some()
+    if server.answered_for_another_game(game).is_some()
         || SocketAddrV4::new(server.endpoint.address, server.game_port.get()) != address
     {
         return None;
@@ -1558,21 +1558,6 @@ async fn read_watched_server(
         mode: server.game_type,
         round_trip: server.status_round_trip.get(),
     })
-}
-
-/// The family a checked server belongs to, when it is not this session's.
-///
-/// A bookmark is an address, so it outlives the game it was starred under. A server that answers
-/// for another family is real and reachable and still cannot be joined from this session: the
-/// client this session launches speaks a different protocol and would be dropped at connect. A
-/// server that publishes no family at all is not guessed about — it is listed, exactly as the
-/// sweep would have listed it.
-fn answered_for_another_game(server: &Server, game: TargetGame) -> Option<TargetGame> {
-    server
-        .game_name
-        .as_deref()
-        .and_then(TargetGame::from_game_name)
-        .filter(|published| *published != game)
 }
 
 /// Merge a freshly checked server into the current list, replacing any entry for the same game
@@ -2833,8 +2818,8 @@ mod tests {
         APP_LOG_FILENAME, AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason,
         DiscoveryError, EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation,
         OpenMohaaFailure, OpenMohaaFailureKind, OpenMohaaInstalledBuild, PREVIOUS_APP_LOG_FILENAME,
-        QueryPort, RequestError, Server, Session, TargetGame, answered_for_another_game,
-        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, failed, installed_maps,
+        QueryPort, RequestError, Server, Session, TargetGame, cache_openmohaa_offer,
+        cached_openmohaa_offer, catalogue_reason, failed, installed_maps,
         installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
         platform, prepare_app_log, preview_cache_matches, record_openmohaa_install, refusal_reason,
         shopping_list_will_write,
@@ -3465,37 +3450,6 @@ mod tests {
             pure: None,
             status_round_trip: reveille_core::discovery::RoundTripMillis::new(12),
         }
-    }
-
-    #[test]
-    fn a_checked_server_from_another_game_is_named_rather_than_listed() {
-        let mut server = probed("10.0.0.1", 12300, 12203, "a Spearhead server");
-        server.game_name = Some("mohaas".to_owned());
-
-        // Browsing Spearhead, this is an ordinary row.
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::Spearhead),
-            None
-        );
-        // Browsing Allied Assault, it answered — for something this session cannot join.
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            Some(TargetGame::Spearhead)
-        );
-
-        // A server that publishes no family is not guessed about. The sweep would have listed it,
-        // and so does a check.
-        server.game_name = None;
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            None
-        );
-        // Neither is one whose family is not a MOHAA family at all.
-        server.game_name = Some("quake3".to_owned());
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            None
-        );
     }
 
     #[test]

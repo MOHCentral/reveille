@@ -160,6 +160,9 @@ pub enum TargetGame {
 }
 
 impl TargetGame {
+    /// Every game family, in base-to-expansion order.
+    pub const ALL: [Self; 3] = [Self::AlliedAssault, Self::Spearhead, Self::Breakthrough];
+
     /// Recognize the engine's game-family serverinfo value.
     #[must_use]
     pub fn from_game_name(value: &str) -> Option<Self> {
@@ -282,6 +285,22 @@ pub struct Server {
     /// Round trip measured on this sweep's `getstatus` request. Every listed server answered one,
     /// so this is always a real measurement rather than an estimate.
     pub status_round_trip: RoundTripMillis,
+}
+
+impl Server {
+    /// The family this server answered for, when it is not `game`.
+    ///
+    /// A bookmark is an address, so it outlives the game it was starred under. A server that
+    /// answers for another family is real and reachable and still cannot be joined from a session
+    /// for `game`: the client that session launches speaks a different protocol and would be
+    /// dropped at connect. A server that publishes no family at all is not guessed about.
+    #[must_use]
+    pub fn answered_for_another_game(&self, game: TargetGame) -> Option<TargetGame> {
+        self.game_name
+            .as_deref()
+            .and_then(TargetGame::from_game_name)
+            .filter(|published| *published != game)
+    }
 }
 
 /// Stage at which one master registration became a recorded non-result.
@@ -441,4 +460,81 @@ pub struct BrowseSummary {
     pub non_results: usize,
     /// Complete-server counts by protocol string.
     pub protocols: BTreeMap<String, usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        GamePort, MasterEndpoint, QueryPort, ReportedOccupancy, RoundTripMillis, Server, TargetGame,
+    };
+
+    #[test]
+    fn all_lists_every_target_game_once_in_base_to_expansion_order() {
+        // Adding a variant breaks this match, which is the prompt to extend `ALL`.
+        const fn ordinal(game: TargetGame) -> usize {
+            match game {
+                TargetGame::AlliedAssault => 0,
+                TargetGame::Spearhead => 1,
+                TargetGame::Breakthrough => 2,
+            }
+        }
+        assert!(
+            TargetGame::ALL
+                .into_iter()
+                .map(ordinal)
+                .eq(0..TargetGame::ALL.len())
+        );
+    }
+
+    fn server(game_name: Option<&str>) -> Server {
+        Server {
+            endpoint: MasterEndpoint {
+                address: "10.0.0.1".parse().expect("address"),
+                query_port: QueryPort::new(12300),
+            },
+            game_port: GamePort::new(12203),
+            hostname: "a Spearhead server".to_owned(),
+            game_name: game_name.map(str::to_owned),
+            game_version: None,
+            version: None,
+            protocol: None,
+            current_map: None,
+            game_type: None,
+            rotation: Vec::new(),
+            allow_download: None,
+            map_checksum: None,
+            pr_downloads: None,
+            minimum_ping: None,
+            maximum_ping: None,
+            join_window: None,
+            reserved_slots: None,
+            occupancy: ReportedOccupancy::default(),
+            client_capacity: None,
+            pure: None,
+            players: Vec::new(),
+            status_round_trip: RoundTripMillis::new(12),
+        }
+    }
+
+    #[test]
+    fn a_checked_server_from_another_game_is_named_rather_than_listed() {
+        let spearhead = server(Some("mohaas"));
+        assert_eq!(
+            spearhead.answered_for_another_game(TargetGame::Spearhead),
+            None
+        );
+        assert_eq!(
+            spearhead.answered_for_another_game(TargetGame::AlliedAssault),
+            Some(TargetGame::Spearhead)
+        );
+
+        // A server that publishes no family, or a family that is not MOHAA's, is not guessed
+        // about: the sweep would have listed it, and so does a check.
+        for game_name in [None, Some("quake3")] {
+            assert_eq!(
+                server(game_name).answered_for_another_game(TargetGame::AlliedAssault),
+                None
+            );
+        }
+    }
 }

@@ -11,6 +11,7 @@ use thiserror::Error;
 
 use crate::content::{CatalogueResolutionPass, ResolutionOutcome};
 use crate::discovery::{Server, TargetGame};
+use crate::install::Product;
 use crate::mapindex::{MapIndex, MapKey};
 use crate::preflight::{MapStatus, PublishedChecksum, Report, Verdict};
 
@@ -296,12 +297,8 @@ impl LaunchProfile {
 
     /// Base data directory selected by the profile.
     #[must_use]
-    pub const fn data_directory(self) -> &'static str {
-        match self.target {
-            TargetGame::AlliedAssault => "main",
-            TargetGame::Spearhead => "mainta",
-            TargetGame::Breakthrough => "maintt",
-        }
+    pub fn data_directory(self) -> &'static str {
+        Product::from(self.target).data_directory()
     }
 
     /// Game directories the engine reads for this profile, **lowest precedence first**.
@@ -600,6 +597,22 @@ mod tests {
         assert_eq!(
             LaunchProfile::new(TargetGame::Breakthrough).search_directories(),
             ["main", "maintt"]
+        );
+    }
+
+    #[test]
+    fn every_search_path_ends_in_the_profile_data_directory() {
+        for game in TargetGame::ALL {
+            let profile = LaunchProfile::new(game);
+            assert_eq!(
+                profile.search_directories().last(),
+                Some(&profile.data_directory())
+            );
+        }
+        assert!(
+            !LaunchProfile::new(TargetGame::Breakthrough)
+                .search_directories()
+                .contains(&"mainta")
         );
     }
 

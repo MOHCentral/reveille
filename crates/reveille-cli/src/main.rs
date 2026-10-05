@@ -1355,9 +1355,13 @@ mod tests {
         LaunchDialect, LaunchProfile,
     };
 
+    use clap::ValueEnum;
+    use reveille_core::engine::EngineChoice;
+    use reveille_platform::ClientKind;
+
     use super::{
-        ClassifiedServer, render_command_parts, render_compatibility_state, render_launch_command,
-        render_occupancy,
+        ClassifiedServer, ClientFlavor, Game, render_command_parts, render_compatibility_state,
+        render_launch_command, render_occupancy,
     };
 
     #[test]
@@ -1434,5 +1438,26 @@ mod tests {
             render_compatibility_state(&CompatibilityState::CantTell),
             "can't tell"
         );
+    }
+
+    #[test]
+    fn every_game_argument_is_a_target_game_and_every_target_game_has_one() {
+        assert!(
+            Game::value_variants()
+                .iter()
+                .map(|game| TargetGame::from(*game))
+                .eq(TargetGame::ALL)
+        );
+    }
+
+    #[test]
+    fn every_client_argument_is_an_engine_and_every_engine_has_one() {
+        let flavors = ClientFlavor::value_variants()
+            .iter()
+            .map(|flavor| ClientKind::from(*flavor))
+            .collect::<Vec<_>>();
+        let engines = EngineChoice::ALL.map(ClientKind::from);
+        assert_eq!(flavors.len(), engines.len());
+        assert!(engines.iter().all(|engine| flavors.contains(engine)));
     }
 }
