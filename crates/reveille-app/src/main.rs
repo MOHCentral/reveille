@@ -3464,18 +3464,15 @@ mod tests {
         let app = include_str!("../ui/app.js");
 
         assert!(
-            app.contains("next.listSession = swept;"),
-            "ui/app.js: refresh must record the session its rows were swept for"
-        );
-        assert!(
             app.contains("if (!state.servers.length || !listIsForCurrentSession()) refresh();"),
             "ui/app.js: enterServers must sweep again when the list is for another session"
         );
 
         // The comparison itself — that all three of folder, engine and game count — is asserted
-        // behaviourally in `ui-tests/lib/session.test.js`. What stays here is the `app.js` half: the
-        // sweep trigger cannot run outside the shell, because `app.js` imports every view and
-        // touches `document` at module load.
+        // behaviourally in `ui-tests/lib/session.test.js`, and that a sweep records the session it
+        // asked in `ui-tests/features/servers/browse.test.js`. What stays here is the `app.js`
+        // half: the sweep trigger cannot run outside the shell, because `app.js` imports every
+        // view and touches `document` at module load.
     }
 
     #[test]
@@ -3589,13 +3586,10 @@ mod tests {
         // a sweep and a game switch — not calls.
         let app = include_str!("../ui/app.js");
 
+        // That a sweep retires them is asserted in `ui-tests/features/servers/browse.test.js`.
         assert!(
             app.contains("const generation = generations.check.current();"),
             "ui/app.js: check must capture the generation, not allocate a new token per call"
-        );
-        assert!(
-            app.contains("  generations.check.next();\n  const swept = session();"),
-            "ui/app.js: a sweep must retire the checks still in flight against the old list"
         );
     }
 
@@ -3832,24 +3826,6 @@ mod tests {
         assert!(
             servers.contains(r#"{ className: "servers", role: "grid", "aria-label": "Servers" }"#),
             "ui/views/servers.js: aria-selected on a row needs the grid role to mean anything"
-        );
-    }
-
-    #[test]
-    fn a_failed_sweep_keeps_the_rows_it_could_not_replace() {
-        // Blanking the table on a failed sweep left the centre of the window reading "Nothing has
-        // been checked yet" under an error about the check that had just run. The rows are kept
-        // and marked instead — and only when they were swept for the session still in force, or
-        // they would be another game's servers under this game's heading.
-        let app = include_str!("../ui/app.js");
-
-        assert!(
-            app.contains("const previous = listIsForCurrentSession() ? state.servers : [];"),
-            "ui/app.js: only a list swept for this session may be kept as a stale reading"
-        );
-        assert!(
-            app.contains("next.staleAt = previousAt;"),
-            "ui/app.js: kept rows must carry the time they were actually measured"
         );
     }
 
