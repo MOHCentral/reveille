@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Six gates nothing else covers.
+// Seven gates nothing else covers.
 //
 // 1. The shell's frontend has no build step, so a syntax error in it first appears as a blank
 //    window rather than as a failed build.
@@ -23,6 +23,9 @@
 //    (issue #8). Prose cannot hold that; this does.
 // 6. The pinned compiler and the published `rust-version` must agree, or the manifest carries an
 //    MSRV claim nothing ever compiles against.
+// 7. The shell has no bundler, so nothing else holds its module boundaries: the bridge stays behind
+//    `lib/bridge.js` and the features' `api.js`, the kernel never imports a feature, features meet
+//    through `index.js`, and imports form no cycle. The rules live in `tools/ui-imports.mjs`.
 //
 // The owned source tree is checked directly, including new files not yet added to Git. Generated
 // and third-party directories are excluded explicitly.
@@ -31,6 +34,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve, sep } from "node:path";
+
+import { importViolations, readShell } from "./ui-imports.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -317,6 +322,12 @@ if (!toolchain) {
   );
 }
 
+// --- 7. The shell's module boundaries -------------------------------------
+
+const SHELL = "crates/reveille-app/ui";
+const shellFiles = readShell(join(repository, SHELL));
+for (const failure of importViolations(shellFiles)) failures.push(`${SHELL}/${failure}`);
+
 // --- Report ---------------------------------------------------------------
 
 if (failures.length > 0) {
@@ -328,5 +339,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `${scripts.length} scripts parse, ${headered.length} sources carry the SPDX header, no elevation path exists, every Release job descends from the gate, and CI runs the same ${ciRecipesInCheck.size} recipes as \`just check\`.`,
+  `${scripts.length} scripts parse, ${headered.length} sources carry the SPDX header, no elevation path exists, every Release job descends from the gate, CI runs the same ${ciRecipesInCheck.size} recipes as \`just check\`, and the shell's ${shellFiles.size} files keep their module boundaries.`,
 );
