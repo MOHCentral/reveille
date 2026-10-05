@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Boot, routing and the long-running operations. Views render from `state`;
-// this module is the only place that calls commands and mutates state in
-// response to them.
+// The composition root. Features own their state, commands and views; this module composes them,
+// binds the intents table, and keeps what belongs to no one feature: the titlebar menus, the
+// session changes (game, folder and engine), the global keys and boot.
 
 import { $, el } from "./lib/dom.js";
 import { closeDialog, openDialog } from "./lib/dialog.js";
@@ -286,7 +286,7 @@ function openTelemetryDetails() {
   void openExternalUrl(TELEMETRY_DETAILS_URL).catch(() => {});
 }
 
-/* First run ---------------------------------------------------------------- */
+/* Session changes ----------------------------------------------------------- */
 
 /**
  * Show the server list, sweeping when what is on screen is not an answer to this session.
