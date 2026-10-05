@@ -25,6 +25,7 @@
 #[cfg(windows)]
 mod app_icon;
 mod autostart;
+mod installation;
 mod logs;
 mod notice;
 mod popup;
@@ -40,8 +41,8 @@ use std::io::{self, Read as _};
 use std::net::SocketAddrV4;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reveille_core::content::{
@@ -72,10 +73,9 @@ use serde::{Deserialize, Serialize};
 use session::{Session, SessionError, installed_maps, session_installation, session_search_path};
 use sha2::{Digest as _, Sha256};
 use tauri::{Emitter, Manager};
-use tauri_plugin_dialog::DialogExt;
 use telemetry::{BrowseFailureKind, DownloadSource, Event, JoinFailureReason, Telemetry};
 use thiserror::Error;
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
 /// Events the frontend listens for, kept together so the contract reads in one place.
@@ -84,7 +84,6 @@ const PREVIEW_EVENT: &str = "reveille://preview";
 const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
-const INSTALLATION_COPY_EVENT: &str = "reveille://installation-copy";
 
 /// Deadline for one per-server UDP probe.
 ///
@@ -116,10 +115,6 @@ struct AppState {
     openmohaa_next_offer: AtomicU64,
     /// Cancellation for the pinned Reborn archive transfer.
     reborn_cancel: AtomicBool,
-    /// Only one game-folder copy may run at a time.
-    installation_copy: tokio::sync::Mutex<()>,
-    /// Read between copied chunks; cancellation never exposes the final destination early.
-    installation_copy_cancel: Arc<AtomicBool>,
 }
 
 const OPENMOHAA_OFFER_CACHE_CAPACITY: usize = 8;
@@ -294,36 +289,6 @@ struct RebornSummary {
 struct RebornInstallResult {
     engine: EngineChoice,
     inventory: platform::engine::EngineInventory,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-enum InstallationStorageStatus {
-    Writable,
-    Protected {
-        folders: Vec<PathBuf>,
-        source_bytes: u64,
-        suggested_destination: Option<PathBuf>,
-    },
-}
-
-#[derive(Clone, Serialize)]
-struct InstallationCopyProgress {
-    copied_bytes: u64,
-    total_bytes: u64,
-    copied_files: u64,
-    total_files: u64,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
-enum InstallationCopyResult {
-    Copied {
-        installation: Installation,
-        source_bytes: u64,
-        source_files: u64,
-    },
-    Cancelled,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -614,57 +579,6 @@ impl From<String> for BrowseFailure {
             detail,
         }
     }
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn detect_install(
-    selected_path: Option<String>,
-    telemetry: tauri::State<'_, Telemetry>,
-) -> Result<Option<Installation>, String> {
-    let found = find_install(selected_path)?;
-    if let Some(installation) = &found {
-        telemetry.track(&Event::GameInstallDetected {
-            games: installation.playable.clone(),
-        });
-    }
-    Ok(found)
-}
-
-/// Re-read a folder the player already chose. Unlike `detect_install` it sends no event: reopening
-/// the change dialog is not a new detection.
-#[tauri::command]
-fn identify_install(path: String) -> Result<Installation, String> {
-    install::identify(path).map_err(|error| error.to_string())
-}
-
-fn find_install(selected_path: Option<String>) -> Result<Option<Installation>, String> {
-    if let Some(path) = selected_path.filter(|path| !path.trim().is_empty()) {
-        return install::identify(path)
-            .map(Some)
-            .map_err(|error| error.to_string());
-    }
-    #[cfg(windows)]
-    {
-        let keys = reveille_core::platform::registry::read_live_hives()
-            .map_err(|error| error.to_string())?;
-        let mut roots = reveille_core::platform::registry::discover_ea_install_roots(&keys)
-            .into_iter()
-            .map(|candidate| candidate.root)
-            .collect::<Vec<_>>();
-        if let Some(root) = reveille_core::platform::registry::discover_gog_install_root(&keys) {
-            roots.push(root);
-        }
-        for root in roots {
-            if let Ok(installation) = install::identify(root) {
-                return Ok(Some(installation));
-            }
-        }
-    }
-    Ok(None)
 }
 
 #[tauri::command]
@@ -1078,143 +992,6 @@ fn openmohaa_client_path(root: &Path, target: ReleaseTarget) -> PathBuf {
         | ReleaseTarget::MacosX64 => "openmohaa",
     };
     root.join(filename)
-}
-
-/// Probe setup-time write access and measure the source only when a writable copy may be needed.
-#[tauri::command]
-async fn installation_storage(path: String) -> Result<InstallationStorageStatus, String> {
-    tokio::task::spawn_blocking(move || {
-        let installation = install::identify(&path).map_err(|error| error.to_string())?;
-        let probe = platform::installation_copy::probe_installation_write_access(&installation)
-            .map_err(|error| error.to_string())?;
-        if probe.is_writable() {
-            return Ok(InstallationStorageStatus::Writable);
-        }
-        let plan = platform::installation_copy::measure_installation(&installation.root)
-            .map_err(|error| error.to_string())?;
-        Ok(InstallationStorageStatus::Protected {
-            folders: probe.blocked,
-            source_bytes: plan.bytes,
-            suggested_destination: platform::installation_copy::suggested_destination(
-                &installation.root,
-            ),
-        })
-    })
-    .await
-    .map_err(|error| format!("the game-folder check did not finish: {error}"))?
-}
-
-/// Let the player choose a parent and derive a new, non-existing installation folder beneath it.
-#[tauri::command]
-async fn pick_copy_destination(
-    source_path: String,
-    app: tauri::AppHandle,
-) -> Result<Option<String>, String> {
-    let source = PathBuf::from(source_path);
-    let (sender, receiver) = oneshot::channel();
-    app.dialog()
-        .file()
-        .set_title("Choose where to put the writable game copy")
-        .pick_folder(move |folder| {
-            drop(sender.send(folder));
-        });
-    let folder = receiver
-        .await
-        .map_err(|_| "the folder picker closed unexpectedly".to_owned())?;
-    Ok(folder.map(|folder| {
-        platform::installation_copy::destination_in_parent(&source, Path::new(&folder.to_string()))
-            .to_string_lossy()
-            .into_owned()
-    }))
-}
-
-/// Copy a protected game folder to a user-owned destination and re-identify it before returning.
-#[tauri::command]
-async fn copy_game_installation(
-    source_path: String,
-    destination_path: String,
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<InstallationCopyResult, String> {
-    let _guard = state
-        .installation_copy
-        .try_lock()
-        .map_err(|_| "a game-folder copy is already running".to_owned())?;
-    state
-        .installation_copy_cancel
-        .store(false, Ordering::Release);
-    let cancel = Arc::clone(&state.installation_copy_cancel);
-    let source = PathBuf::from(source_path);
-    let destination = PathBuf::from(destination_path);
-    let copy_app = app.clone();
-    tokio::task::spawn_blocking(move || {
-        platform::installation_copy::copy_installation_reporting(
-            &source,
-            &destination,
-            || cancel.load(Ordering::Acquire),
-            |progress| {
-                drop(copy_app.emit(
-                    INSTALLATION_COPY_EVENT,
-                    InstallationCopyProgress {
-                        copied_bytes: progress.copied_bytes,
-                        total_bytes: progress.total_bytes,
-                        copied_files: progress.copied_files,
-                        total_files: progress.total_files,
-                    },
-                ));
-            },
-        )
-    })
-    .await
-    .map_err(|error| format!("the game-folder copy did not finish: {error}"))?
-    .map_or_else(
-        |error| {
-            if matches!(
-                error,
-                platform::installation_copy::InstallationCopyError::Cancelled
-            ) {
-                Ok(InstallationCopyResult::Cancelled)
-            } else {
-                Err(error.to_string())
-            }
-        },
-        |copied| {
-            Ok(InstallationCopyResult::Copied {
-                installation: copied.installation,
-                source_bytes: copied.source_bytes,
-                source_files: copied.source_files,
-            })
-        },
-    )
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn cancel_game_installation_copy(state: tauri::State<'_, AppState>) {
-    state
-        .installation_copy_cancel
-        .store(true, Ordering::Release);
-}
-
-/// Open the platform folder picker. `None` means the player dismissed it.
-#[tauri::command]
-async fn pick_install_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    info!("opening install folder picker");
-    let (sender, receiver) = oneshot::channel();
-    app.dialog()
-        .file()
-        .set_title("Select your Allied Assault game folder")
-        .pick_folder(move |folder| {
-            // The receiver is only gone if the window closed while the dialog was open.
-            drop(sender.send(folder));
-        });
-    let folder = receiver
-        .await
-        .map_err(|_| "the folder picker closed unexpectedly".to_owned())?;
-    Ok(folder.map(|folder| folder.to_string()))
 }
 
 /// Stop the sweep currently running, if any. Servers already probed are kept.
@@ -2491,13 +2268,14 @@ fn main() {
             if autostart::in_background() {
                 tray::start_hidden(app.handle());
             }
+            installation::register(app);
             self_update::register(app);
             Ok(())
         })
         .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
-            detect_install,
-            identify_install,
+            installation::detect_install,
+            installation::identify_install,
             engine_overview,
             select_engine,
             install_reborn,
@@ -2505,11 +2283,11 @@ fn main() {
             openmohaa_status,
             install_openmohaa,
             cancel_openmohaa_install,
-            installation_storage,
-            pick_copy_destination,
-            copy_game_installation,
-            cancel_game_installation_copy,
-            pick_install_folder,
+            installation::copy::installation_storage,
+            installation::copy::pick_copy_destination,
+            installation::copy::copy_game_installation,
+            installation::copy::cancel_game_installation_copy,
+            installation::pick_install_folder,
             cancel_browse,
             browse_servers,
             check_server,
