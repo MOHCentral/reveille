@@ -35,6 +35,7 @@ import {
   onPreviewProgress,
   previewJoin,
 } from "./features/join/api.js";
+import { initial as joinState } from "./features/join/index.js";
 import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
 import { initial as serversState } from "./features/servers/index.js";
 import { browse } from "./features/servers/browse.js";
@@ -90,7 +91,7 @@ import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./features/servers/view.js";
 import { joinView, shoppingTotals } from "./features/join/view.js";
 
-composeState([selfUpdateState(), serversState()]);
+composeState([selfUpdateState(), serversState(), joinState()]);
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");

@@ -33,27 +33,6 @@ const unowned = () => ({
    */
   listSession: null,
 
-  /** The join preview for the selected row, once it arrives. */
-  preview: null,
-  previewProgress: null,
-  previewError: null,
-
-  /** Candidate ids the player picked for ambiguous maps, keyed by map name. */
-  choices: new Map(),
-
-  /** Install run in progress, or null. Downloads only — see `joining` for the whole command. */
-  installRun: null,
-  /**
-   * Whether a server-file install or `install_and_launch` is running.
-   *
-   * Wider than `installRun`, which is null when a compatible server has nothing to fetch. The join
-   * command owns the detail pane for its whole length, downloads or not, so this is what the pane
-   * and the one-server check read.
-   */
-  joining: false,
-  joinResult: null,
-  joinError: null,
-
   /** What the watch monitor last read for each watched server, keyed by `alertId`. */
   watchReadings: new Map(),
   /** Why the last player alert could not reach the desktop, or null. */
