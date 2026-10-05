@@ -32,7 +32,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-tauri-winrt-notification = "=0.7.3"
+tauri-winrt-notification = "=0.8.1"
 
 [lints]
 workspace = true
