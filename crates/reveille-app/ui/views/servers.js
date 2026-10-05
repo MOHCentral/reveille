@@ -23,12 +23,9 @@ import { preferences } from "../lib/preferences.js";
 import { openMenu } from "../lib/menu.js";
 import { closePopover, openPopover } from "../lib/popover.js";
 import {
-  browseFailureText,
   gameType,
   launchedLabel,
   mapName,
-  mapNeed,
-  nonResultReason,
   occupancy,
   occupancyFill,
   occupancyText,
@@ -38,8 +35,9 @@ import {
   shortVersion,
   sweepProgressText,
   timeAgo,
-  watchLine,
 } from "../lib/format.js";
+import { browseFailureText, mapNeed, nonResultReason } from "../features/servers/format.js";
+import { watchLine } from "../features/alerts/format.js";
 import {
   clearHistory,
   favoriteAddresses,

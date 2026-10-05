@@ -6,8 +6,8 @@
 // This is where two of the four canonical state names are rendered — Needs N
 // maps and No download for N maps — because this is where the decision is made.
 // The list deliberately does not repeat them as badges. Each name states what
-// Reveille measured rather than how confident it feels about it (lib/format.js
-// `stateName`).
+// Reveille measured rather than how confident it feels about it
+// (features/join/format.js `stateName`).
 //
 // Compatible and Map list not published are rendered nowhere before the join.
 // Neither leaves the player anything to do, and a heading above a button reading
@@ -30,7 +30,6 @@ import {
   launchedLabel,
   mapKey,
   mapName,
-  nonResultReason,
   occupancy,
   occupancyText,
   playerRoster,
@@ -38,9 +37,9 @@ import {
   rosterShortfall,
   roundTrip,
   shortVersion,
-  stateExplanation,
-  stateName,
 } from "../lib/format.js";
+import { nonResultReason } from "../features/servers/format.js";
+import { stateExplanation, stateName } from "../features/join/format.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.js";
 import { icon } from "../lib/icons.js";
 import { THRESHOLDS, playerAlert, setAlertThreshold } from "../lib/player-alerts.js";

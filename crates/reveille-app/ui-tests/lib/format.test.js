@@ -235,104 +235,6 @@ test("mapName makes an empty name visible rather than drawing a blank", () => {
   assert.equal(format.mapName(null), "(unnamed)");
 });
 
-/* The four states (rule H3) ------------------------------------------------- */
-
-test("the four state names are measurements, not verdicts", () => {
-  // There is no boolean "can I join", and none of these is a mood word: the name says what
-  // Reveille found and the player draws the verdict.
-  assert.equal(format.stateName({ state: "compatible" }), "Compatible");
-  assert.equal(format.stateName({ state: "needs_maps", count: 1 }), "Needs 1 map");
-  assert.equal(format.stateName({ state: "needs_maps", count: 4 }), "Needs 4 maps");
-  assert.equal(format.stateName({ state: "no_source", count: 2 }), "No download for 2 maps");
-  assert.equal(format.stateName({ state: "cant_tell" }), "Map list not published");
-  assert.equal(format.stateName(null), "Map list not published");
-});
-
-test("a server that leaves nothing to do explains nothing", () => {
-  assert.equal(format.stateExplanation({ state: "compatible" }), null);
-  // The current map was checked; the unpublished rest is nothing a player can act on before joining.
-  assert.equal(format.stateExplanation({ state: "cant_tell" }), null);
-});
-
-test("every other state explains how it was arrived at", () => {
-  assert.match(format.stateExplanation({ state: "needs_maps", count: 3 }), /Reveille can download/u);
-  // Singular and plural are separate sentences rather than one with an "(s)".
-  assert.match(format.stateExplanation({ state: "no_source", count: 1 }), /This map is/u);
-  assert.match(format.stateExplanation({ state: "no_source", count: 2 }), /These maps are/u);
-});
-
-/* Non-result reasons -------------------------------------------------------- */
-
-test("the stage is part of the reason, not decoration", () => {
-  // A timeout answering the master's server-list query and a timeout answering the game query are
-  // different failures; labelling both "did not answer" makes one group look like a duplicate.
-  assert.equal(
-    format.nonResultReason({ reason: "timeout", stage: "get_status" }),
-    "did not answer the game query",
-  );
-  assert.equal(
-    format.nonResultReason({ reason: "timeout", stage: "inspect" }),
-    "did not answer the server-list query",
-  );
-  assert.equal(
-    format.nonResultReason({ reason: "malformed", stage: "get_status" }),
-    "answered the game query with a reply Reveille could not read",
-  );
-  assert.equal(
-    format.nonResultReason({ reason: "duplicate_endpoint" }),
-    "is the same server registered twice",
-  );
-  assert.equal(
-    format.nonResultReason({ reason: "missing_host_port" }),
-    "did not publish a game port",
-  );
-});
-
-test("an unrecognised reason shows itself rather than borrowing another cause", () => {
-  // Rule H6: never state a cause that was not observed. An unknown kind must not be quietly
-  // filed under one of the known sentences.
-  assert.equal(
-    format.nonResultReason({ reason: "something_new", stage: "get_status" }),
-    "something_new at the game query",
-  );
-});
-
-/* Sweep failures (rule H6) -------------------------------------------------- */
-
-test("each sweep failure carries a cause and a remedy, and keeps the original message", () => {
-  const failure = format.browseFailureText({ kind: "master_unreachable", detail: "ECONNREFUSED" });
-  assert.match(failure.title, /master server/u);
-  // These two moments are where a non-technical player decides whether the tool is broken or
-  // their PC is, so each kind has to say which.
-  assert.ok(failure.remedy);
-  assert.equal(failure.detail, "ECONNREFUSED");
-});
-
-test("a TCP refusal is never rendered as evidence that the player's PC is offline", () => {
-  const offline = format.browseFailureText({ kind: "no_network" });
-  const refused = format.browseFailureText({ kind: "master_unreachable" });
-  assert.match(offline.title, /could not reach the network/u);
-  // `no_network` is reserved for local routing, address or permission failures. A reset by the
-  // remote master is `master_unreachable` — telling a player their internet is down when it is
-  // not sends them to fix the wrong thing.
-  assert.notEqual(refused.title, offline.title);
-  assert.match(refused.remedy, /community/u);
-});
-
-test("an unknown failure kind falls back to internal rather than inventing a cause", () => {
-  const unknown = format.browseFailureText({ kind: "brand_new_kind", detail: "raw" });
-  assert.equal(unknown.title, "The server list could not be built");
-  assert.equal(unknown.remedy, null, "no remedy is offered for a cause nobody established");
-  assert.equal(unknown.detail, "raw");
-});
-
-test("a saved folder or engine that no longer fits sends the player to change it", () => {
-  for (const kind of ["game_unavailable", "engine_unavailable"]) {
-    assert.match(format.browseFailureText({ kind }).remedy, /Change folder or engine/u, kind);
-  }
-  assert.ok(format.browseFailureText({ kind: "maps_unreadable" }).remedy);
-});
-
 /* Freshness — locale-dependent, so shape and invariants only ---------------- */
 
 test("the clock label is absolute, and two different minutes read differently", () => {
@@ -383,45 +285,9 @@ test("a launch with no usable timestamp still says how many, not when", () => {
   assert.equal(format.launchedLabel({ launches: 2, lastLaunchedAt: null }), "Played 2×");
 });
 
-test("the map cell counts the maps a server needs and says nothing otherwise", () => {
-  assert.equal(format.mapNeed({ state: "compatible" }), null);
-  assert.equal(format.mapNeed({ state: "cant_tell" }), null);
-  assert.deepEqual(
-    { ...format.mapNeed({ state: "needs_maps", count: 3 }), title: undefined },
-    { kind: "download", text: "3", title: undefined },
-  );
-  assert.equal(format.mapNeed({ state: "no_source", count: 1 }).kind, "missing");
-});
-
 test("the Played column says how long ago, and how often once it is more than once", () => {
   const ago = new Date(Date.now() - 2 * 3_600_000).toISOString();
   assert.equal(format.playedLabel({ launches: 1, lastLaunchedAt: ago }), "2h ago");
   assert.equal(format.playedLabel({ launches: 3, lastLaunchedAt: ago }), "2h ago ×3");
   assert.equal(format.playedLabel({ launches: 0 }), null);
-});
-
-test("the watch line says what the monitor last saw and when it last alerted", () => {
-  const now = Date.now();
-  assert.equal(format.watchLine(null, null), "Not checked yet");
-  assert.equal(format.watchLine({ count: 3, checkedAt: now }, null), "3 players just now");
-  assert.equal(format.watchLine({ count: 0, checkedAt: now }, null), "No players just now");
-  assert.equal(format.watchLine({ count: null, checkedAt: now - 5 * 60_000 }, null), "No answer 5 min ago");
-  assert.equal(
-    format.watchLine({ count: 1, checkedAt: now }, now - 2 * 3_600_000),
-    "1 player just now · alerted 2h ago",
-  );
-});
-
-test("a toast's second line names the round players arrived for", () => {
-  assert.equal(
-    format.alertDetail({ clients: 4, map: "dm/mohdm6", mode: "Team-Match", round_trip: 21 }),
-    "dm/mohdm6 · Team-Match · 21 ms",
-  );
-  assert.equal(format.alertDetail({ clients: 4, map: null, mode: null, round_trip: 30 }), "30 ms");
-  assert.equal(format.alertDetail(null), null);
-});
-
-test("the watch line states a threshold above one", () => {
-  assert.equal(format.watchLine({ count: 2, checkedAt: Date.now() }, null, 4), "2 players just now · notify at 4+");
-  assert.equal(format.watchLine(null, null, 1), "Not checked yet");
 });

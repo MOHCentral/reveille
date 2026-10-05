@@ -68,7 +68,8 @@ import {
   removePlayerAlert,
   startPlayerAlertMonitor,
 } from "./lib/player-alerts.js";
-import { alertDetail, clockTime, displayPath, occupancy, plural, timeAgo } from "./lib/format.js";
+import { clockTime, displayPath, occupancy, plural, timeAgo } from "./lib/format.js";
+import { alertDetail } from "./features/alerts/format.js";
 import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./lib/reach.js";
 import { ENGINE_LABELS, GAME_LABELS } from "./lib/catalog.js";
 import {
