@@ -99,6 +99,7 @@ import { alertErrorLine, openSettings } from "./views/settings.js";
 import { openAlertsIntro } from "./views/alerts-intro.js";
 import { openShortcuts } from "./views/shortcuts.js";
 import { preferences, setPreference } from "./lib/preferences.js";
+import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
 

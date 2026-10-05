@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { installStorage } from "../fakes/storage.js";
 import { preferences, reloadPreferences, setPreference } from "../../ui/lib/preferences.js";
 import { roundTrip } from "../../ui/lib/format.js";
+import "../../ui/features/alerts/preferences.js";
 
 test("a fresh install keeps today's alert behaviour, ping colours and quits on close", () => {
   installStorage();

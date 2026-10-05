@@ -1,25 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The Settings panel's values. Read once and kept in memory: the ping bands are asked for on
-// every row of every paint.
-
-import { THRESHOLDS } from "./player-alerts.js";
+// every row of every paint. Features add their own settings with `registerPreferences`.
 
 const KEY = "reveille.preferences";
 
-export const COOLDOWN_CHOICES = [5, 15, 30, 60];
 export const PING_GOOD_CHOICES = [50, 80, 100];
 export const PING_FAIR_CHOICES = [120, 150, 200];
-export const ALERT_STYLES = ["popup", "system"];
 
 const DEFAULTS = {
-  alertsEnabled: true,
-  defaultThreshold: 1,
-  cooldownMinutes: 15,
-  quietWhilePlaying: false,
-  alertSound: true,
-  // Falls back to the system notification wherever the pop-up cannot be drawn.
-  alertStyle: "popup",
   pingGood: 80,
   pingFair: 150,
   refreshOnFocus: true,
@@ -27,26 +16,30 @@ const DEFAULTS = {
   // Not settings, but one-time choices and explanations that must not come back.
   trayChosen: false,
   trayNoticeShown: false,
-  alertsIntroShown: false,
 };
 
 const RULES = {
-  alertsEnabled: (value) => typeof value === "boolean",
-  defaultThreshold: (value) => THRESHOLDS.includes(value),
-  cooldownMinutes: (value) => COOLDOWN_CHOICES.includes(value),
-  quietWhilePlaying: (value) => typeof value === "boolean",
-  alertSound: (value) => typeof value === "boolean",
-  alertStyle: (value) => ALERT_STYLES.includes(value),
   pingGood: (value) => PING_GOOD_CHOICES.includes(value),
   pingFair: (value) => PING_FAIR_CHOICES.includes(value),
   refreshOnFocus: (value) => typeof value === "boolean",
   closeToTray: (value) => typeof value === "boolean",
   trayChosen: (value) => typeof value === "boolean",
   trayNoticeShown: (value) => typeof value === "boolean",
-  alertsIntroShown: (value) => typeof value === "boolean",
 };
 
 let cached = null;
+
+/**
+ * Add a feature's settings: each name's default and the rule a saved value must pass.
+ *
+ * The owning module calls this when it loads, so its settings exist before the first read. The
+ * in-memory copy is dropped because it was built without them.
+ */
+export function registerPreferences(defaults, rules) {
+  Object.assign(DEFAULTS, defaults);
+  Object.assign(RULES, rules);
+  cached = null;
+}
 
 export function preferences() {
   if (cached) return cached;
