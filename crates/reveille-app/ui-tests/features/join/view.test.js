@@ -3,14 +3,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { installDom } from "../fakes/dom.js";
-import { installStorage } from "../fakes/storage.js";
+import { installDom } from "../../fakes/dom.js";
+import { installStorage } from "../../fakes/storage.js";
 
 const document = installDom();
 installStorage();
-const store = await import("../../ui/lib/store.js");
-const { joinView } = await import("../../ui/views/join.js");
-const { initial: serversState } = await import("../../ui/features/servers/index.js");
+const store = await import("../../../ui/lib/store.js");
+const { joinView } = await import("../../../ui/features/join/view.js");
+const { initial: serversState } = await import("../../../ui/features/servers/index.js");
 // The pane reads the server list's rows, selection and checks, so it composes that feature's state.
 store.composeState([serversState()]);
 

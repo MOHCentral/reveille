@@ -2,6 +2,8 @@
 
 // The server list: the sweep, the one-server check, and the table that shows what they found.
 
+import { nonResultReason } from "./format.js";
+import { canRecheck, selectedRow } from "./selectors.js";
 import { initial } from "./state.js";
 
-export { initial };
+export { canRecheck, initial, nonResultReason, selectedRow };

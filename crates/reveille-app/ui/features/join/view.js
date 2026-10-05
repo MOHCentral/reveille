@@ -7,7 +7,7 @@
 // maps and No download for N maps — because this is where the decision is made.
 // The list deliberately does not repeat them as badges. Each name states what
 // Reveille measured rather than how confident it feels about it
-// (features/join/format.js `stateName`).
+// (format.js `stateName`).
 //
 // Compatible and Map list not published are rendered nowhere before the join.
 // Neither leaves the player anything to do, and a heading above a button reading
@@ -20,7 +20,7 @@
 // have. What is refused is joining a server whose current map is absent, because
 // that connection fails immediately.
 
-import { el, fill, frag, preserveFocus } from "../lib/dom.js";
+import { el, fill, frag, preserveFocus } from "../../lib/dom.js";
 import {
   bytes,
   clockTime,
@@ -37,17 +37,16 @@ import {
   rosterShortfall,
   roundTrip,
   shortVersion,
-} from "../lib/format.js";
-import { nonResultReason } from "../features/servers/format.js";
-import { stateExplanation, stateName } from "../features/join/format.js";
-import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.js";
-import { icon } from "../lib/icons.js";
-import { THRESHOLDS, playerAlert, setAlertThreshold } from "../lib/player-alerts.js";
-import { closePopover, openPopover } from "../lib/popover.js";
-import { GAME_LABELS } from "../lib/catalog.js";
-import { state, update } from "../lib/store.js";
-import { canRecheck, selectedRow } from "../features/servers/selectors.js";
-import { playableGames } from "../lib/session.js";
+} from "../../lib/format.js";
+import { stateExplanation, stateName } from "./format.js";
+import { historyByAddress, isFavorite, toggleFavorite } from "../../lib/bookmarks.js";
+import { icon } from "../../lib/icons.js";
+import { THRESHOLDS, playerAlert, setAlertThreshold } from "../../lib/player-alerts.js";
+import { closePopover, openPopover } from "../../lib/popover.js";
+import { GAME_LABELS } from "../../lib/catalog.js";
+import { state, update } from "../../lib/store.js";
+import { canRecheck, nonResultReason, selectedRow } from "../servers/index.js";
+import { playableGames } from "../../lib/session.js";
 
 export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert }) {
   const scroll = el("div", { className: "detail-pane__scroll" });

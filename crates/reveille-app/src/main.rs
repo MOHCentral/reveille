@@ -3819,12 +3819,12 @@ mod tests {
         // A ready server says nothing — silence is the correct rendering of "nothing to do". `needsSection` returns null when there is no explanation to give, no
         // cost, no choice pending and no caveat true of this server, which is the ordinary case
         // and the one a player is trying to pick out of the list.
-        let join = include_str!("../ui/views/join.js");
+        let join = include_str!("../ui/features/join/view.js");
         assert!(
             join.contains(
                 "if (!resolving && !explanation && !costly && !choices.length && !notes && !state.previewError) {"
             ),
-            "ui/views/join.js: needsSection must render nothing for a server with nothing to say"
+            "ui/features/join/view.js: needsSection must render nothing for a server with nothing to say"
         );
         // The published rotation is not listed at all. A map already on disk needs no row, and a
         // missing map that resolves is a number in the button rather than a list to read.
@@ -3835,7 +3835,7 @@ mod tests {
         ] {
             assert!(
                 !join.contains(gone),
-                "ui/views/join.js: the map rotation listing must not come back ({gone})"
+                "ui/features/join/view.js: the map rotation listing must not come back ({gone})"
             );
         }
     }

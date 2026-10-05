@@ -88,7 +88,7 @@ import { openShortcuts } from "./views/shortcuts.js";
 import { preferences, setPreference } from "./lib/preferences.js";
 import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./features/servers/view.js";
-import { joinView, shoppingTotals } from "./views/join.js";
+import { joinView, shoppingTotals } from "./features/join/view.js";
 
 composeState([selfUpdateState(), serversState()]);
 
