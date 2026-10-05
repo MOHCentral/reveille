@@ -8,6 +8,7 @@ import { $, el } from "./lib/dom.js";
 import { closeDialog, openDialog } from "./lib/dialog.js";
 import { closeMenu, menuIsOpen, openMenu } from "./lib/menu.js";
 import { icon } from "./lib/icons.js";
+import { intentsTable } from "./lib/intents.js";
 import { closePopover, openPopover, popoverAnchor } from "./lib/popover.js";
 import { appVersion, openExternalUrl, trackEvent } from "./lib/shell.js";
 import {
@@ -106,22 +107,24 @@ const {
 
 const { check, recheck, autoCheckFavorites } = checks({ onReselect: select });
 
+const intents = intentsTable({ selectGame, select, activate, refresh, check, openServer, togglePlayerAlert });
+
 const servers = serversView({
-  onRefresh: refresh,
+  onRefresh: intents.refresh,
   onCancel: stopBrowse,
-  onSelect: select,
-  onActivate: activate,
+  onSelect: intents.select,
+  onActivate: intents.activate,
   onShowNonResults: showNonResults,
-  onCheck: check,
-  onGame: selectGame,
-  onToggleWatch: togglePlayerAlert,
+  onCheck: intents.check,
+  onGame: intents.selectGame,
+  onToggleWatch: intents.togglePlayerAlert,
   onToggleDetail: toggleDetail,
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
   onJoin: getAndJoin,
   onRecheck: recheck,
-  onTogglePlayerAlert: togglePlayerAlert,
+  onTogglePlayerAlert: intents.togglePlayerAlert,
 });
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {
@@ -157,11 +160,11 @@ $("#info-dialog-close").addEventListener("click", closeDialog);
 
 subscribe(render);
 
-let pendingArrival = null;
+let pendingOpen = null;
 let shownTooltip = null;
 let heldWhilePlaying = [];
 let gameWatch = null;
-let openingArrival = false;
+let opening = false;
 let attentionRequested = false;
 window.addEventListener("focus", () => {
   attentionRequested = false;
@@ -172,7 +175,7 @@ window.addEventListener("focus", () => {
 });
 void onPlayerNotificationClick(({ eventId, join }) => {
   const event = arrivalById(eventId);
-  if (event) requestOpenArrival(event, { join: join === true });
+  if (event) intents.openServer({ ...arrivalTarget(event), join: join === true });
 });
 // Snoozed from a pop-up: arrivals still reach the bell, without a pop-up or notification.
 let snoozedUntil = 0;
@@ -356,63 +359,73 @@ function arrivalEntry(event) {
       el("button", {
         type: "button",
         className: "btn btn--sm",
-        onclick: () => requestOpenArrival(event),
+        onclick: () => intents.openServer(arrivalTarget(event)),
       }, "Show"),
       el("button", {
         type: "button",
         className: "btn btn--sm btn--primary",
-        onclick: () => requestOpenArrival(event, { join: true }),
+        onclick: () => intents.openServer({ ...arrivalTarget(event), join: true }),
       }, "Join"),
     ),
   );
 }
 
-function requestOpenArrival(event, { join = false } = {}) {
-  pendingArrival = { event, join };
+/** The server an arrival happened on, in the shape `openServer` takes. */
+function arrivalTarget(event) {
+  return { game: event.game, address: event.address, queryPort: event.queryPort, hostname: event.hostname };
+}
+
+/**
+ * Bring one server to the front: switch to its game, wait out a running sweep, ask it again,
+ * then reveal and select it, and with `join` go on as a double-click would. A second request
+ * made while one is under way replaces it.
+ */
+function openServer({ game, address, queryPort, hostname, join = false }) {
+  pendingOpen = { game, address, queryPort, hostname, join };
   closeDialog();
   closePopover();
   void focusReveille().catch(() => {});
-  void openPendingArrival();
+  void openPending();
 }
 
-async function openPendingArrival() {
-  if (openingArrival || !pendingArrival || state.browse.running || state.joining) return;
-  openingArrival = true;
-  const pending = pendingArrival;
-  const { event } = pending;
-  pendingArrival = null;
+async function openPending() {
+  if (opening || !pendingOpen || state.browse.running || state.joining) return;
+  opening = true;
+  const pending = pendingOpen;
+  const { game, address, queryPort, hostname } = pending;
+  pendingOpen = null;
   try {
-    if (!state.install || !playableGames(state.install).includes(event.game)) {
+    if (!state.install || !playableGames(state.install).includes(game)) {
       openDialog("Server unavailable", el("p", null,
-        `${event.hostname} (${event.address}) requires ${GAME_LABELS[event.game]}.`));
+        `${hostname} (${address}) requires ${GAME_LABELS[game]}.`));
       return;
     }
-    if (state.game !== event.game) await selectGame(event.game);
+    if (state.game !== game) await selectGame(game);
     if (state.browse.running) await browseFinished();
-    if (state.game !== event.game || state.joining) {
-      pendingArrival = pending;
+    if (state.game !== game || state.joining) {
+      pendingOpen = pending;
       return;
     }
-    const checked = await check({ address: event.address, queryPort: event.queryPort });
-    if (pendingArrival) return;
-    if (checked?.address === event.address && state.game === event.game) {
-      servers.reveal(event.address);
-      select(event.address);
+    const checked = await check({ address, queryPort });
+    if (pendingOpen) return;
+    if (checked?.address === address && state.game === game) {
+      servers.reveal(address);
+      select(address);
       if (pending.join && occupancy(checked.server).clients === 0) {
         openDialog("No players right now", el("p", null,
-          `${event.hostname} has no players right now. It is selected in the list if you still want to join.`));
+          `${hostname} has no players right now. It is selected in the list if you still want to join.`));
       } else if (pending.join) {
         // Join goes through the same path as a double-click, so a server that needs downloads
         // stops on its priced button rather than fetching anything.
-        activate(event.address);
+        activate(address);
       }
     } else {
       openDialog("Server unavailable", el("p", null,
-        `${event.hostname} (${event.address}) is no longer answering.`));
+        `${hostname} (${address}) is no longer answering.`));
     }
   } finally {
-    openingArrival = false;
-    if (pendingArrival) queueMicrotask(() => void openPendingArrival());
+    opening = false;
+    if (pendingOpen) queueMicrotask(() => void openPending());
   }
 }
 
@@ -565,8 +578,8 @@ function renderTrayTooltip() {
 
 function render() {
   renderArrivalBadge();
-  if (pendingArrival && !openingArrival && !state.browse.running && !state.joining) {
-    queueMicrotask(() => void openPendingArrival());
+  if (pendingOpen && !opening && !state.browse.running && !state.joining) {
+    queueMicrotask(() => void openPending());
   }
   const ready = Boolean(state.install);
   shell.classList.toggle("hidden", !ready);
@@ -806,7 +819,7 @@ document.addEventListener("keydown", (event) => {
     servers.focusFirstRow();
   } else if (event.key === "F5" || (findOrRefreshModifier && event.key.toLowerCase() === "r")) {
     event.preventDefault();
-    if (!state.browse.running) refresh();
+    if (!state.browse.running) intents.refresh();
   } else if ((event.key === "f" || event.key === "F") && !typing && plain) {
     const row = selectedRow();
     if (!row) return;
@@ -817,7 +830,7 @@ document.addEventListener("keydown", (event) => {
     const row = selectedRow();
     if (!row) return;
     event.preventDefault();
-    void togglePlayerAlert(row);
+    void intents.togglePlayerAlert(row);
   } else if ((event.key === "r" || event.key === "R") && !typing && plain) {
     // Plain R re-asks the selected server; Ctrl+R or Command+R, handled above, re-asks the whole
     // list. The modifier is the difference between one probe and a couple of hundred.
