@@ -31,12 +31,12 @@ mod logs;
 mod notice;
 mod popup;
 mod self_update;
+mod servers;
 mod session;
 mod telemetry;
 mod tray;
 
 use std::collections::HashSet;
-use std::io;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -46,35 +46,26 @@ use reveille_core::content::{
     self, CatalogueCandidate, CatalogueNonResultReason, CatalogueResolutionPass, DownloadProgress,
     PakRadarDownloadProgress, PakRadarEntry, PakRadarPackageStatus, ResolutionOutcome, WantedMap,
 };
-use reveille_core::discovery::{
-    self, BrowseConfig, BrowseEvent, BrowseSummary, DiscoveryError, MasterEndpoint, NonResult,
-    NonResultReason, ProbeStage, QueryPort, RequestError, Server, TargetGame,
-};
+use reveille_core::discovery::{self, MasterEndpoint, QueryPort, Server, TargetGame};
 use reveille_core::engine::EngineChoice;
 use reveille_core::install;
 use reveille_core::join::{
     CompatibilityAssessment, CompatibilityState, CurrentMapReadiness, FsGame, LaunchCommand,
     LaunchProfile,
 };
-use reveille_core::mapindex::{MapIndex, MapKey};
+use reveille_core::mapindex::MapKey;
 use reveille_platform as platform;
 use serde::Serialize;
-use session::{Session, SessionError, installed_maps, session_installation, session_search_path};
+use servers::PROBE_TIMEOUT;
+use servers::check::answered_for_another_game;
+use session::{Session, installed_maps, session_installation, session_search_path};
 use tauri::{Emitter, Manager};
-use telemetry::{BrowseFailureKind, DownloadSource, Event, JoinFailureReason, Telemetry};
-use tokio::sync::{Notify, mpsc};
+use telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry};
 use tracing::{info, warn};
 
 /// Events the frontend listens for, kept together so the contract reads in one place.
-const BROWSE_EVENT: &str = "reveille://browse";
 const PREVIEW_EVENT: &str = "reveille://preview";
 const INSTALL_EVENT: &str = "reveille://install";
-
-/// Deadline for one per-server UDP probe.
-///
-/// The sweep and the single-server check share it deliberately: a remembered server checked on a
-/// gentler deadline than the sweep uses would be listed on terms the list itself never offered.
-const PROBE_TIMEOUT: Duration = Duration::from_millis(2_500);
 
 /// Bytes between download progress emissions. A 24 MB shopping list produces a few hundred events
 /// rather than tens of thousands.
@@ -82,10 +73,6 @@ const DOWNLOAD_EVENT_STRIDE: u64 = 256 * 1024;
 
 #[derive(Default)]
 struct AppState {
-    /// The servers behind the current list, keyed on by address when a join is prepared.
-    servers: Mutex<Vec<Server>>,
-    /// Raised to stop an in-flight sweep.
-    cancel_browse: Notify,
     /// The most recent join preview, reused so a launch does not repeat the catalogue pass.
     preview: Mutex<Option<CachedPreview>>,
 }
@@ -95,53 +82,6 @@ struct CachedPreview {
     engine: EngineChoice,
     game: TargetGame,
     preview: JoinPreview,
-}
-
-#[derive(Serialize)]
-struct BrowserPayload {
-    servers: Vec<BrowserServer>,
-    summary: BrowseSummary,
-    non_results: Vec<NonResultGroup>,
-    cancelled: bool,
-}
-
-#[derive(Clone, Serialize)]
-struct BrowserServer {
-    address: SocketAddrV4,
-    server: Server,
-    compatibility: CompatibilityAssessment,
-}
-
-/// What checking one remembered server found.
-///
-/// Never an error and never an empty success: either the server answered and is now joinable, or
-/// the reason it did not is recorded.
-#[derive(Serialize)]
-struct CheckResult {
-    row: Option<BrowserServer>,
-    non_result: Option<NonResultGroup>,
-    /// The server answered, but for another of the three games.
-    other_game: Option<TargetGame>,
-}
-
-/// Recorded non-results grouped for display. Individual reasons stay distinguishable; only the
-/// repetition is collapsed.
-#[derive(Serialize)]
-struct NonResultGroup {
-    stage: ProbeStage,
-    reason: &'static str,
-    detail: Option<String>,
-    count: usize,
-}
-
-#[derive(Clone, Serialize)]
-struct BrowseProgress {
-    registered: usize,
-    inspected: usize,
-    probed: usize,
-    answered: usize,
-    non_results: usize,
-    row: Option<BrowserServer>,
 }
 
 #[derive(Clone, Serialize)]
@@ -230,330 +170,6 @@ struct JoinResult {
     outcome: LaunchOutcome,
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct BrowseFailure {
-    kind: BrowseFailureKind,
-    detail: String,
-}
-
-/// Separate I/O failures that establish a local networking problem from failures that can be the
-/// remote master's doing. `RequestError::Network` is shared by TCP connect/read/write and the
-/// per-server UDP path, so treating the whole variant as "this PC is offline" invents a cause.
-fn classify_master_network_error(error: &io::Error) -> BrowseFailureKind {
-    use io::ErrorKind;
-
-    match error.kind() {
-        ErrorKind::PermissionDenied
-        | ErrorKind::AddrNotAvailable
-        | ErrorKind::NetworkUnreachable
-        | ErrorKind::HostUnreachable => BrowseFailureKind::NoNetwork,
-        _ => BrowseFailureKind::MasterUnreachable,
-    }
-}
-
-impl From<DiscoveryError> for BrowseFailure {
-    fn from(error: DiscoveryError) -> Self {
-        use BrowseFailureKind as Kind;
-
-        let kind = match &error {
-            DiscoveryError::Master { source, .. } => match source {
-                RequestError::Network(source) => classify_master_network_error(source),
-                RequestError::Timeout => Kind::MasterUnreachable,
-                RequestError::Parse(_)
-                | RequestError::EmptyMasterGreeting
-                | RequestError::MasterResponseTooLarge => Kind::MasterUnreadable,
-                // Encoding the validation cannot fail on any input this crate supplies, so a
-                // failure here is a bug in Reveille and not a fact about the network.
-                RequestError::Crypto(_) => Kind::Internal,
-            },
-            DiscoveryError::Task(_) => Kind::Internal,
-        };
-        Self {
-            kind,
-            detail: error.to_string(),
-        }
-    }
-}
-
-impl From<SessionError> for BrowseFailure {
-    fn from(error: SessionError) -> Self {
-        let kind = match &error {
-            SessionError::Folder(_) | SessionError::GameMissing(_) => {
-                BrowseFailureKind::GameUnavailable
-            }
-            SessionError::Engine(_) => BrowseFailureKind::EngineUnavailable,
-            SessionError::Maps(_) => BrowseFailureKind::MapsUnreadable,
-        };
-        Self {
-            kind,
-            detail: error.to_string(),
-        }
-    }
-}
-
-/// Every other way `browse_servers` can stop: a poisoned lock or a sweep that did not finish. These
-/// carry their own message and are not classified as anything about the network.
-impl From<String> for BrowseFailure {
-    fn from(detail: String) -> Self {
-        Self {
-            kind: BrowseFailureKind::Internal,
-            detail,
-        }
-    }
-}
-
-/// Stop the sweep currently running, if any. Servers already probed are kept.
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn cancel_browse(state: tauri::State<'_, AppState>) {
-    info!("browse cancellation requested");
-    state.cancel_browse.notify_one();
-}
-
-#[tauri::command]
-async fn browse_servers(
-    session: Session,
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    telemetry: tauri::State<'_, Telemetry>,
-) -> Result<BrowserPayload, BrowseFailure> {
-    let (game, engine) = (session.game, session.engine);
-    let result = sweep_servers(session, app, state).await;
-    telemetry.track(&match &result {
-        Ok(payload) => Event::ServerListLoaded {
-            game,
-            engine,
-            server_count: payload.servers.len(),
-            cancelled: payload.cancelled,
-        },
-        Err(failure) => Event::ServerListFailed {
-            game,
-            engine,
-            reason: failure.kind,
-        },
-    });
-    result
-}
-
-async fn sweep_servers(
-    session: Session,
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<BrowserPayload, BrowseFailure> {
-    info!(game = ?session.game, "starting server browse");
-    let index = installed_maps(&session)?;
-
-    // A stop pressed just as the previous sweep ended leaves a permit behind, which would cancel
-    // this one before it probed anything. Consume it: polling `notified` once resolves immediately
-    // when a permit is stored and times out otherwise.
-    drop(tokio::time::timeout(Duration::ZERO, state.cancel_browse.notified()).await);
-    // Rows are offered to the player as they stream, so a join prepared mid-sweep must be able to
-    // find its server. The list is rebuilt from the authoritative report when the sweep ends.
-    state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?
-        .clear();
-
-    let (sink, mut events) = mpsc::channel(64);
-    let sweep = tokio::spawn(discovery::browse_streaming(
-        BrowseConfig {
-            target: session.game,
-            limit: None,
-            concurrency: 16,
-            master_timeout: Duration::from_secs(15),
-            probe_timeout: PROBE_TIMEOUT,
-        },
-        sink,
-    ));
-
-    let cancelled = stream_sweep(&app, &state, &index, &mut events).await?;
-    // Dropping the receiver is what stops the sweep. It returns what it already inspected.
-    drop(events);
-
-    let report = sweep
-        .await
-        .map_err(|error| BrowseFailure::from(format!("the server sweep did not finish: {error}")))?
-        .map_err(BrowseFailure::from)?;
-    info!(
-        registered = report.summary().registered,
-        inspected = report.summary().inspected,
-        non_results = report.summary().non_results,
-        cancelled,
-        "server browse finished"
-    );
-    let servers = report
-        .outcomes
-        .iter()
-        .filter_map(|outcome| outcome.server.clone())
-        .collect::<Vec<_>>();
-    let mut rows = servers
-        .iter()
-        .map(|server| classified(server, &index))
-        .collect::<Vec<_>>();
-    // Ordered by the only quantity a server actually reports about its population.
-    rows.sort_by_key(|row| {
-        std::cmp::Reverse(
-            row.server
-                .occupancy
-                .clients_reported
-                .map_or(0, discovery::ClientsReported::get),
-        )
-    });
-    *state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())? = servers;
-
-    Ok(BrowserPayload {
-        servers: rows,
-        summary: report.summary(),
-        non_results: group_non_results(
-            report
-                .outcomes
-                .iter()
-                .filter_map(|outcome| outcome.non_result.as_ref()),
-        ),
-        cancelled,
-    })
-}
-
-/// Relay sweep events to the frontend until the sweep ends or the player stops it.
-///
-/// Answered servers land in the shared list as they arrive, because a player can select a row while
-/// the sweep is still running and preparing that join has to be able to find the server.
-///
-/// Returns whether the sweep was stopped early.
-async fn stream_sweep(
-    app: &tauri::AppHandle,
-    state: &tauri::State<'_, AppState>,
-    index: &MapIndex,
-    events: &mut mpsc::Receiver<BrowseEvent>,
-) -> Result<bool, String> {
-    let mut progress = BrowseProgress {
-        registered: 0,
-        inspected: 0,
-        probed: 0,
-        answered: 0,
-        non_results: 0,
-        row: None,
-    };
-    loop {
-        let event = tokio::select! {
-            event = events.recv() => event,
-            () = state.cancel_browse.notified() => {
-                info!("stopped streaming browse events after cancellation");
-                return Ok(true);
-            },
-        };
-        let Some(event) = event else {
-            info!("finished streaming browse events");
-            return Ok(false);
-        };
-        match event {
-            BrowseEvent::Registered {
-                registered,
-                inspected,
-            } => {
-                progress.registered = registered;
-                progress.inspected = inspected;
-                progress.row = None;
-            }
-            BrowseEvent::Outcome(outcome) => {
-                progress.probed += 1;
-                progress.row = outcome
-                    .server
-                    .as_ref()
-                    .map(|server| classified(server, index));
-                if let Some(server) = outcome.server {
-                    progress.answered += 1;
-                    state
-                        .servers
-                        .lock()
-                        .map_err(|_| "server list state is unavailable".to_owned())?
-                        .push(server);
-                } else {
-                    progress.non_results += 1;
-                }
-            }
-        }
-        // A frontend that stopped listening is not an error; the sweep result is still worth having.
-        drop(app.emit(BROWSE_EVENT, progress.clone()));
-    }
-}
-
-/// Check one remembered server directly, with no master list involved.
-///
-/// A favorite is often not in the current sweep — the master never registered it, or it did not
-/// answer in time. Without this the bookmark would be a dead row: `install_and_launch` resolves
-/// its target out of the sweep's list, so a server missing from that list cannot be joined at all.
-/// A server that answers here is merged into the same list and becomes joinable like any other.
-#[tauri::command]
-async fn check_server(
-    session: Session,
-    address: String,
-    query_port: u16,
-    state: tauri::State<'_, AppState>,
-) -> Result<CheckResult, String> {
-    info!(%address, query_port, game = ?session.game, "checking saved server");
-    let address = address
-        .parse::<SocketAddrV4>()
-        .map_err(|error| format!("Reveille could not read the address {address}: {error}"))?;
-    let index = installed_maps(&session)?;
-    let endpoint = MasterEndpoint {
-        address: *address.ip(),
-        query_port: QueryPort::new(query_port),
-    };
-    let outcome = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT).await;
-
-    let Some(server) = outcome.server else {
-        // Not an error. Why it did not answer is what the player asked for.
-        //
-        // The entry goes with it. This list is what `find_server` prepares a join from, and a check
-        // that ran and got no answer is evidence about now that outranks whatever the sweep saw —
-        // the same reason the shell drops the row. Leaving it would keep a join
-        // preparable from figures the interface has already withdrawn.
-        forget_checked_server(&state, address)?;
-        return Ok(CheckResult {
-            row: None,
-            non_result: outcome
-                .non_result
-                .as_ref()
-                .and_then(|non_result| group_non_results(std::iter::once(non_result)).pop()),
-            other_game: None,
-        });
-    };
-    if let Some(published) = answered_for_another_game(&server, session.game) {
-        info!(published_game = ?published, "checked server answered for another game");
-        // It answered, for a game this session's client cannot join. Not a joinable entry either.
-        forget_checked_server(&state, address)?;
-        return Ok(CheckResult {
-            row: None,
-            non_result: None,
-            other_game: Some(published),
-        });
-    }
-    // The server publishes its own `hostport`, so a server that moved answers at an address other
-    // than the remembered one. The row carries the address it actually answered at; repointing the
-    // bookmark at it would be a guess about whether it is the same server.
-    let row = classified(&server, &index);
-    let mut servers = state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?;
-    merge_checked_server(&mut servers, server);
-    drop(servers);
-    info!("checked server answered and was merged into active list");
-    Ok(CheckResult {
-        row: Some(row),
-        non_result: None,
-        other_game: None,
-    })
-}
-
 /// Whether a game client is running now; null when the process list cannot be read.
 #[tauri::command]
 async fn game_client_running() -> Option<bool> {
@@ -612,50 +228,6 @@ async fn read_watched_server(
     })
 }
 
-/// The family a checked server belongs to, when it is not this session's.
-///
-/// A bookmark is an address, so it outlives the game it was starred under. A server that answers
-/// for another family is real and reachable and still cannot be joined from this session: the
-/// client this session launches speaks a different protocol and would be dropped at connect. A
-/// server that publishes no family at all is not guessed about — it is listed, exactly as the
-/// sweep would have listed it.
-fn answered_for_another_game(server: &Server, game: TargetGame) -> Option<TargetGame> {
-    server
-        .game_name
-        .as_deref()
-        .and_then(TargetGame::from_game_name)
-        .filter(|published| *published != game)
-}
-
-/// Merge a freshly checked server into the current list, replacing any entry for the same game
-/// endpoint.
-///
-/// Appending would leave `find_server` resolving whichever copy it reached first, so a join could
-/// be prepared from figures this check has already superseded.
-fn merge_checked_server(servers: &mut Vec<Server>, server: Server) {
-    let endpoint = (server.endpoint.address, server.game_port);
-    servers.retain(|existing| (existing.endpoint.address, existing.game_port) != endpoint);
-    servers.push(server);
-}
-
-/// Drop the entry for a game endpoint a check has just found nothing at.
-///
-/// Deliberately keyed on the game address the check was asked about, not on the query port: the
-/// caller asked about one join target and learned that it is not there.
-fn forget_checked_server(
-    state: &tauri::State<'_, AppState>,
-    address: SocketAddrV4,
-) -> Result<(), String> {
-    let mut servers = state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?;
-    servers.retain(|existing| {
-        (existing.endpoint.address, existing.game_port.get()) != (*address.ip(), address.port())
-    });
-    Ok(())
-}
-
 /// Resolve where downloaded content goes for this session, and nothing else.
 ///
 /// Called exactly once, and only after a shopping list proves this join will write a file. The
@@ -670,57 +242,16 @@ fn install_destination(session: &Session) -> Result<platform::InstallTarget, Str
     .map_err(|error| error.to_string())
 }
 
-fn classified(server: &Server, index: &MapIndex) -> BrowserServer {
-    BrowserServer {
-        address: SocketAddrV4::new(server.endpoint.address, server.game_port.get()),
-        compatibility: reveille_core::join::classify_server(index, server, None),
-        server: server.clone(),
-    }
-}
-
-fn group_non_results<'a>(non_results: impl Iterator<Item = &'a NonResult>) -> Vec<NonResultGroup> {
-    let mut groups: Vec<NonResultGroup> = Vec::new();
-    for non_result in non_results {
-        let (reason, detail) = describe_non_result(&non_result.reason);
-        if let Some(group) = groups
-            .iter_mut()
-            .find(|group| group.stage == non_result.stage && group.reason == reason)
-        {
-            group.count += 1;
-            continue;
-        }
-        groups.push(NonResultGroup {
-            stage: non_result.stage,
-            reason,
-            detail,
-            count: 1,
-        });
-    }
-    groups.sort_by_key(|group| std::cmp::Reverse(group.count));
-    groups
-}
-
-fn describe_non_result(reason: &NonResultReason) -> (&'static str, Option<String>) {
-    match reason {
-        NonResultReason::Timeout => ("timeout", None),
-        NonResultReason::Network { message } => ("network", Some(message.clone())),
-        NonResultReason::Malformed { message } => ("malformed", Some(message.clone())),
-        NonResultReason::MissingHostPort => ("missing_host_port", None),
-        NonResultReason::DuplicateEndpoint { game_port } => {
-            ("duplicate_endpoint", Some(game_port.get().to_string()))
-        }
-    }
-}
-
 #[tauri::command]
 async fn preview_join(
     session: Session,
     address: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    listing: tauri::State<'_, servers::Listing>,
 ) -> Result<JoinPreview, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "building join preview");
-    let server = find_server(&state, &address)?;
+    let server = listing.find(&address)?;
     let preview = build_preview(&session, server, Some(&app)).await?;
     cache_preview(&state, &session, preview.clone());
     Ok(preview)
@@ -732,10 +263,11 @@ async fn install_server_files(
     address: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    listing: tauri::State<'_, servers::Listing>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<ServerFilesResult, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "installing server files");
-    let server = find_server(&state, &address)?;
+    let server = listing.find(&address)?;
     let search_path = session_search_path(&session)?;
     let pakradar = build_pakradar_preview(&server, &search_path)
         .await
@@ -783,6 +315,10 @@ async fn install_server_files(
 }
 
 #[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri commands take each managed state as its own parameter"
+)]
 async fn install_and_launch(
     session: Session,
     address: String,
@@ -790,6 +326,7 @@ async fn install_and_launch(
     accept_incomplete: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    listing: tauri::State<'_, servers::Listing>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<JoinResult, String> {
     let (game, engine) = (session.game, session.engine);
@@ -805,6 +342,7 @@ async fn install_and_launch(
         accept_incomplete,
         &app,
         &state,
+        &listing,
         &telemetry,
     )
     .await;
@@ -847,6 +385,10 @@ fn failed<E: ToString>(reason: JoinFailureReason) -> impl FnOnce(E) -> JoinFailu
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one join: what the player chose, the states it reads, and where it reports"
+)]
 async fn join_and_launch(
     session: Session,
     address: String,
@@ -854,6 +396,7 @@ async fn join_and_launch(
     accept_incomplete: bool,
     app: &tauri::AppHandle,
     state: &tauri::State<'_, AppState>,
+    listing: &servers::Listing,
     telemetry: &Telemetry,
 ) -> Result<JoinResult, JoinFailure> {
     info!(
@@ -864,7 +407,9 @@ async fn join_and_launch(
         engine = ?session.engine,
         "starting install-and-launch flow"
     );
-    let server = find_server(state, &address).map_err(failed(JoinFailureReason::ServerGone))?;
+    let server = listing
+        .find(&address)
+        .map_err(failed(JoinFailureReason::ServerGone))?;
     let preview = match take_cached_preview(state, &session, &address) {
         Some(preview) => preview,
         None => build_preview(&session, server.clone(), Some(app))
@@ -1310,24 +855,6 @@ fn preview_cache_matches(
         && cached_engine == requested_engine
 }
 
-fn find_server(state: &tauri::State<'_, AppState>, address: &str) -> Result<Server, String> {
-    let address = address
-        .parse::<SocketAddrV4>()
-        .map_err(|error| format!("Reveille could not read the address {address}: {error}"))?;
-    state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?
-        .iter()
-        .find(|server| {
-            SocketAddrV4::new(server.endpoint.address, server.game_port.get()) == address
-        })
-        .cloned()
-        .ok_or_else(|| {
-            "This server is no longer in the current list. Refresh and try again.".to_owned()
-        })
-}
-
 async fn build_preview(
     session: &Session,
     server: Server,
@@ -1578,6 +1105,7 @@ fn main() {
             }
             installation::register(app);
             engines::register(app);
+            servers::register(app);
             self_update::register(app);
             Ok(())
         })
@@ -1597,9 +1125,9 @@ fn main() {
             installation::copy::copy_game_installation,
             installation::copy::cancel_game_installation_copy,
             installation::pick_install_folder,
-            cancel_browse,
-            browse_servers,
-            check_server,
+            servers::browse::cancel_browse,
+            servers::browse::browse_servers,
+            servers::check::check_server,
             read_watched_server,
             game_client_running,
             notice::send_player_notification,
@@ -1631,8 +1159,6 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::io;
     use std::path::Path;
 
     use reveille_core::bsp::Checksum;
@@ -1640,20 +1166,15 @@ mod tests {
         CatalogueCandidate, CatalogueResolution, CatalogueResolutionPass, FileSize,
         ResolutionOutcome, WantedMap,
     };
-    use reveille_core::discovery::ParseError;
     use reveille_core::join::{
         CompatibilityAssessment, CompatibilityState, CurrentMapReadiness, MapsNeeded,
     };
     use reveille_core::mapindex::MapKey;
     use reveille_core::preflight::{MapResult, MapStatus, Report, Verdict};
-    use tempfile::TempDir;
 
     use super::{
-        BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError, EngineChoice,
-        JoinFailureReason, MasterEndpoint, QueryPort, RequestError, Server, Session, TargetGame,
-        answered_for_another_game, catalogue_reason, failed, installed_maps, launch_refusal,
-        merge_checked_server, platform, preview_cache_matches, refusal_reason,
-        shopping_list_will_write,
+        CatalogueNonResultReason, JoinFailureReason, catalogue_reason, failed, launch_refusal,
+        preview_cache_matches, refusal_reason, shopping_list_will_write,
     };
 
     fn assessment(
@@ -1674,48 +1195,6 @@ mod tests {
             }),
             current_map,
         }
-    }
-
-    #[test]
-    fn a_saved_session_that_no_longer_fits_the_pc_is_not_reported_as_internal() {
-        let temporary = TempDir::new().expect("temporary directory");
-        fs::create_dir(temporary.path().join("main")).expect("main directory");
-        fs::write(
-            platform::default_client(
-                temporary.path(),
-                TargetGame::AlliedAssault,
-                platform::ClientKind::OpenMohaa,
-            ),
-            [],
-        )
-        .expect("client marker");
-        let path = temporary.path().to_string_lossy().into_owned();
-        let browse_kind = |path: &str, engine, game| {
-            let error = installed_maps(&Session {
-                path: path.to_owned(),
-                engine,
-                game,
-            })
-            .expect_err("the session is refused");
-            BrowseFailure::from(error).kind
-        };
-
-        assert_eq!(
-            browse_kind(
-                &temporary.path().join("moved").to_string_lossy(),
-                EngineChoice::Openmohaa,
-                TargetGame::AlliedAssault,
-            ),
-            BrowseFailureKind::GameUnavailable
-        );
-        assert_eq!(
-            browse_kind(&path, EngineChoice::Openmohaa, TargetGame::Spearhead),
-            BrowseFailureKind::GameUnavailable
-        );
-        assert_eq!(
-            browse_kind(&path, EngineChoice::Reborn, TargetGame::AlliedAssault),
-            BrowseFailureKind::EngineUnavailable
-        );
     }
 
     fn catalogue_candidate(id: u64) -> CatalogueCandidate {
@@ -1770,113 +1249,6 @@ mod tests {
             }),
             &std::collections::HashSet::new(),
         ));
-    }
-
-    /// The minimum of a `Server` this test needs: the two fields that identify a game endpoint,
-    /// plus a hostname to tell two answers apart.
-    fn probed(address: &str, query_port: u16, game_port: u16, hostname: &str) -> Server {
-        Server {
-            endpoint: MasterEndpoint {
-                address: address.parse().expect("address"),
-                query_port: QueryPort::new(query_port),
-            },
-            game_port: reveille_core::discovery::GamePort::new(game_port),
-            hostname: hostname.to_owned(),
-            game_name: None,
-            game_version: None,
-            version: None,
-            protocol: None,
-            current_map: None,
-            game_type: None,
-            rotation: Vec::new(),
-            allow_download: None,
-            map_checksum: None,
-            pr_downloads: None,
-            minimum_ping: None,
-            maximum_ping: None,
-            join_window: None,
-            reserved_slots: None,
-            occupancy: reveille_core::discovery::ReportedOccupancy::default(),
-            client_capacity: None,
-            players: Vec::new(),
-            pure: None,
-            status_round_trip: reveille_core::discovery::RoundTripMillis::new(12),
-        }
-    }
-
-    #[test]
-    fn a_checked_server_from_another_game_is_named_rather_than_listed() {
-        let mut server = probed("10.0.0.1", 12300, 12203, "a Spearhead server");
-        server.game_name = Some("mohaas".to_owned());
-
-        // Browsing Spearhead, this is an ordinary row.
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::Spearhead),
-            None
-        );
-        // Browsing Allied Assault, it answered — for something this session cannot join.
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            Some(TargetGame::Spearhead)
-        );
-
-        // A server that publishes no family is not guessed about. The sweep would have listed it,
-        // and so does a check.
-        server.game_name = None;
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            None
-        );
-        // Neither is one whose family is not a MOHAA family at all.
-        server.game_name = Some("quake3".to_owned());
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            None
-        );
-    }
-
-    #[test]
-    fn checking_a_server_replaces_its_entry_rather_than_adding_a_second() {
-        let mut servers = vec![
-            probed("10.0.0.1", 12300, 12203, "stale"),
-            probed("10.0.0.2", 12300, 12203, "another server"),
-        ];
-
-        merge_checked_server(&mut servers, probed("10.0.0.1", 12300, 12203, "fresh"));
-
-        assert_eq!(servers.len(), 2);
-        // `find_server` takes the first match, so a stale copy left behind would be the one a join
-        // is prepared from.
-        assert!(servers.iter().all(|server| server.hostname != "stale"));
-        assert!(servers.iter().any(|server| server.hostname == "fresh"));
-        assert!(
-            servers
-                .iter()
-                .any(|server| server.hostname == "another server")
-        );
-    }
-
-    #[test]
-    fn a_server_reregistered_under_a_new_query_port_leaves_no_duplicate_game_endpoint() {
-        // The master can hand out a different query port for the same server. Identity is the
-        // game endpoint, because that is what a join connects to.
-        let mut servers = vec![probed("10.0.0.1", 12300, 12203, "stale")];
-
-        merge_checked_server(&mut servers, probed("10.0.0.1", 12400, 12203, "fresh"));
-
-        assert_eq!(servers.len(), 1);
-        assert_eq!(servers[0].hostname, "fresh");
-    }
-
-    #[test]
-    fn a_server_that_moved_to_another_game_port_is_kept_alongside_the_old_entry() {
-        // Different game endpoint, so it is a different join target. Collapsing the two would be
-        // a guess that the server merely moved rather than that a second one exists.
-        let mut servers = vec![probed("10.0.0.1", 12300, 12203, "old port")];
-
-        merge_checked_server(&mut servers, probed("10.0.0.1", 12300, 12204, "new port"));
-
-        assert_eq!(servers.len(), 2);
     }
 
     #[test]
@@ -1982,54 +1354,6 @@ mod tests {
             failure.message,
             "This server is no longer in the current list."
         );
-    }
-
-    #[test]
-    fn a_sweep_failure_says_which_of_the_four_things_went_wrong() {
-        // The whole point of classifying here rather than in JavaScript: a local networking
-        // failure, a master that is down, and a master whose reply was truncated are different
-        // situations, and matching on message text is how they became one unreadable line in the
-        // status bar.
-        let unreadable = BrowseFailure::from(DiscoveryError::Master {
-            target: TargetGame::AlliedAssault,
-            source: RequestError::Parse(ParseError::MisalignedMasterBody { length: 42 }),
-        });
-        assert_eq!(unreadable.kind, BrowseFailureKind::MasterUnreadable);
-
-        let silent = BrowseFailure::from(DiscoveryError::Master {
-            target: TargetGame::AlliedAssault,
-            source: RequestError::Timeout,
-        });
-        assert_eq!(silent.kind, BrowseFailureKind::MasterUnreachable);
-
-        let offline = BrowseFailure::from(DiscoveryError::Master {
-            target: TargetGame::AlliedAssault,
-            source: RequestError::Network(io::Error::from(io::ErrorKind::PermissionDenied)),
-        });
-        assert_eq!(offline.kind, BrowseFailureKind::NoNetwork);
-
-        // Refusal and reset are observations about the remote TCP exchange, not evidence that the
-        // player's PC is offline. Both used to be folded into `NoNetwork` with every other I/O
-        // error because `fetch_master` wraps connect, read, and write failures in one variant.
-        let master_io_failure = |kind| {
-            BrowseFailure::from(DiscoveryError::Master {
-                target: TargetGame::AlliedAssault,
-                source: RequestError::Network(io::Error::from(kind)),
-            })
-            .kind
-        };
-        assert_eq!(
-            master_io_failure(io::ErrorKind::ConnectionRefused),
-            BrowseFailureKind::MasterUnreachable
-        );
-        assert_eq!(
-            master_io_failure(io::ErrorKind::ConnectionReset),
-            BrowseFailureKind::MasterUnreachable
-        );
-
-        // Whatever the classification, the original message survives for a bug report. It is
-        // simply no longer the only thing the player is given.
-        assert!(unreadable.detail.contains("42"));
     }
 
     #[test]
