@@ -13,6 +13,9 @@ installStorage();
 const bridge = installTauri();
 const store = await import("../../ui/lib/store.js");
 const { setupView } = await import("../../ui/views/setup.js");
+const { initial: selfUpdateState } = await import("../../ui/features/self-update/index.js");
+// Setup offers the self-update button, so it reads that feature's state the way app.js composes it.
+store.composeState([selfUpdateState()]);
 
 const INSTALL = { root: "C:\\Games\\MOHAA", products: GAMES, playable: GAMES };
 const MB = 1024 * 1024;

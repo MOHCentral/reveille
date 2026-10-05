@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One state object and a subscribe/notify pair. Views read `state` and re-render
-// on change; nothing else holds application state.
+// on change; nothing else holds application state. Each feature declares its keys in an
+// `initial()` part, and `app.js` composes the parts into this object at boot.
 
 import { occupancy, occupancyFill } from "./format.js";
 import { DEFAULT_GAME } from "./catalog.js";
 
 const FILTERS_KEY = "reveille.filters";
 
-export const state = {
-  /** A newer signed Reveille release retained by the Rust updater, when one was found. */
-  selfUpdate: { offer: null, running: false, stopping: false, progress: null, error: null },
-
+/** The keys whose features do not declare them yet. */
+const unowned = () => ({
   /** The identified installation, or null while first run is unresolved. */
   install: null,
   /** Explicit engine choice for this installation. */
@@ -152,7 +151,26 @@ export const state = {
    * Null whenever the list on screen is this session's own answer.
    */
   staleAt: null,
-};
+});
+
+/** Compose parts into one object, refusing a key two parts declare: a shared key has one owner. */
+export function createState(parts) {
+  const composed = {};
+  for (const part of parts) {
+    for (const key of Object.keys(part)) {
+      if (Object.hasOwn(composed, key)) throw new Error(`state.${key} is declared by two parts`);
+    }
+    Object.assign(composed, part);
+  }
+  return composed;
+}
+
+export const state = createState([unowned()]);
+
+/** Add the features' parts to `state`, before anything reads their keys. */
+export function composeState(parts) {
+  Object.assign(state, createState([state, ...parts]));
+}
 
 const subscribers = new Set();
 

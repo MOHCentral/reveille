@@ -35,7 +35,7 @@ import {
   onPreviewProgress,
   previewJoin,
 } from "./features/join/api.js";
-import { selfUpdate } from "./features/self-update/index.js";
+import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
 import {
   browseFailure,
   browseServers,
@@ -78,6 +78,7 @@ import {
   applyCheckNonResult,
   applyCheckedRow,
   canRecheck,
+  composeState,
   countsByAddress,
   droppedIdentity,
   listIsStale,
@@ -107,6 +108,8 @@ import { preferences, setPreference } from "./lib/preferences.js";
 import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
+
+composeState([selfUpdateState()]);
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");

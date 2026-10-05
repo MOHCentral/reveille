@@ -8,6 +8,11 @@ import { state, subscribe, update } from "../../lib/store.js";
 import { cancelReveilleUpdate, checkReveilleUpdate, installReveilleUpdate, onSelfUpdateProgress } from "./api.js";
 import { selfUpdateDialog } from "./dialog.js";
 
+/** A newer signed Reveille release retained by the Rust updater, when one was found. */
+export function initial() {
+  return { selfUpdate: { offer: null, running: false, stopping: false, progress: null, error: null } };
+}
+
 /**
  * Mount the update dialog in `host` and listen for download progress.
  *
