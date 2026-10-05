@@ -27,7 +27,7 @@ import {
   setTrayTooltip,
   showAlertPopup,
 } from "./features/alerts/api.js";
-import { appLogFiles } from "./features/bug-report/api.js";
+import { openBugReport } from "./features/bug-report/index.js";
 import {
   installAndLaunch,
   installServerFiles,
@@ -106,7 +106,6 @@ import { joinView, shoppingTotals } from "./views/join.js";
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");
-const ISSUE_TRACKER_URL = "https://github.com/MOHCentral/reveille/issues/new";
 
 loadFilters();
 state.rememberedInstall = recallInstall();
@@ -606,84 +605,6 @@ function render() {
 function toggleDetail() {
   update((next) => (next.detailCollapsed = !next.detailCollapsed));
   saveFilters();
-}
-
-/* Bug reports -------------------------------------------------------------- */
-
-async function openBugReport() {
-  const logs = await appLogFiles().catch(() => null);
-  const issueUrl = issueUrlWithContext(logs);
-  try {
-    await openExternalUrl(issueUrl);
-    return;
-  } catch {
-    // The URL remains usable even when Windows has no registered browser or opening it is denied.
-  }
-  openDialog(
-    "Report a bug",
-    el("p", null, "Reveille could not open your browser from this window."),
-    el("p", null, "Use this link to open a new issue:"),
-    el("p", { className: "quiet data" }, issueUrl),
-    el(
-      "button",
-      {
-        type: "button",
-        className: "btn btn--sm btn--primary",
-        onclick: () => navigator.clipboard?.writeText(issueUrl).catch(() => {}),
-      },
-      "Copy link",
-    ),
-  );
-}
-
-function issueUrlWithContext(logs) {
-  const params = new URLSearchParams({
-    title: "bug: ",
-    body: issueTemplate(logs),
-  });
-  return `${ISSUE_TRACKER_URL}?${params.toString()}`;
-}
-
-function issueTemplate(logs) {
-  const installRoot = state.install?.root ?? "(not selected)";
-  const selectedServer = state.selected ?? "(none)";
-  const browseError = state.browse.error
-    ? `${state.browse.error.kind}: ${state.browse.error.detail}`
-    : "(none)";
-  const joinError = state.joinError ?? "(none)";
-  const previewError = state.previewError ?? "(none)";
-  return [
-    "## What happened?",
-    "",
-    "<describe the problem>",
-    "",
-    "## What did you expect?",
-    "",
-    "<describe expected behavior>",
-    "",
-    "## Steps to reproduce",
-    "",
-    "1.",
-    "2.",
-    "3.",
-    "",
-    "## Reveille context",
-    "",
-    `- Game folder: ${installRoot}`,
-    `- Game: ${state.game}`,
-    `- Engine: ${state.engine}`,
-    `- Selected server: ${selectedServer}`,
-    `- Browse error: ${browseError}`,
-    `- Preview error: ${previewError}`,
-    `- Join error: ${joinError}`,
-    "",
-    "## Logs",
-    "",
-    logs
-      ? `Attach \`${logs.current}\`. After a crash and restart, also attach \`${logs.previous}\`.`
-      : "Attach the Reveille log from the app's local log folder.",
-    "Set `RUST_LOG=reveille=debug` before starting Reveille for more detail.",
-  ].join("\n");
 }
 
 /* Anonymous statistics ------------------------------------------------------ */

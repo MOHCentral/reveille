@@ -3932,19 +3932,17 @@ mod tests {
 
     #[test]
     fn bug_reports_use_the_scoped_system_opener_and_name_persistent_logs() {
-        // That `openExternalUrl` reaches the opener plugin rather than `window.open` is asserted
-        // behaviourally in `ui-tests/lib/api.test.js`. What stays is the part no JavaScript runtime
-        // can see: the Tauri capability allowlist, the markup and the stylesheet that have to agree
-        // with each other for the control to exist at all.
+        // That a report asks for the log paths and opens the issue through the opener plugin
+        // rather than `window.open` is asserted behaviourally in
+        // `ui-tests/features/bug-report/report.test.js`. What stays is the part no JavaScript
+        // runtime can see: the Tauri capability allowlist, the markup and the stylesheet that have
+        // to agree with each other for the control to exist at all.
         let shell = include_str!("../ui/app.js");
         let setup = include_str!("../ui/views/setup.js");
         let index = include_str!("../ui/index.html");
         let styles = include_str!("../ui/styles/components.css");
         let capability = include_str!("../capabilities/default.json");
 
-        assert!(shell.contains("await openExternalUrl(issueUrl)"));
-        assert!(!shell.contains("window.open("));
-        assert!(shell.contains("await appLogFiles()"));
         assert!(capability.contains("opener:allow-open-url"));
         assert!(capability.contains("https://github.com/MOHCentral/reveille/issues/new*"));
         assert!(setup.contains("btn btn--sm btn--utility"));
