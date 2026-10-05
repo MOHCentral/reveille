@@ -2347,11 +2347,12 @@ mod tests {
     use super::{
         AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError,
         EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation, OpenMohaaFailure,
-        OpenMohaaFailureKind, OpenMohaaInstalledBuild, QueryPort, RequestError, Server, Session,
-        TargetGame, answered_for_another_game, cache_openmohaa_offer, cached_openmohaa_offer,
-        catalogue_reason, failed, installed_maps, installed_openmohaa_build, launch_refusal,
-        merge_checked_server, openmohaa_client_path, platform, preview_cache_matches,
-        record_openmohaa_install, refusal_reason, shopping_list_will_write,
+        OpenMohaaFailureKind, OpenMohaaInstallProgress, OpenMohaaInstalledBuild, QueryPort,
+        RequestError, Server, Session, TargetGame, answered_for_another_game,
+        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, failed, installed_maps,
+        installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
+        platform, preview_cache_matches, record_openmohaa_install, refusal_reason,
+        shopping_list_will_write,
     };
 
     fn assessment(
@@ -2468,6 +2469,28 @@ mod tests {
             }),
             &std::collections::HashSet::new(),
         ));
+    }
+
+    /// Both engine install events carry this payload, and the setup view reads its two fields by
+    /// name, so its shape is part of the frozen IPC contract.
+    #[test]
+    fn engine_download_progress_keeps_its_wire_shape() {
+        assert_eq!(
+            serde_json::to_value(OpenMohaaInstallProgress {
+                received: 512,
+                total: Some(2048),
+            })
+            .expect("serialized progress"),
+            serde_json::json!({ "received": 512, "total": 2048 })
+        );
+        assert_eq!(
+            serde_json::to_value(OpenMohaaInstallProgress {
+                received: 0,
+                total: None,
+            })
+            .expect("serialized progress"),
+            serde_json::json!({ "received": 0, "total": null })
+        );
     }
 
     #[test]
