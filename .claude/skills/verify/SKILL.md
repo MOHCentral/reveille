@@ -17,7 +17,7 @@ frontend build step — editing `crates/reveille-app/ui` and re-running is enoug
 
 The CLI (`just cli --help`, `just discover`, `just scan PATH`) is a second surface, but it
 does **not** cover the engine-install commands — those exist only as Tauri commands
-(`crates/reveille-app/src/main.rs`) reached from `ui/views/setup.js`.
+(`crates/reveille-app/src/main.rs`) reached from `ui/features/setup/view.js`.
 
 ## Driving the window
 

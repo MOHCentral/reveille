@@ -3,17 +3,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { GAMES } from "../../ui/lib/catalog.js";
-import { installDom } from "../fakes/dom.js";
-import { installStorage } from "../fakes/storage.js";
-import { installTauri } from "../fakes/tauri.js";
+import { GAMES } from "../../../ui/lib/catalog.js";
+import { installDom } from "../../fakes/dom.js";
+import { installStorage } from "../../fakes/storage.js";
+import { installTauri } from "../../fakes/tauri.js";
 
 const document = installDom();
 installStorage();
 const bridge = installTauri();
-const store = await import("../../ui/lib/store.js");
-const { setupView } = await import("../../ui/views/setup.js");
-const { initial: selfUpdateState } = await import("../../ui/features/self-update/index.js");
+const store = await import("../../../ui/lib/store.js");
+const { setupView } = await import("../../../ui/features/setup/view.js");
+const { initial: selfUpdateState } = await import("../../../ui/features/self-update/index.js");
 // Setup offers the self-update button, so it reads that feature's state the way app.js composes it.
 store.composeState([selfUpdateState()]);
 

@@ -47,7 +47,7 @@ import {
   rememberGame,
   retireInFlight,
 } from "./lib/session.js";
-import { setupView } from "./views/setup.js";
+import { setupView } from "./features/setup/view.js";
 import { openShortcuts } from "./views/shortcuts.js";
 import { preferences } from "./lib/preferences.js";
 import "./features/alerts/preferences.js";

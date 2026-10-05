@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { el, fill } from "../lib/dom.js";
+import { el, fill } from "../../lib/dom.js";
 import {
   cancelGameInstallationCopy, cancelOpenMohaaInstall, cancelRebornInstall, copyGameInstallation,
   detectInstall, engineOverview, errorText, identifyInstall, installOpenMohaa, installReborn,
   installationStorage, onInstallationCopyProgress, onOpenMohaaInstallProgress,
   onRebornInstallProgress, openMohaaStatus, pickCopyDestination, pickInstallFolder, selectEngine,
-} from "../features/setup/api.js";
-import { ENGINE_LABELS, GAME_LABELS } from "../lib/catalog.js";
-import { bytes, displayPath } from "../lib/format.js";
-import { notify, state } from "../lib/store.js";
+} from "./api.js";
+import { ENGINE_LABELS, GAME_LABELS } from "../../lib/catalog.js";
+import { bytes, displayPath } from "../../lib/format.js";
+import { notify, state } from "../../lib/store.js";
 import {
   defaultGame, migrateInstallationPreferences, playableGames, recallEngine,
   rememberEngine, rememberGame, rememberInstall,
-} from "../lib/session.js";
+} from "../../lib/session.js";
 
 const DESCRIPTIONS = {
   openmohaa: "Open-source rebuild of the game, made for modern Windows and still updated.",

@@ -3501,26 +3501,26 @@ mod tests {
         // nothing was installed, so a player who already had OpenMoHAA could pick Preview, read
         // the newer version off the card, press Continue to servers, and get exactly the binaries
         // they started with — Continue records which engine to launch and installs nothing.
-        let setup = include_str!("../ui/views/setup.js");
+        let setup = include_str!("../ui/features/setup/view.js");
 
         assert!(
             !setup.contains("!isInstalled(\"openmohaa\")")
                 && !setup.contains("!isInstalled(\"reborn\")"),
-            "ui/views/setup.js: an engine action must not be withheld merely because something is installed"
+            "ui/features/setup/view.js: an engine action must not be withheld merely because something is installed"
         );
         // Installing from nothing rides on the setup's own priced primary button; anything
         // already installed keeps a secondary action on its row, whatever build it is.
         assert!(
             setup.contains("return { label: `Install ${name} (${bytes(size)}) and ${verb}`, run: installAndAccept };"),
-            "ui/views/setup.js: a program that is not installed must be installable from the primary action"
+            "ui/features/setup/view.js: a program that is not installed must be installable from the primary action"
         );
         assert!(
             setup.contains("available && isInstalled(\"openmohaa\") && !view.installing && openAction(install, status, render)"),
-            "ui/views/setup.js: an installed OpenMoHAA must keep its action whenever a release is available"
+            "ui/features/setup/view.js: an installed OpenMoHAA must keep its action whenever a release is available"
         );
         assert!(
             setup.contains("isInstalled(\"reborn\") && !view.installing && rebornAction(install, info, build, render)"),
-            "ui/views/setup.js: an installed Reborn must keep its action whatever build it is"
+            "ui/features/setup/view.js: an installed Reborn must keep its action whatever build it is"
         );
 
         // The label states the direction the Rust comparison found, and never guesses one.
@@ -3531,14 +3531,14 @@ mod tests {
         ] {
             assert!(
                 setup.contains(wording),
-                "ui/views/setup.js: the engine action must be named from the receipt comparison — missing {wording}"
+                "ui/features/setup/view.js: the engine action must be named from the receipt comparison — missing {wording}"
             );
         }
 
         // The install can legitimately write nothing, and that is not a success.
         assert!(
             setup.contains("if (result.outcome?.outcome === \"deferred\")"),
-            "ui/views/setup.js: a deferred install must be reported as having changed nothing"
+            "ui/features/setup/view.js: a deferred install must be reported as having changed nothing"
         );
     }
 
@@ -3553,7 +3553,7 @@ mod tests {
         // returned a re-identified installation. That is a statement about the order of two
         // statements inside `runCopy`, and it has no runtime equivalent short of driving the
         // whole copy flow with a filesystem behind it.
-        let setup = include_str!("../ui/views/setup.js");
+        let setup = include_str!("../ui/features/setup/view.js");
         for wording in [
             "Windows protects this game folder",
             "`Make a copy (${bytes(storage.source_bytes)})`",
@@ -3873,7 +3873,7 @@ mod tests {
         // asserted behaviourally in `ui-tests/features/self-update/dialog.test.js`.
         let updater = include_str!("self_update.rs");
         let shell = include_str!("../ui/app.js");
-        let setup = include_str!("../ui/views/setup.js");
+        let setup = include_str!("../ui/features/setup/view.js");
         let workflow = include_str!("../../../.github/workflows/release.yml");
         let config = include_str!("../tauri.conf.json");
 
@@ -3900,7 +3900,7 @@ mod tests {
         // runtime can see: the Tauri capability allowlist, the markup and the stylesheet that have
         // to agree with each other for the control to exist at all.
         let shell = include_str!("../ui/app.js");
-        let setup = include_str!("../ui/views/setup.js");
+        let setup = include_str!("../ui/features/setup/view.js");
         let index = include_str!("../ui/index.html");
         let styles = include_str!("../ui/styles/components.css");
         let capability = include_str!("../capabilities/default.json");
