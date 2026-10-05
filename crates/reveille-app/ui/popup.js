@@ -3,6 +3,7 @@
 // The Reveille pop-up window. Rust owns where it sits and when it is shown; this page owns the
 // cards, and tells Rust how tall they are, or 0 to hide.
 
+import { alertPopupAction, alertPopupReady, fitAlertPopup, onPopupCard } from "./features/alerts/api.js";
 import { playChime } from "./lib/chime.js";
 import { $, el } from "./lib/dom.js";
 import {
@@ -16,8 +17,6 @@ import {
   SHOWN,
 } from "./lib/popup-stack.js";
 
-const tauri = window.__TAURI__;
-const invoke = tauri.core.invoke;
 const root = $("#popup");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const FADE_MS = 150;
@@ -40,9 +39,9 @@ setInterval(() => {
   for (const card of expired(stack, Date.now())) leave(card.eventId);
 }, 250);
 
-await tauri.event.listen("reveille://popup-card", (event) => receive(event.payload));
+await onPopupCard(receive);
 // Cards sent before the listener above existed were queued in Rust.
-for (const card of await invoke("alert_popup_ready").catch(() => [])) receive(card);
+for (const card of await alertPopupReady().catch(() => [])) receive(card);
 
 function receive(card) {
   if (card.chime) void playChime().catch(() => {});
@@ -64,7 +63,7 @@ function leave(eventId) {
 }
 
 function act(action, eventId = "") {
-  void invoke("alert_popup_action", { action, eventId }).catch(() => {});
+  void alertPopupAction(action, eventId).catch(() => {});
 }
 
 function render() {
@@ -92,7 +91,7 @@ function render() {
         }, `+${more} more in Reveille`)]
       : []),
   );
-  void invoke("fit_alert_popup", { height: stack.length ? root.offsetHeight : 0 }).catch(() => {});
+  void fitAlertPopup(stack.length ? root.offsetHeight : 0).catch(() => {});
 }
 
 function cardNode(card) {

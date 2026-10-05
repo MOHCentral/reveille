@@ -9,48 +9,53 @@ import { closeDialog, openDialog } from "./lib/dialog.js";
 import { closeMenu, menuIsOpen, openMenu } from "./lib/menu.js";
 import { icon } from "./lib/icons.js";
 import { closePopover, openPopover, popoverAnchor } from "./lib/popover.js";
+import { appVersion, errorText, openExternalUrl, trackEvent } from "./lib/shell.js";
 import {
-  appLogFiles,
-  browseFailure,
-  browseServers,
-  cancelBrowse,
-  cancelReveilleUpdate,
-  appVersion,
-  checkReveilleUpdate,
-  checkServer,
   clearPlayerAlertAttention,
-  errorText,
   focusReveille,
   gameClientRunning,
   onHiddenToTray,
+  onPlayerNotificationClick,
   onPopupMore,
   onPopupSnooze,
-  popupSupported,
-  showAlertPopup,
   openNotificationSettings,
-  sendReveilleNotice,
-  setCloseToTray,
-  setStartAtLogin,
-  setTrayTooltip,
-  startAtLogin,
-  installAndLaunch,
-  installServerFiles,
-  installReveilleUpdate,
-  onBrowseProgress,
-  onInstallProgress,
-  onPlayerNotificationClick,
-  onPreviewProgress,
-  onSelfUpdateProgress,
-  openExternalUrl,
-  previewJoin,
+  popupSupported,
   readWatchedServer,
   requestPlayerAlertAttention,
   sendPlayerNotification,
+  sendReveilleNotice,
+  setTrayTooltip,
+  showAlertPopup,
+} from "./features/alerts/api.js";
+import { appLogFiles } from "./features/bug-report/api.js";
+import {
+  installAndLaunch,
+  installServerFiles,
+  onInstallProgress,
+  onPreviewProgress,
+  previewJoin,
+} from "./features/join/api.js";
+import {
+  cancelReveilleUpdate,
+  checkReveilleUpdate,
+  installReveilleUpdate,
+  onSelfUpdateProgress,
+} from "./features/self-update/api.js";
+import {
+  browseFailure,
+  browseServers,
+  cancelBrowse,
+  checkServer,
+  onBrowseProgress,
+} from "./features/servers/api.js";
+import {
+  setCloseToTray,
+  setStartAtLogin,
   setTelemetryShared,
+  startAtLogin,
   TELEMETRY_DETAILS_URL,
   telemetryStatus,
-  trackEvent,
-} from "./lib/api.js";
+} from "./features/settings/api.js";
 import {
   arrivalById,
   arrivalEvents,

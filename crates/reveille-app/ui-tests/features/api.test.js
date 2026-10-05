@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// `lib/api.js`: the one module that knows the Rust contract.
-//
-// The error-normalisation test here is the second of the two behavioural assertions that used to
-// live inside `tools/check-sources.mjs`.
+// The features' `api.js` modules: the only modules that know the Rust contract.
 //
 // What this can and cannot establish: the fake bridge proves what the shell *sends* and how it
 // *reads a reply*, which is the half that lives in JavaScript. That the Rust side accepts those
@@ -13,35 +10,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { installTauri } from "../fakes/tauri.js";
-import * as api from "../../ui/lib/api.js";
+import * as alerts from "../../ui/features/alerts/api.js";
+import * as bugReport from "../../ui/features/bug-report/api.js";
+import * as join from "../../ui/features/join/api.js";
+import * as selfUpdate from "../../ui/features/self-update/api.js";
+import * as servers from "../../ui/features/servers/api.js";
+import * as settings from "../../ui/features/settings/api.js";
+import * as setup from "../../ui/features/setup/api.js";
+import * as shell from "../../ui/lib/shell.js";
+
+const api = { ...alerts, ...bugReport, ...join, ...selfUpdate, ...servers, ...settings, ...setup, ...shell };
 
 const bridge = installTauri();
 
 const SESSION = { path: "C:/Game", engine: "openmohaa", game: "allied_assault" };
 
 test.beforeEach(() => bridge.reset());
-
-/* Error normalisation -------------------------------------------------------*/
-
-test("the Windows extended-length prefix never reaches player-facing text", async () => {
-  // Tauri can serialize a canonical Windows path with `\\?\` in front of it. A message quoting a
-  // folder should quote it the way the player would write it.
-  assert.equal(
-    api.errorText(String.raw`Windows protects \\?\C:\Program Files\MOHAA`),
-    String.raw`Windows protects C:\Program Files\MOHAA`,
-  );
-});
-
-test("errorText yields a string whatever the rejection was", () => {
-  assert.equal(api.errorText("plain"), "plain");
-  assert.equal(api.errorText(new Error("thrown")), "thrown");
-  assert.equal(api.errorText({ message: "shaped" }), "shaped");
-  assert.equal(api.errorText(null), "null");
-  assert.equal(api.errorText(42), "42");
-  // Whatever happened, the caller gets something it can put on screen rather than "[object
-  // Object]" arriving in the middle of a sentence.
-  assert.equal(typeof api.errorText({ nope: true }), "string");
-});
 
 /* Classified sweep failures (rule H6) ---------------------------------------*/
 
@@ -195,4 +179,21 @@ test("the sharing choice is saved through its own command", async () => {
   bridge.results.set_telemetry_shared = ({ shared }) => ({ available: true, shared });
   assert.deepEqual(await api.setTelemetryShared(false), { available: true, shared: false });
   assert.deepEqual(bridge.calls.at(-1), { command: "set_telemetry_shared", args: { shared: false } });
+});
+
+test("the pop-up window speaks to Rust through the alerts API", async () => {
+  bridge.results.alert_popup_ready = [{ eventId: "a" }];
+  assert.deepEqual(await alerts.alertPopupReady(), [{ eventId: "a" }]);
+  await alerts.alertPopupAction("snooze", "");
+  await alerts.fitAlertPopup(0);
+  assert.deepEqual(bridge.calls, [
+    { command: "alert_popup_ready", args: undefined },
+    { command: "alert_popup_action", args: { action: "snooze", eventId: "" } },
+    { command: "fit_alert_popup", args: { height: 0 } },
+  ]);
+  const cards = [];
+  await alerts.onPopupCard((card) => cards.push(card));
+  bridge.emit("reveille://popup-card", { eventId: "b" });
+  assert.deepEqual(cards, [{ eventId: "b" }]);
+  delete bridge.results.alert_popup_ready;
 });

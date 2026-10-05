@@ -6,7 +6,7 @@ import {
   detectInstall, engineOverview, errorText, identifyInstall, installOpenMohaa, installReborn,
   installationStorage, onInstallationCopyProgress, onOpenMohaaInstallProgress,
   onRebornInstallProgress, openMohaaStatus, pickCopyDestination, pickInstallFolder, selectEngine,
-} from "../lib/api.js";
+} from "../features/setup/api.js";
 import { ENGINE_LABELS, GAME_LABELS } from "../lib/catalog.js";
 import { bytes, displayPath } from "../lib/format.js";
 import {
