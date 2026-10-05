@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 import { GAMES as CATALOG_GAMES } from "./catalog.js";
+import { registerSavedScope, state } from "./store.js";
 
 const KEY = "reveille.player-alerts";
 const INTERVAL_MS = 60_000;
@@ -32,6 +33,25 @@ export function playerAlerts() {
   } catch {
     return [];
   }
+}
+
+/** The servers watched in the game this session is browsing, shaped like saved entries. */
+export function watchedEntries() {
+  return playerAlerts()
+    .filter((entry) => entry.game === state.game)
+    .map((entry) => ({
+      address: entry.address,
+      queryPort: entry.queryPort,
+      hostname: entry.hostname ?? "",
+      threshold: entry.threshold,
+    }));
+}
+
+registerSavedScope("watching", watchedEntries);
+
+/** What the monitor last read for a watched address in this game, or null before its first probe. */
+export function watchReading(address) {
+  return state.watchReadings.get(alertId({ game: state.game, address })) ?? null;
 }
 
 export function hasPlayerAlert(game, address) {

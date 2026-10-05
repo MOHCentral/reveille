@@ -68,9 +68,8 @@ import {
   state,
   update,
   visibleServers,
-  watchReading,
-  watchedEntries,
 } from "../lib/store.js";
+import { watchReading, watchedEntries } from "../lib/player-alerts.js";
 
 const COLUMNS = [
   // The star has no label: a column heading over one glyph reads as data. The cell's own

@@ -3,10 +3,8 @@
 // One state object and a subscribe/notify pair. Views read `state` and re-render
 // on change; nothing else holds application state.
 
-import { favorites, history, historyByAddress } from "./bookmarks.js";
 import { occupancy, occupancyFill } from "./format.js";
 import { DEFAULT_GAME, ENGINES, GAMES } from "./catalog.js";
-import { alertId, playerAlerts } from "./player-alerts.js";
 
 const INSTALL_KEY = "reveille.install";
 const FILTERS_KEY = "reveille.filters";
@@ -477,7 +475,8 @@ export function visibleServers() {
 
 function sortRows(rows) {
   const key = SORTERS[state.sort.column] ?? SORTERS.clients;
-  const launches = state.sort.column === "launched" ? historyByAddress() : null;
+  const launches =
+    state.sort.column === "launched" ? new Map(saved("history").map((entry) => [entry.address, entry])) : null;
   const direction = state.sort.direction === "asc" ? 1 : -1;
   return rows.sort((left, right) => {
     const a = key(left, launches);
@@ -560,28 +559,22 @@ export function playerTrend(row) {
   return { direction: now > before ? "up" : "down", before };
 }
 
-/** The servers watched in the game this session is browsing, shaped like saved entries. */
-export function watchedEntries() {
-  return playerAlerts()
-    .filter((entry) => entry.game === state.game)
-    .map((entry) => ({
-      address: entry.address,
-      queryPort: entry.queryPort,
-      hostname: entry.hostname ?? "",
-      threshold: entry.threshold,
-    }));
+const savedScopes = new Map();
+
+/** Supply a saved scope's entries. The feature that stores them registers when it loads. */
+export function registerSavedScope(scope, entries) {
+  savedScopes.set(scope, entries);
 }
 
-/** What the monitor last read for a watched address in this game, or null before its first probe. */
-export function watchReading(address) {
-  return state.watchReadings.get(alertId({ game: state.game, address })) ?? null;
+function saved(scope) {
+  return savedScopes.get(scope)?.() ?? [];
 }
 
 /** The entries a saved scope draws from: the starred, watched or launched ones. */
 export function savedEntries() {
-  if (state.scope === "favorites") return favorites();
-  if (state.scope === "watching") return watchedEntries();
-  return history();
+  if (state.scope === "favorites") return saved("favorites");
+  if (state.scope === "watching") return saved("watching");
+  return saved("history");
 }
 
 /**

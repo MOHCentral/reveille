@@ -12,6 +12,8 @@ import { installStorage, installBrokenStorage } from "../fakes/storage.js";
 
 installStorage();
 const store = await import("../../ui/lib/store.js");
+const { watchReading } = await import("../../ui/lib/player-alerts.js");
+await import("../../ui/lib/bookmarks.js");
 
 /** A live row, carrying only the fields the store actually reads. */
 function row(address, extra = {}) {
@@ -486,6 +488,25 @@ test("an absent entry carries no figures, only what was remembered", () => {
   assert.ok(!("current_map" in absent.entry));
 });
 
+test("History lists the most recently launched server first", () => {
+  const storage = reset();
+  storage.setItem(
+    "reveille.bookmarks",
+    JSON.stringify({
+      v: 1,
+      favorites: [],
+      history: [
+        { address: "old:1", queryPort: 12300, hostname: "Old", launches: 1, lastLaunchedAt: "2026-01-01T00:00:00Z" },
+        { address: "new:1", queryPort: 12300, hostname: "New", launches: 1, lastLaunchedAt: "2026-09-01T00:00:00Z" },
+      ],
+    }),
+  );
+  store.state.scope = "history";
+  store.state.sort = { column: "launched", direction: "desc" };
+  store.state.servers = [row("old:1", { clients: 9 }), row("new:1")];
+  assert.deepEqual(store.scopedRows().map((item) => item.address), ["new:1", "old:1"]);
+});
+
 test("the All scope draws no disclosure and no absent entries", () => {
   const storage = reset();
   storage.setItem(
@@ -520,8 +541,8 @@ test("Watching lists this game's watched servers, answering ones first and the r
   );
   assert.deepEqual(store.scopedAbsent(), []);
   store.state.watchReadings = new Map([["allied_assault|1.2.3.4:12203", { count: 2, checkedAt: 1 }]]);
-  assert.equal(store.watchReading("1.2.3.4:12203").count, 2);
-  assert.equal(store.watchReading("1.2.3.5:12203"), null);
+  assert.equal(watchReading("1.2.3.4:12203").count, 2);
+  assert.equal(watchReading("1.2.3.5:12203"), null);
 });
 
 test("the Watching scope is remembered like the others", () => {
