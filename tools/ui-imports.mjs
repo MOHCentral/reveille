@@ -151,6 +151,12 @@ export function importViolations(files) {
     }
   }
 
+  for (const path of modules) {
+    if (!ENTRY_POINTS.includes(path) && !path.startsWith("lib/") && !FEATURE.test(path)) {
+      failures.push(`${path}: a module belongs in lib/ or features/<name>/; only entry points sit elsewhere`);
+    }
+  }
+
   for (const from of modules) {
     const { specifiers, problems } = readImports(files.get(from));
     for (const problem of problems) failures.push(`${from}: ${problem}`);

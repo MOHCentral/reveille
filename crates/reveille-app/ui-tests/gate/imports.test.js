@@ -65,6 +65,12 @@ test("the kernel never imports a feature", () => {
   );
 });
 
+test("a module outside lib/ and features/ fails unless it is an entry point", () => {
+  fails({ "views/setup.js": "export const view = 1;\n" }, /views\/setup\.js: a module belongs in lib\/ or features\/<name>\//);
+  fails({ "features/setup.js": "export const view = 1;\n" }, /features\/setup\.js: a module belongs in lib\//);
+  assert.deepEqual(importViolations(tree({ "lib/nested/x.js": "export const x = 1;\n" })), []);
+});
+
 test("an import cycle fails, however long", () => {
   fails(
     { "lib/format.js": 'import { state } from "./store.js";\nexport const plural = (n) => n;\n' },
