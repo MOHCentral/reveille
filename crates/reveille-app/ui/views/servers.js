@@ -105,7 +105,7 @@ const COLUMNS = [
 /**
  * How many columns the table is actually drawing right now.
  *
- * Not `COLUMNS.length`: the narrow-window media queries in `styles/views.css` drop Runs, then
+ * Not `COLUMNS.length`: the narrow-window media queries in `styles/responsive.css` drop Runs, then
  * Ping, and a dropped column is gone from the table, not merely invisible. Every
  * `colspan` here has to agree with that or it runs off the end of the row — and a `colspan` that
  * overruns is not clipped. Chromium answers it by inventing the column the span asked for and
