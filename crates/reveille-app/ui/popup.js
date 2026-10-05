@@ -4,7 +4,7 @@
 // cards, and tells Rust how tall they are, or 0 to hide.
 
 import { alertPopupAction, alertPopupReady, fitAlertPopup, onPopupCard } from "./features/alerts/api.js";
-import { playChime } from "./lib/chime.js";
+import { playChime } from "./features/alerts/chime.js";
 import { $, el } from "./lib/dom.js";
 import {
   addCard,

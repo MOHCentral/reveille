@@ -9,7 +9,7 @@ import {
   isStale,
   needsBackgroundWatching,
   trayTooltip,
-} from "../../ui/lib/reach.js";
+} from "../../../ui/features/alerts/reach.js";
 
 const prefs = { closeToTray: false, trayChosen: false };
 

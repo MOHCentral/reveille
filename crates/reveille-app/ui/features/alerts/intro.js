@@ -3,10 +3,10 @@
 // Shown once, when the first server is watched: what an alert is, a way to see one now, and the
 // two settings that decide whether alerts can still arrive once the window is closed.
 
-import { $, el, preserveFocus } from "../lib/dom.js";
-import { closeDialog, openDialog } from "../lib/dialog.js";
-import { preferences, setPreference } from "../lib/preferences.js";
-import { START_AT_LOGIN_LABEL, toggle } from "../features/settings/index.js";
+import { $, el, preserveFocus } from "../../lib/dom.js";
+import { closeDialog, openDialog } from "../../lib/dialog.js";
+import { preferences, setPreference } from "../../lib/preferences.js";
+import { START_AT_LOGIN_LABEL, toggle } from "../settings/index.js";
 
 /**
  * `startAtLogin` is the sign-in state, null when unknown. `onTest()` sends a test alert,

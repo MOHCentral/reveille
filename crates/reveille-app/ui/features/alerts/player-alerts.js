@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { GAMES as CATALOG_GAMES } from "./catalog.js";
-import { registerSavedScope, state } from "./store.js";
+import { GAMES as CATALOG_GAMES } from "../../lib/catalog.js";
+import { registerSavedScope, state } from "../../lib/store.js";
 
 const KEY = "reveille.player-alerts";
 const INTERVAL_MS = 60_000;

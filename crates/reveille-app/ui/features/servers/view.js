@@ -18,7 +18,6 @@
 
 import { el, fill, preserveFocus } from "../../lib/dom.js";
 import { icon } from "../../lib/icons.js";
-import { lastArrivals } from "../../lib/arrival-events.js";
 import { preferences } from "../../lib/preferences.js";
 import { openMenu } from "../../lib/menu.js";
 import { closePopover, openPopover } from "../../lib/popover.js";
@@ -41,7 +40,7 @@ import {
   nonResultReason,
   sweepProgressText,
 } from "./format.js";
-import { watchLine } from "../alerts/index.js";
+import { lastArrivals, watchReading, watchedAddresses, watchedEntries, watchedLine } from "../alerts/index.js";
 import {
   clearHistory,
   favoriteAddresses,
@@ -68,7 +67,6 @@ import {
 } from "./selectors.js";
 import { clearFilters } from "./reducers.js";
 import { playableGames } from "../../lib/session.js";
-import { watchReading, watchedEntries } from "../../lib/player-alerts.js";
 
 const COLUMNS = [
   // The star has no label: a column heading over one glyph reads as data. The cell's own
@@ -606,11 +604,6 @@ export function serversView({
   };
 }
 
-/** Addresses watched for player arrivals in the game this session is browsing. */
-function watchedAddresses() {
-  return new Set(watchedEntries().map((entry) => entry.address));
-}
-
 /** Write a chip's label and whether it is narrowing the list, in place. */
 function setChip(chip, active, label, menu) {
   chip.classList.toggle("filter-chip--on", active);
@@ -1036,12 +1029,6 @@ function row(item, starred, watched, launches, alerted, onSelect, onActivate, on
           ),
     ),
   );
-}
-
-/** What the monitor last saw on a watched server, when it last alerted, and its rule. */
-function watchedLine(address, alerted) {
-  const threshold = watchedEntries().find((entry) => entry.address === address)?.threshold;
-  return watchLine(watchReading(address), alerted.get(`${state.game}|${address}`) ?? null, threshold);
 }
 
 /**

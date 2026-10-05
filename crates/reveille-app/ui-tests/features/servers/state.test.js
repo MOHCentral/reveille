@@ -18,7 +18,7 @@ const store = {
   ...(await import("../../../ui/features/servers/selectors.js")),
   ...(await import("../../../ui/features/servers/reducers.js")),
 };
-const { watchReading } = await import("../../../ui/lib/player-alerts.js");
+const { watchReading } = await import("../../../ui/features/alerts/player-alerts.js");
 await import("../../../ui/lib/bookmarks.js");
 
 /** A live row, carrying only the fields the store actually reads. */

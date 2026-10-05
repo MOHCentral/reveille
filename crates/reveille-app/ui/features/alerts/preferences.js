@@ -3,7 +3,7 @@
 // The alert settings, registered with the shared preferences store when this module loads.
 
 import { registerPreferences } from "../../lib/preferences.js";
-import { THRESHOLDS } from "../../lib/player-alerts.js";
+import { THRESHOLDS } from "./player-alerts.js";
 
 export const COOLDOWN_CHOICES = [5, 15, 30, 60];
 export const ALERT_STYLES = ["popup", "system"];

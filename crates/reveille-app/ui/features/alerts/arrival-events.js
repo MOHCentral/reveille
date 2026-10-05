@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-import { GAMES as CATALOG_GAMES } from "./catalog.js";
+import { GAMES as CATALOG_GAMES } from "../../lib/catalog.js";
 
 const KEY = "reveille.arrival-events";
 const LIMIT = 50;

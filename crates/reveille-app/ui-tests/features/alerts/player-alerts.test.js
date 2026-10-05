@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { installStorage } from "../fakes/storage.js";
+import { installStorage } from "../../fakes/storage.js";
 import {
   addPlayerAlert,
   hasPlayerAlert,
@@ -13,7 +13,7 @@ import {
   removePlayerAlert,
   setAlertThreshold,
   startPlayerAlertMonitor,
-} from "../../ui/lib/player-alerts.js";
+} from "../../../ui/features/alerts/player-alerts.js";
 
 const row = {
   address: "127.0.0.1:12203",

@@ -3,7 +3,7 @@
 // What keeps an alert able to reach the player: watching on after the window closes, the tray's
 // summary, and the one notice that sums up what a game in progress held back.
 
-import { plural } from "./format.js";
+import { plural } from "../../lib/format.js";
 
 /**
  * Whether watching a server should also turn on close-to-tray. Only when the player has never

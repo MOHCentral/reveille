@@ -41,10 +41,10 @@ import {
 import { stateExplanation, stateName } from "./format.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../../lib/bookmarks.js";
 import { icon } from "../../lib/icons.js";
-import { THRESHOLDS, playerAlert, setAlertThreshold } from "../../lib/player-alerts.js";
 import { closePopover, openPopover } from "../../lib/popover.js";
 import { GAME_LABELS } from "../../lib/catalog.js";
 import { state, update } from "../../lib/store.js";
+import { THRESHOLDS, playerAlert, setAlertThreshold } from "../alerts/index.js";
 import { canRecheck, nonResultReason, selectedRow } from "../servers/index.js";
 import { playableGames } from "../../lib/session.js";
 

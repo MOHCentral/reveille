@@ -6,7 +6,7 @@
 import { $, el, preserveFocus } from "../lib/dom.js";
 import { openDialog } from "../lib/dialog.js";
 import { displayPath } from "../lib/format.js";
-import { THRESHOLDS } from "../lib/player-alerts.js";
+import { THRESHOLDS } from "../features/alerts/player-alerts.js";
 import { PING_FAIR_CHOICES, PING_GOOD_CHOICES, preferences, setPreference } from "../lib/preferences.js";
 import { ALERT_STYLES, COOLDOWN_CHOICES } from "../features/alerts/preferences.js";
 import { GAME_LABELS } from "../lib/catalog.js";

@@ -50,7 +50,7 @@ import {
   markArrivalsRead,
   recordArrival,
   unreadArrivalCount,
-} from "./lib/arrival-events.js";
+} from "./features/alerts/arrival-events.js";
 import { toggleFavorite } from "./lib/bookmarks.js";
 import {
   addPlayerAlert,
@@ -59,10 +59,10 @@ import {
   playerAlerts,
   removePlayerAlert,
   startPlayerAlertMonitor,
-} from "./lib/player-alerts.js";
+} from "./features/alerts/player-alerts.js";
 import { displayPath, occupancy, plural, timeAgo } from "./lib/format.js";
 import { alertDetail } from "./features/alerts/format.js";
-import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./lib/reach.js";
+import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./features/alerts/reach.js";
 import { ENGINE_LABELS, GAME_LABELS } from "./lib/catalog.js";
 import { composeState, notify, state, subscribe, update } from "./lib/store.js";
 import { SCOPES, loadFilters, saveFilters } from "./features/servers/state.js";
@@ -76,7 +76,7 @@ import {
 } from "./lib/session.js";
 import { setupView } from "./views/setup.js";
 import { alertErrorLine, openSettings } from "./views/settings.js";
-import { openAlertsIntro } from "./views/alerts-intro.js";
+import { openAlertsIntro } from "./features/alerts/intro.js";
 import { openShortcuts } from "./views/shortcuts.js";
 import { preferences, setPreference } from "./lib/preferences.js";
 import "./features/alerts/preferences.js";

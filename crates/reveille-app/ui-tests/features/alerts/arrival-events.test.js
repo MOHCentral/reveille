@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { installStorage } from "../fakes/storage.js";
+import { installStorage } from "../../fakes/storage.js";
 import {
   arrivalById,
   arrivalEvents,
@@ -12,7 +12,7 @@ import {
   markArrivalsRead,
   recordArrival,
   unreadArrivalCount,
-} from "../../ui/lib/arrival-events.js";
+} from "../../../ui/features/alerts/arrival-events.js";
 
 const server = {
   game: "allied_assault",
