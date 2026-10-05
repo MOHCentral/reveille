@@ -3,8 +3,7 @@
 // An in-memory `localStorage`.
 //
 // `store.js` and `bookmarks.js` read the global at *call* time, never at module load, so
-// assigning it before a test is enough — no dynamic import needed. That is not true of
-// `api.js`; see `fakes/tauri.js`.
+// assigning it before a test is enough — no dynamic import needed.
 
 /**
  * Install a fresh in-memory `localStorage` on `globalThis` and return a handle to it.

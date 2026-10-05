@@ -51,10 +51,18 @@
 //   reveille://openmohaa-install OpenMohaaInstallProgress { received, total }
 //   reveille://self-update SelfUpdateProgress { phase, received?, total? }
 
-const tauri = window.__TAURI__;
-const invoke = tauri.core.invoke;
-const listen = tauri.event.listen;
-const openUrl = tauri.opener.openUrl;
+import {
+  appVersion,
+  clearAttention,
+  errorText,
+  focusWindow,
+  invoke,
+  listen,
+  openUrl,
+  requestAttention,
+} from "./bridge.js";
+
+export { appVersion, errorText };
 
 export const detectInstall = (selectedPath = null) => invoke("detect_install", { selectedPath });
 export const identifyInstall = (path) => invoke("identify_install", { path });
@@ -120,24 +128,20 @@ export const setCloseToTray = (enabled) => invoke("set_close_to_tray", { enabled
 
 export const setTrayTooltip = (text) => invoke("set_tray_tooltip", { text });
 
-export const onHiddenToTray = (handler) => on("reveille://hidden-to-tray", handler);
+export const onHiddenToTray = (handler) => listen("reveille://hidden-to-tray", handler);
 
 export const startAtLogin = () => invoke("start_at_login");
 
 export const setStartAtLogin = (enabled) => invoke("set_start_at_login", { enabled });
 
 export const onPlayerNotificationClick = (handler) =>
-  on("reveille://player-alert-open", handler);
+  listen("reveille://player-alert-open", handler);
 
-export const appVersion = async () => tauri.app.getVersion();
+export const focusReveille = focusWindow;
 
-export const focusReveille = () => tauri.window.getCurrentWindow().setFocus();
+export const requestPlayerAlertAttention = requestAttention;
 
-export const requestPlayerAlertAttention = () =>
-  tauri.window.getCurrentWindow().requestUserAttention(tauri.window.UserAttentionType.Informational);
-
-export const clearPlayerAlertAttention = () =>
-  tauri.window.getCurrentWindow().requestUserAttention(null);
+export const clearPlayerAlertAttention = clearAttention;
 
 export const sendPlayerNotification = (event, sound) =>
   invoke("send_player_notification", {
@@ -158,8 +162,8 @@ export const popupSupported = () => invoke("popup_supported");
 /** `card` is `{ eventId, game, address, hostname, count, title, detail }`. */
 export const showAlertPopup = (card, sound) => invoke("show_alert_popup", { card, sound });
 
-export const onPopupSnooze = (handler) => on("reveille://popup-snooze", handler);
-export const onPopupMore = (handler) => on("reveille://popup-more", handler);
+export const onPopupSnooze = (handler) => listen("reveille://popup-snooze", handler);
+export const onPopupMore = (handler) => listen("reveille://popup-more", handler);
 
 export const previewJoin = (session, address) => invoke("preview_join", { session, address });
 
@@ -169,35 +173,15 @@ export const installServerFiles = (session, address) =>
 export const installAndLaunch = (session, address, selectedCandidateIds, acceptIncomplete) =>
   invoke("install_and_launch", { session, address, selectedCandidateIds, acceptIncomplete });
 
-export const onBrowseProgress = (handler) => on("reveille://browse", handler);
-export const onPreviewProgress = (handler) => on("reveille://preview", handler);
-export const onInstallProgress = (handler) => on("reveille://install", handler);
+export const onBrowseProgress = (handler) => listen("reveille://browse", handler);
+export const onPreviewProgress = (handler) => listen("reveille://preview", handler);
+export const onInstallProgress = (handler) => listen("reveille://install", handler);
 export const onOpenMohaaInstallProgress = (handler) =>
-  on("reveille://openmohaa-install", handler);
-export const onRebornInstallProgress = (handler) => on("reveille://reborn-install", handler);
+  listen("reveille://openmohaa-install", handler);
+export const onRebornInstallProgress = (handler) => listen("reveille://reborn-install", handler);
 export const onInstallationCopyProgress = (handler) =>
-  on("reveille://installation-copy", handler);
-export const onSelfUpdateProgress = (handler) => on("reveille://self-update", handler);
-
-function on(name, handler) {
-  return listen(name, (event) => handler(event.payload));
-}
-
-/**
- * Commands reject with a plain string. Normalise so callers always get a string
- * to show, whatever the failure was. Windows extended-length prefixes are stripped for the same
- * reason `displayPath` strips them: a message quoting a folder should quote it the way the player
- * would write it.
- */
-export function errorText(error) {
-  const text =
-    typeof error === "string"
-      ? error
-      : error && typeof error.message === "string"
-        ? error.message
-        : String(error);
-  return text.replace(/\\\\\?\\/g, "");
-}
+  listen("reveille://installation-copy", handler);
+export const onSelfUpdateProgress = (handler) => listen("reveille://self-update", handler);
 
 /**
  * `browse_servers` is the one command that rejects with a classified failure rather than a string.

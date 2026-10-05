@@ -13,9 +13,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { installTauri } from "../fakes/tauri.js";
+import * as api from "../../ui/lib/api.js";
 
 const bridge = installTauri();
-const api = await import("../../ui/lib/api.js");
 
 const SESSION = { path: "C:/Game", engine: "openmohaa", game: "allied_assault" };
 
