@@ -3,8 +3,8 @@
 // The shortcut sheet behind `?` and the titlebar's More menu. Every key here must also be handled
 // by the keydown listener in app.js or the grid in features/servers/view.js.
 
-import { openDialog } from "../lib/dialog.js";
-import { el } from "../lib/dom.js";
+import { openDialog } from "../../lib/dialog.js";
+import { el } from "../../lib/dom.js";
 
 export const SHORTCUTS = [
   {

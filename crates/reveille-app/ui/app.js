@@ -48,7 +48,7 @@ import {
   retireInFlight,
 } from "./lib/session.js";
 import { setupView } from "./features/setup/view.js";
-import { openShortcuts } from "./views/shortcuts.js";
+import { openShortcuts } from "./features/shortcuts/view.js";
 import { preferences } from "./lib/preferences.js";
 import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./features/servers/view.js";
