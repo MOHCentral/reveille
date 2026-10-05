@@ -16,9 +16,11 @@ import { openBugReport } from "./features/bug-report/index.js";
 import { joinController } from "./features/join/controller.js";
 import { initial as joinState } from "./features/join/index.js";
 import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
+import { aboutSettingsSection } from "./features/self-update/settings-section.js";
 import { initial as serversState } from "./features/servers/index.js";
 import { browse } from "./features/servers/browse.js";
 import { checks } from "./features/servers/check.js";
+import { serverListSettingsSection } from "./features/servers/settings-section.js";
 import {
   setStartAtLogin,
   setTelemetryShared,
@@ -26,10 +28,14 @@ import {
   TELEMETRY_DETAILS_URL,
   telemetryStatus,
 } from "./features/settings/api.js";
+import { openSettings } from "./features/settings/dialog.js";
+import { privacySettingsSection } from "./features/settings/privacy.js";
+import { installSettingsSection } from "./features/setup/settings-section.js";
 import { toggleFavorite } from "./lib/bookmarks.js";
 import { displayPath } from "./lib/format.js";
 import { focusReveille } from "./features/alerts/api.js";
 import { playerAlertsController } from "./features/alerts/controller.js";
+import { alertsSettingsSection } from "./features/alerts/settings-section.js";
 import { ENGINE_LABELS, GAME_LABELS } from "./lib/catalog.js";
 import { composeState, notify, state, subscribe, update } from "./lib/store.js";
 import { SCOPES, loadFilters, saveFilters } from "./features/servers/state.js";
@@ -42,7 +48,6 @@ import {
   retireInFlight,
 } from "./lib/session.js";
 import { setupView } from "./views/setup.js";
-import { openSettings } from "./views/settings.js";
 import { openShortcuts } from "./views/shortcuts.js";
 import { preferences } from "./lib/preferences.js";
 import "./features/alerts/preferences.js";
@@ -206,34 +211,45 @@ async function openAppSettings() {
     telemetryStatus().catch(() => null),
     startAtLogin().catch(() => null),
   ]);
-  openSettings({
-    engine: engineLabel(state.engine),
-    version,
-    telemetry,
-    onTelemetry: setTelemetryShared,
-    onTelemetryDetails: openTelemetryDetails,
-    onChangeInstall: () => {
-      if (state.joining) return;
-      closeDialog();
-      setup.change();
-    },
-    onOpenWatching: () => {
-      closeDialog();
-      openWatching();
-    },
-    onUpdate: () => {
-      closeDialog();
-      updates.open();
-    },
-    onCheckUpdate: () => updates.check(),
-    onReportBug: () => void openBugReport(),
-    onCloseToTray: alerts.syncCloseToTray,
-    startAtLogin: login,
-    onStartAtLogin: changeStartAtLogin,
-    onNotificationSettings: alerts.openSystemNotificationSettings,
-    popupSupported: await alerts.popupAvailable(),
-    onTestAlert: alerts.sendTestAlert,
-  });
+  const engine = engineLabel(state.engine);
+  const popupSupported = await alerts.popupAvailable();
+  openSettings([
+    alertsSettingsSection({
+      popupSupported,
+      startAtLogin: login,
+      onCloseToTray: alerts.syncCloseToTray,
+      onStartAtLogin: changeStartAtLogin,
+      onNotificationSettings: alerts.openSystemNotificationSettings,
+      onTestAlert: alerts.sendTestAlert,
+      onOpenWatching: () => {
+        closeDialog();
+        openWatching();
+      },
+    }),
+    serverListSettingsSection(),
+    installSettingsSection({
+      engine,
+      onChangeInstall: () => {
+        if (state.joining) return;
+        closeDialog();
+        setup.change();
+      },
+    }),
+    privacySettingsSection({
+      telemetry,
+      onTelemetry: setTelemetryShared,
+      onTelemetryDetails: openTelemetryDetails,
+    }),
+    aboutSettingsSection({
+      version,
+      onUpdate: () => {
+        closeDialog();
+        updates.open();
+      },
+      onCheckUpdate: () => updates.check(),
+      onReportBug: () => void openBugReport(),
+    }),
+  ]);
 }
 
 function render() {
