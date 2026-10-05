@@ -10,11 +10,12 @@ use reveille_core::content::{self, CatalogueResolutionPass, PakRadarEntry, Wante
 use reveille_core::discovery::{Server, TargetGame};
 use reveille_core::engine::EngineChoice;
 use reveille_core::join::CompatibilityAssessment;
+use reveille_core::mapindex::MapIndex;
 use serde::Serialize;
 use tauri::Emitter;
 use tracing::info;
 
-use crate::session::{Session, installed_maps, session_search_path};
+use crate::session::Session;
 
 pub const EVENT: &str = "reveille://preview";
 
@@ -42,7 +43,7 @@ pub struct JoinPreview {
     pub address: SocketAddrV4,
     server: Server,
     assessment: CompatibilityAssessment,
-    pakradar: Option<PakRadarPreview>,
+    pub pakradar: Option<PakRadarPreview>,
     pub catalogue: Option<CatalogueResolutionPass>,
     engine: EngineChoice,
     game: TargetGame,
@@ -108,15 +109,24 @@ fn preview_cache_matches(
         && cached_engine == requested_engine
 }
 
-pub async fn build_preview(
-    session: &Session,
-    server: Server,
-    app: Option<&tauri::AppHandle>,
-) -> Result<JoinPreview, String> {
+/// What a join preview reads from outside the join: the folders the engine searches, which change
+/// as server files land, and the moh-db price. A test supplies both without a game or a network.
+pub trait PreviewHost {
+    fn engine(&self) -> EngineChoice;
+    fn game(&self) -> TargetGame;
+    fn search_path(&self) -> Result<Vec<PathBuf>, String>;
+    fn price(
+        &self,
+        address: SocketAddrV4,
+        wanted: &[WantedMap],
+    ) -> impl Future<Output = Result<CatalogueResolutionPass, String>>;
+}
+
+pub async fn build_preview(host: &impl PreviewHost, server: Server) -> Result<JoinPreview, String> {
     let address = SocketAddrV4::new(server.endpoint.address, server.game_port.get());
-    info!(%address, game = ?session.game, engine = ?session.engine, "starting preview build");
-    let index = installed_maps(session)?;
-    let search_path = session_search_path(session)?;
+    info!(%address, game = ?host.game(), engine = ?host.engine(), "starting preview build");
+    let search_path = host.search_path()?;
+    let index = MapIndex::scan_chain(&search_path).map_err(|error| error.to_string())?;
     let first = reveille_core::join::classify_server(&index, &server, None);
     let wanted = first.preflight.as_ref().map_or_else(Vec::new, wanted_maps);
     info!(%address, wanted_maps = wanted.len(), "computed preview map requirements");
@@ -127,30 +137,7 @@ pub async fn build_preview(
     let catalogue = if wanted.is_empty() || server_stage_unresolved {
         None
     } else {
-        let client = content::MohDbClient::new(Duration::from_secs(15))
-            .map_err(|error| error.to_string())?;
-        Some(
-            client
-                .resolve_all_reporting(&wanted, |progress| {
-                    let Some(app) = app else {
-                        return;
-                    };
-                    let map = match progress.resolved {
-                        Ok(resolution) => resolution.wanted.name.clone(),
-                        Err(non_result) => non_result.wanted.name.clone(),
-                    };
-                    drop(app.emit(
-                        EVENT,
-                        PreviewProgress {
-                            address,
-                            index: progress.index,
-                            of: progress.of,
-                            map,
-                        },
-                    ));
-                })
-                .await,
-        )
+        Some(host.price(address, &wanted).await?)
     };
     let assessment = reveille_core::join::classify_server(
         &index,
@@ -165,9 +152,36 @@ pub async fn build_preview(
         assessment,
         pakradar,
         catalogue,
-        engine: session.engine,
-        game: session.game,
+        engine: host.engine(),
+        game: host.game(),
     })
+}
+
+/// Price the wanted maps on moh-db, reporting each lookup to the window as it lands.
+pub async fn price_on_mohdb(
+    app: &tauri::AppHandle,
+    address: SocketAddrV4,
+    wanted: &[WantedMap],
+) -> Result<CatalogueResolutionPass, String> {
+    let client =
+        content::MohDbClient::new(Duration::from_secs(15)).map_err(|error| error.to_string())?;
+    Ok(client
+        .resolve_all_reporting(wanted, |progress| {
+            let map = match progress.resolved {
+                Ok(resolution) => resolution.wanted.name.clone(),
+                Err(non_result) => non_result.wanted.name.clone(),
+            };
+            drop(app.emit(
+                EVENT,
+                PreviewProgress {
+                    address,
+                    index: progress.index,
+                    of: progress.of,
+                    map,
+                },
+            ));
+        })
+        .await)
 }
 
 pub async fn build_pakradar_preview(

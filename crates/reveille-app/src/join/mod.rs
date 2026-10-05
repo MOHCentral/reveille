@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 
+use reveille_core::content::{CatalogueResolutionPass, WantedMap};
 use reveille_core::discovery::TargetGame;
 use reveille_core::engine::EngineChoice;
 use reveille_core::install;
@@ -23,12 +24,67 @@ use crate::servers;
 use crate::session::{Session, installed_maps, session_search_path};
 use crate::telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry};
 use content::{
-    InstallFailure, install_destination, install_shopping_list, shopping_list_will_write,
+    ContentHost, InstallFailure, InstallPhase, InstallProgress, emit_install, install_destination,
+    install_shopping_list, shopping_list_will_write,
 };
 use preview::{
-    JoinPreview, PreviewCache, build_pakradar_preview, build_preview, cache_preview,
-    take_cached_preview,
+    JoinPreview, PreviewCache, PreviewHost, build_pakradar_preview, build_preview, cache_preview,
+    price_on_mohdb, take_cached_preview,
 };
+
+/// The join as the running app sees it: the player's session, the window that shows progress, and
+/// the telemetry it reports to.
+struct Shell<'a> {
+    session: &'a Session,
+    app: &'a tauri::AppHandle,
+    telemetry: &'a Telemetry,
+}
+
+impl<'a> Shell<'a> {
+    fn new(session: &'a Session, app: &'a tauri::AppHandle, telemetry: &'a Telemetry) -> Self {
+        Self {
+            session,
+            app,
+            telemetry,
+        }
+    }
+}
+
+impl PreviewHost for Shell<'_> {
+    fn engine(&self) -> EngineChoice {
+        self.session.engine
+    }
+
+    fn game(&self) -> TargetGame {
+        self.session.game
+    }
+
+    fn search_path(&self) -> Result<Vec<PathBuf>, String> {
+        Ok(session_search_path(self.session)?)
+    }
+
+    async fn price(
+        &self,
+        address: SocketAddrV4,
+        wanted: &[WantedMap],
+    ) -> Result<CatalogueResolutionPass, String> {
+        price_on_mohdb(self.app, address, wanted).await
+    }
+}
+
+impl ContentHost for Shell<'_> {
+    fn game_directory(&self) -> Result<PathBuf, String> {
+        install_destination(self.session).map(|target| target.game_directory)
+    }
+
+    fn telemetry(&self) -> &Telemetry {
+        self.telemetry
+    }
+
+    fn report_install(&self, progress: &InstallProgress, phase: InstallPhase) {
+        emit_install(self.app, progress, phase);
+    }
+}
 
 /// What happened at the launch gate. A refusal always carries its reason.
 #[derive(Serialize)]
@@ -58,10 +114,11 @@ pub async fn preview_join(
     app: tauri::AppHandle,
     cache: tauri::State<'_, PreviewCache>,
     listing: tauri::State<'_, servers::Listing>,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<JoinPreview, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "building join preview");
     let server = listing.find(&address)?;
-    let preview = build_preview(&session, server, Some(&app)).await?;
+    let preview = build_preview(&Shell::new(&session, &app, &telemetry), server).await?;
     cache_preview(&cache, &session, preview.clone());
     Ok(preview)
 }
@@ -164,7 +221,7 @@ async fn join_and_launch(
         .map_err(failed(JoinFailureReason::ServerGone))?;
     let preview = match take_cached_preview(cache, &session, &address) {
         Some(preview) => preview,
-        None => build_preview(&session, server.clone(), Some(app))
+        None => build_preview(&Shell::new(&session, app, telemetry), server.clone())
             .await
             .map_err(failed(JoinFailureReason::Unknown))?,
     };

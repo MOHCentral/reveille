@@ -17,12 +17,12 @@ use tauri::Emitter;
 use tracing::{info, warn};
 
 use super::preview::{
-    JoinPreview, PakRadarPreview, PreviewCache, build_pakradar_preview, build_preview,
+    JoinPreview, PakRadarPreview, PreviewCache, PreviewHost, build_pakradar_preview, build_preview,
     cache_preview,
 };
-use super::track_download;
+use super::{Shell, track_download};
 use crate::servers;
-use crate::session::{Session, session_installation, session_search_path};
+use crate::session::{Session, session_installation};
 use crate::telemetry::{DownloadSource, Event, Telemetry};
 
 pub const EVENT: &str = "reveille://install";
@@ -33,7 +33,7 @@ const DOWNLOAD_EVENT_STRIDE: u64 = 256 * 1024;
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
-enum InstallPhase {
+pub enum InstallPhase {
     Downloading { received: u64, total: Option<u64> },
     Confirming,
     Installed,
@@ -41,7 +41,7 @@ enum InstallPhase {
 }
 
 #[derive(Clone, Serialize)]
-struct InstallProgress {
+pub struct InstallProgress {
     map: String,
     filename: String,
     index: usize,
@@ -78,6 +78,14 @@ pub fn install_destination(session: &Session) -> Result<platform::InstallTarget,
     .map_err(|error| error.to_string())
 }
 
+/// What installing server files reads and reports outside the join: where packages go, the
+/// telemetry, and the window that shows each package's progress.
+pub trait ContentHost: PreviewHost {
+    fn game_directory(&self) -> Result<PathBuf, String>;
+    fn telemetry(&self) -> &Telemetry;
+    fn report_install(&self, progress: &InstallProgress, phase: InstallPhase);
+}
+
 #[tauri::command]
 pub async fn install_server_files(
     session: Session,
@@ -89,24 +97,32 @@ pub async fn install_server_files(
 ) -> Result<ServerFilesResult, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "installing server files");
     let server = listing.find(&address)?;
-    let search_path = session_search_path(&session)?;
+    let result = apply_server_files(&Shell::new(&session, &app, &telemetry), server).await?;
+    cache_preview(&cache, &session, result.preview.clone());
+    Ok(result)
+}
+
+async fn apply_server_files(
+    host: &impl ContentHost,
+    server: Server,
+) -> Result<ServerFilesResult, String> {
+    let search_path = host.search_path()?;
     let pakradar = build_pakradar_preview(&server, &search_path)
         .await
         .ok_or_else(|| "This server does not publish a server download list.".to_owned())?;
-    let install_target = (pakradar.pending > 0)
-        .then(|| install_destination(&session))
+    let game_directory = (pakradar.pending > 0)
+        .then(|| host.game_directory())
         .transpose()?;
-    let (_, failures) = match &install_target {
-        Some(target) => {
-            telemetry.track(&Event::MapDownloadStarted {
+    let (_, failures) = match &game_directory {
+        Some(game_directory) => {
+            host.telemetry().track(&Event::MapDownloadStarted {
                 source: DownloadSource::ServerFiles,
                 count: pakradar.pending,
             });
             let result =
-                install_pakradar_manifest(&pakradar, &search_path, &target.game_directory, &app)
-                    .await;
+                install_pakradar_manifest(&pakradar, &search_path, game_directory, host).await;
             track_download(
-                &telemetry,
+                host.telemetry(),
                 DownloadSource::ServerFiles,
                 &result,
                 pakradar.pending,
@@ -130,8 +146,7 @@ pub async fn install_server_files(
 
     // This is the stage boundary issue #6 requires: only the search path after the server files
     // have been applied is allowed to produce a moh-db price.
-    let preview = build_preview(&session, server, Some(&app)).await?;
-    cache_preview(&cache, &session, preview.clone());
+    let preview = build_preview(host, server).await?;
     Ok(ServerFilesResult { preview, failures })
 }
 
@@ -148,7 +163,7 @@ async fn install_pakradar_manifest(
     pakradar: &PakRadarPreview,
     search_path: &[PathBuf],
     game_directory: &Path,
-    app: &tauri::AppHandle,
+    host: &impl ContentHost,
 ) -> Result<(Vec<PathBuf>, Vec<InstallFailure>), String> {
     let mut failures = Vec::new();
     if let Some(reason) = &pakradar.non_result {
@@ -217,8 +232,7 @@ async fn install_pakradar_manifest(
                         return;
                     }
                     announced = received;
-                    emit_install(
-                        app,
+                    host.report_install(
                         &progress,
                         InstallPhase::Downloading {
                             received,
@@ -229,19 +243,18 @@ async fn install_pakradar_manifest(
             )
             .await
             .map_err(|error| error.to_string())?;
-            emit_install(app, &progress, InstallPhase::Confirming);
+            host.report_install(&progress, InstallPhase::Confirming);
             content::install_verified_archive(&archive, destination)
                 .map_err(|error| error.to_string())
         }
         .await;
         match result {
             Ok(path) => {
-                emit_install(app, &progress, InstallPhase::Installed);
+                host.report_install(&progress, InstallPhase::Installed);
                 installed.push(path);
             }
             Err(reason) => {
-                emit_install(
-                    app,
+                host.report_install(
                     &progress,
                     InstallPhase::Failed {
                         reason: reason.clone(),
@@ -382,7 +395,7 @@ fn candidate_for_resolution<'a>(
     }
 }
 
-fn emit_install(app: &tauri::AppHandle, progress: &InstallProgress, phase: InstallPhase) {
+pub fn emit_install(app: &tauri::AppHandle, progress: &InstallProgress, phase: InstallPhase) {
     drop(app.emit(
         EVENT,
         InstallProgress {
@@ -458,7 +471,28 @@ mod tests {
     };
     use reveille_core::mapindex::MapKey;
 
-    use super::{CatalogueNonResultReason, catalogue_reason, shopping_list_will_write};
+    use std::fs;
+    use std::io::{Cursor, Write};
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use md5::{Digest, Md5};
+    use reveille_core::discovery::{
+        GamePort, MasterEndpoint, QueryPort, ReportedOccupancy, RoundTripMillis, Server, TargetGame,
+    };
+    use reveille_core::engine::EngineChoice;
+    use tempfile::TempDir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use zip::ZipWriter;
+    use zip::write::SimpleFileOptions;
+
+    use super::{
+        CatalogueNonResultReason, ContentHost, InstallPhase, InstallProgress, PreviewHost,
+        apply_server_files, build_preview, catalogue_reason, shopping_list_will_write,
+    };
+    use crate::telemetry::Telemetry;
 
     fn catalogue_candidate(id: u64) -> CatalogueCandidate {
         CatalogueCandidate {
@@ -527,26 +561,177 @@ mod tests {
         );
     }
 
-    #[test]
-    fn server_packages_are_applied_and_rescanned_before_mohdb_is_priced() {
-        let install_flow = include_str!("content.rs")
-            .split_once("async fn install_server_files(")
-            .and_then(|(_, rest)| rest.split_once("async fn install_pakradar_manifest("))
-            .map(|(flow, _)| flow)
-            .expect("server-file install flow");
-        let pakradar = install_flow
-            .find("install_pakradar_manifest(")
-            .expect("PakRadar install stage");
-        let refreshed_preview = install_flow
-            .find("let preview = build_preview(&session, server, Some(&app)).await?;")
-            .expect("post-PakRadar preview and rescan");
-        assert!(pakradar < refreshed_preview);
+    /// A game folder and a moh-db that records what it was asked to price instead of answering.
+    struct Fixture {
+        _root: TempDir,
+        main: PathBuf,
+        priced: Mutex<Vec<Vec<String>>>,
+        telemetry: Telemetry,
+    }
 
-        let preview_flow = include_str!("preview.rs")
-            .split_once("async fn build_preview(")
-            .and_then(|(_, rest)| rest.split_once("async fn build_pakradar_preview("))
-            .map(|(flow, _)| flow)
-            .expect("preview flow");
-        assert!(preview_flow.contains("wanted.is_empty() || server_stage_unresolved"));
+    impl Fixture {
+        fn new() -> Self {
+            let root = TempDir::new().expect("temporary directory");
+            let main = root.path().join("main");
+            fs::create_dir(&main).expect("main directory");
+            Self {
+                _root: root,
+                main,
+                priced: Mutex::new(Vec::new()),
+                telemetry: Telemetry::unavailable("0.0.0".to_owned()),
+            }
+        }
+
+        fn priced(&self) -> Vec<Vec<String>> {
+            self.priced.lock().expect("priced lookups").clone()
+        }
+    }
+
+    impl PreviewHost for Fixture {
+        fn engine(&self) -> EngineChoice {
+            EngineChoice::Original
+        }
+
+        fn game(&self) -> TargetGame {
+            TargetGame::AlliedAssault
+        }
+
+        fn search_path(&self) -> Result<Vec<PathBuf>, String> {
+            Ok(vec![self.main.clone()])
+        }
+
+        fn price(
+            &self,
+            _address: SocketAddrV4,
+            wanted: &[WantedMap],
+        ) -> impl Future<Output = Result<CatalogueResolutionPass, String>> {
+            self.priced
+                .lock()
+                .expect("priced lookups")
+                .push(wanted.iter().map(|map| map.name.clone()).collect());
+            std::future::ready(Ok(CatalogueResolutionPass::default()))
+        }
+    }
+
+    impl ContentHost for Fixture {
+        fn game_directory(&self) -> Result<PathBuf, String> {
+            Ok(self.main.clone())
+        }
+
+        fn telemetry(&self) -> &Telemetry {
+            &self.telemetry
+        }
+
+        fn report_install(&self, _progress: &InstallProgress, _phase: InstallPhase) {}
+    }
+
+    /// A server package holding one map, as the server's own download host would serve it.
+    fn package(map: &str) -> Vec<u8> {
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file(format!("maps/{map}.bsp"), SimpleFileOptions::default())
+            .expect("start entry");
+        let mut header = *b"2015\x13\0\0\0\0\0\0\0";
+        header[8..12].copy_from_slice(&42_i32.to_le_bytes());
+        archive.write_all(&header).expect("write BSP");
+        archive.finish().expect("finish archive").into_inner()
+    }
+
+    /// Serve a `pr_downloads` manifest and its one package on loopback, so the `PakRadar` stage runs
+    /// its real HTTP path without leaving the machine.
+    async fn serve_server_files(package: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("address"));
+        let manifest = format!(
+            "map {{\n  alias \"Custom pack\"\n  md5 \"{:x}\"\n  url \"{base}/custom.pk3\"\n}}\n",
+            Md5::digest(&package)
+        );
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut request = vec![0; 4096];
+                let read = stream.read(&mut request).await.expect("request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body = if request.starts_with("GET /custom.pk3 ") {
+                    package.clone()
+                } else {
+                    manifest.clone().into_bytes()
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(head.as_bytes()).await.expect("head");
+                stream.write_all(&body).await.expect("body");
+            }
+        });
+        format!("{base}/filelist.txt")
+    }
+
+    fn server(pr_downloads: String) -> Server {
+        Server {
+            endpoint: MasterEndpoint {
+                address: Ipv4Addr::LOCALHOST,
+                query_port: QueryPort::new(12_300),
+            },
+            game_port: GamePort::new(12_203),
+            hostname: "fixture".to_owned(),
+            game_name: Some("mohaa".to_owned()),
+            game_version: None,
+            version: None,
+            protocol: Some("8".to_owned()),
+            current_map: Some("dm/custom".to_owned()),
+            game_type: None,
+            rotation: vec!["dm/custom".to_owned(), "dm/elsewhere".to_owned()],
+            allow_download: None,
+            map_checksum: None,
+            pr_downloads: Some(pr_downloads),
+            minimum_ping: None,
+            maximum_ping: None,
+            join_window: None,
+            reserved_slots: None,
+            occupancy: ReportedOccupancy::default(),
+            client_capacity: None,
+            players: Vec::new(),
+            pure: None,
+            status_round_trip: RoundTripMillis::new(0),
+        }
+    }
+
+    #[tokio::test]
+    async fn server_packages_are_applied_and_rescanned_before_mohdb_is_priced() {
+        let fixture = Fixture::new();
+        let server = server(serve_server_files(package("dm/custom")).await);
+
+        // While the server's own package is pending, nothing is priced: moh-db could only be asked
+        // for a map the server is about to supply.
+        let before = build_preview(&fixture, server.clone())
+            .await
+            .expect("preview before the server files");
+        assert_eq!(
+            before.pakradar.as_ref().map(|pakradar| pakradar.pending),
+            Some(1)
+        );
+        assert!(fixture.priced().is_empty());
+
+        let applied = apply_server_files(&fixture, server)
+            .await
+            .expect("server files applied");
+
+        assert!(applied.failures.is_empty());
+        assert!(fixture.main.join("custom.pk3").is_file());
+        assert_eq!(
+            applied
+                .preview
+                .pakradar
+                .as_ref()
+                .map(|pakradar| pakradar.pending),
+            Some(0)
+        );
+        // The rescan saw the installed package, so only the map the server does not supply is
+        // priced, and it is priced once.
+        assert_eq!(fixture.priced(), vec![vec!["dm/elsewhere".to_owned()]]);
     }
 }
