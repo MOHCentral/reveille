@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter as _};
 
 use crate::tray;
 
-const PLAYER_ALERT_OPEN_EVENT: &str = "reveille://player-alert-open";
+pub const PLAYER_ALERT_OPEN_EVENT: &str = "reveille://player-alert-open";
 const JOIN_ACTION: &str = "join";
 
 #[derive(Clone, Serialize)]

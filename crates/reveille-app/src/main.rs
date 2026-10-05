@@ -90,8 +90,15 @@ fn main() {
         })
         .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
+            // installation
             installation::detect_install,
             installation::identify_install,
+            installation::pick_install_folder,
+            installation::copy::installation_storage,
+            installation::copy::pick_copy_destination,
+            installation::copy::copy_game_installation,
+            installation::copy::cancel_game_installation_copy,
+            // engines
             engines::engine_overview,
             engines::select_engine,
             engines::reborn::install_reborn,
@@ -99,16 +106,18 @@ fn main() {
             engines::openmohaa::openmohaa_status,
             engines::openmohaa::install_openmohaa,
             engines::openmohaa::cancel_openmohaa_install,
-            installation::copy::installation_storage,
-            installation::copy::pick_copy_destination,
-            installation::copy::copy_game_installation,
-            installation::copy::cancel_game_installation_copy,
-            installation::pick_install_folder,
-            servers::browse::cancel_browse,
+            // servers
             servers::browse::browse_servers,
+            servers::browse::cancel_browse,
             servers::check::check_server,
+            // join
+            join::preview_join,
+            join::content::install_server_files,
+            join::install_and_launch,
+            // alerts
             alerts::read_watched_server,
             alerts::game_client_running,
+            // notifications and the alert popup
             notice::send_player_notification,
             notice::send_reveille_notice,
             notice::open_notification_settings,
@@ -117,16 +126,14 @@ fn main() {
             popup::alert_popup_ready,
             popup::fit_alert_popup,
             popup::alert_popup_action,
+            // shell
             autostart::start_at_login,
             autostart::set_start_at_login,
-            join::preview_join,
-            join::content::install_server_files,
-            join::install_and_launch,
+            tray::set_close_to_tray,
+            tray::set_tray_tooltip,
             self_update::check_reveille_update,
             self_update::install_reveille_update,
             self_update::cancel_reveille_update,
-            tray::set_close_to_tray,
-            tray::set_tray_tooltip,
             logs::app_log_files,
             telemetry::commands::telemetry_status,
             telemetry::commands::set_telemetry_shared,
@@ -134,4 +141,38 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Reveille");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    /// Every event the shell emits. The frontend subscribes by name, so two slices sharing one
+    /// would each receive the other's payloads.
+    const EVENTS: [&str; 12] = [
+        crate::installation::copy::EVENT,
+        crate::engines::reborn::EVENT,
+        crate::engines::openmohaa::EVENT,
+        crate::servers::browse::EVENT,
+        crate::join::preview::EVENT,
+        crate::join::content::EVENT,
+        crate::notice::PLAYER_ALERT_OPEN_EVENT,
+        crate::popup::CARD_EVENT,
+        crate::popup::SNOOZE_EVENT,
+        crate::popup::MORE_EVENT,
+        crate::tray::HIDDEN_EVENT,
+        crate::self_update::EVENT,
+    ];
+
+    #[test]
+    fn every_event_name_is_unique_and_namespaced() {
+        let mut seen = HashSet::new();
+        for event in EVENTS {
+            assert!(
+                event.starts_with("reveille://"),
+                "{event} is not namespaced"
+            );
+            assert!(seen.insert(event), "{event} is emitted by two slices");
+        }
+    }
 }
