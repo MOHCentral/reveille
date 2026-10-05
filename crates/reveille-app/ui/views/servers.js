@@ -33,10 +33,14 @@ import {
   playersFoundText,
   roundTrip,
   shortVersion,
-  sweepProgressText,
   timeAgo,
 } from "../lib/format.js";
-import { browseFailureText, mapNeed, nonResultReason } from "../features/servers/format.js";
+import {
+  browseFailureText,
+  mapNeed,
+  nonResultReason,
+  sweepProgressText,
+} from "../features/servers/format.js";
 import { watchLine } from "../features/alerts/format.js";
 import {
   clearHistory,
@@ -1569,8 +1573,8 @@ function announce(live) {
  * Deliberately carries no live counts. A running total inside the sentence would make the string
  * differ on every probe and defeat the whole point of the milestone.
  *
- * The milestone arithmetic lives in `lib/format.js` as `sweepProgressText`, where it can be tested
- * without a DOM (issue #12). This is the one line that reads the sweep's own counters.
+ * The milestone arithmetic lives in `features/servers/format.js` as `sweepProgressText`, where it
+ * can be tested without a DOM (issue #12). This is the one line that reads the sweep's own counters.
  */
 function sweepLiveText() {
   return sweepProgressText(state.browse);

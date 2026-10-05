@@ -4,8 +4,8 @@
 //
 // These four behaviours used to be guarded only by Rust tests that read `app.js` and
 // `views/servers.js` as text with `include_str!` and `contains` — which held the exact line that
-// had regressed once, and nothing else. They are now ordinary functions in `features/servers/` and
-// `lib/format.js`, and what follows asserts the behaviour instead of the spelling (issue #12).
+// had regressed once, and nothing else. They are now ordinary functions in `features/servers/`, and
+// what follows asserts the behaviour instead of the spelling (issue #12).
 //
 // They moved rather than being reimplemented: `rememberReadyJoin` is the same function, and
 // `applyCheckedRow`/`applyCheckNonResult` are the two branches that were inline in `check`'s
@@ -28,7 +28,7 @@ const store = {
   ...(await import("../../../ui/features/servers/selectors.js")),
   ...(await import("../../../ui/features/servers/reducers.js")),
 };
-const { sweepProgressText } = await import("../../../ui/lib/format.js");
+const { sweepProgressText } = await import("../../../ui/features/servers/format.js");
 
 function row(address, extra = {}) {
   return {

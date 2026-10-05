@@ -245,27 +245,3 @@ export function playedLabel(entry) {
   const times = entry.launches > 1 ? ` ×${entry.launches}` : "";
   return when ? `${when}${times}` : `×${entry.launches}`;
 }
-
-/**
- * What the live region says while a sweep runs.
- *
- * The sweep emits one event per probed endpoint, so a region restating "N of M done" fired
- * roughly two hundred announcements per sweep — not progress reporting but a denial of service
- * against the one output a blind player has. Progress is announced at
- * quarters instead: start, three milestones, then the summary. Five utterances rather than two
- * hundred.
- *
- * Deliberately carries no live counts. A running total inside the sentence would make the string
- * differ on every probe and defeat the whole point of the milestone.
- */
-const SWEEP_MILESTONES = [
-  "A quarter of the servers checked.",
-  "Half of the servers checked.",
-  "Three quarters of the servers checked.",
-];
-
-export function sweepProgressText({ probed, inspected }) {
-  if (inspected <= 0) return "Getting the server list. Contacting the master server.";
-  const quarter = Math.min(3, Math.floor((probed / inspected) * 4));
-  return quarter === 0 ? `Checking ${inspected} servers.` : SWEEP_MILESTONES[quarter - 1];
-}
