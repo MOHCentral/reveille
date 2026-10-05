@@ -10,6 +10,9 @@ const document = installDom();
 installStorage();
 const store = await import("../../ui/lib/store.js");
 const { joinView } = await import("../../ui/views/join.js");
+const { initial: serversState } = await import("../../ui/features/servers/index.js");
+// The pane reads the server list's rows, selection and checks, so it composes that feature's state.
+store.composeState([serversState()]);
 
 const ADDRESS = "127.0.0.1:12203";
 

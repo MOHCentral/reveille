@@ -36,6 +36,7 @@ import {
   previewJoin,
 } from "./features/join/api.js";
 import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
+import { initial as serversState } from "./features/servers/index.js";
 import {
   browseFailure,
   browseServers,
@@ -72,25 +73,21 @@ import { clockTime, displayPath, occupancy, plural, timeAgo } from "./lib/format
 import { alertDetail } from "./features/alerts/format.js";
 import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./lib/reach.js";
 import { ENGINE_LABELS, GAME_LABELS } from "./lib/catalog.js";
+import { composeState, notify, state, subscribe, update } from "./lib/store.js";
+import { SCOPES, loadFilters, saveFilters } from "./features/servers/state.js";
 import {
-  SCOPES,
+  canRecheck,
+  droppedIdentity,
+  listIsStale,
+  selectedRow,
+} from "./features/servers/selectors.js";
+import {
   adoptBackgroundSweep,
   applyCheckNonResult,
   applyCheckedRow,
-  canRecheck,
-  composeState,
   countsByAddress,
-  droppedIdentity,
-  listIsStale,
-  loadFilters,
-  notify,
   rememberReadyJoin,
-  saveFilters,
-  selectedRow,
-  state,
-  subscribe,
-  update,
-} from "./lib/store.js";
+} from "./features/servers/reducers.js";
 import {
   generations,
   listIsForCurrentSession,
@@ -109,7 +106,7 @@ import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./views/servers.js";
 import { joinView, shoppingTotals } from "./views/join.js";
 
-composeState([selfUpdateState()]);
+composeState([selfUpdateState(), serversState()]);
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");

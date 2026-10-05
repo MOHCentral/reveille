@@ -3473,7 +3473,7 @@ mod tests {
         );
 
         // The comparison itself — that all three of folder, engine and game count — is asserted
-        // behaviourally in `ui-tests/lib/store.test.js`. What stays here is the `app.js` half: the
+        // behaviourally in `ui-tests/lib/session.test.js`. What stays here is the `app.js` half: the
         // sweep trigger cannot run outside the shell, because `app.js` imports every view and
         // touches `document` at module load.
     }
@@ -3481,10 +3481,11 @@ mod tests {
     #[test]
     fn folded_remembered_entries_always_state_their_count() {
         // The fold's *rendering* half. That `scopedRows` emits the disclosure with its count whether
-        // the block is open or shut is asserted behaviourally in `ui-tests/lib/store.test.js`;
-        // what stays here is the wording and the ARIA state, which need a real DOM with real
-        // attribute reflection. `ui-tests/fakes/dom.js` deliberately does not model that, because
-        // a fake that approximated it would hand back confidence it had not earned.
+        // the block is open or shut is asserted behaviourally in
+        // `ui-tests/features/servers/state.test.js`; what stays here is the wording and the ARIA
+        // state, which need a real DOM with real attribute reflection. `ui-tests/fakes/dom.js`
+        // deliberately does not model that, because a fake that approximated it would hand back
+        // confidence it had not earned.
         let servers = include_str!("../ui/views/servers.js");
         assert!(
             servers.contains("`${count} offline`"),

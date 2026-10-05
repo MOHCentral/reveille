@@ -4,7 +4,7 @@
 //
 // These four behaviours used to be guarded only by Rust tests that read `app.js` and
 // `views/servers.js` as text with `include_str!` and `contains` — which held the exact line that
-// had regressed once, and nothing else. They are now ordinary functions in `lib/store.js` and
+// had regressed once, and nothing else. They are now ordinary functions in `features/servers/` and
 // `lib/format.js`, and what follows asserts the behaviour instead of the spelling (issue #12).
 //
 // They moved rather than being reimplemented: `rememberReadyJoin` is the same function, and
@@ -16,11 +16,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { installStorage } from "../fakes/storage.js";
+import { installStorage } from "../../fakes/storage.js";
 
 installStorage();
-const store = await import("../../ui/lib/store.js");
-const { sweepProgressText } = await import("../../ui/lib/format.js");
+const kernel = await import("../../../ui/lib/store.js");
+const servers = await import("../../../ui/features/servers/index.js");
+kernel.composeState([servers.initial()]);
+// The kernel and the server list's modules under one name.
+const store = {
+  ...kernel,
+  ...(await import("../../../ui/features/servers/selectors.js")),
+  ...(await import("../../../ui/features/servers/reducers.js")),
+};
+const { sweepProgressText } = await import("../../../ui/lib/format.js");
 
 function row(address, extra = {}) {
   return {

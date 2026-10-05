@@ -2,8 +2,8 @@
 
 // An in-memory `localStorage`.
 //
-// `store.js` and `bookmarks.js` read the global at *call* time, never at module load, so
-// assigning it before a test is enough — no dynamic import needed.
+// `features/servers/state.js` and `bookmarks.js` read the global at *call* time, never at module
+// load, so assigning it before a test is enough — no dynamic import needed.
 
 /**
  * Install a fresh in-memory `localStorage` on `globalThis` and return a handle to it.
@@ -31,9 +31,9 @@ export function installStorage(seed = {}) {
 /**
  * Install a `localStorage` whose every operation throws.
  *
- * Every access in `store.js` and `bookmarks.js` is wrapped in try/catch, with a comment saying a
- * launcher that cannot persist a preference still works. This is how that claim gets tested
- * rather than asserted.
+ * Every access in `features/servers/state.js` and `bookmarks.js` is wrapped in try/catch, with a
+ * comment saying a launcher that cannot persist a preference still works. This is how that claim
+ * gets tested rather than asserted.
  */
 export function installBrokenStorage() {
   const refuse = () => {

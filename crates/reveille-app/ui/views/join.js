@@ -45,12 +45,8 @@ import { icon } from "../lib/icons.js";
 import { THRESHOLDS, playerAlert, setAlertThreshold } from "../lib/player-alerts.js";
 import { closePopover, openPopover } from "../lib/popover.js";
 import { GAME_LABELS } from "../lib/catalog.js";
-import {
-  canRecheck,
-  selectedRow,
-  state,
-  update,
-} from "../lib/store.js";
+import { state, update } from "../lib/store.js";
+import { canRecheck, selectedRow } from "../features/servers/selectors.js";
 import { playableGames } from "../lib/session.js";
 
 export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert }) {

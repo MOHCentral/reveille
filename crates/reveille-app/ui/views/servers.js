@@ -47,11 +47,10 @@ import {
   toggleFavorite,
 } from "../lib/bookmarks.js";
 import { GAME_LABELS } from "../lib/catalog.js";
+import { state, update } from "../lib/store.js";
+import { PING_LIMITS, SCOPES, saveFilters } from "../features/servers/state.js";
 import {
-  PING_LIMITS,
-  SCOPES,
   canRecheck,
-  clearFilters,
   filtering,
   foldedEmpty,
   listIsStale,
@@ -59,13 +58,11 @@ import {
   playerTrend,
   playersFound,
   savedEntries,
-  saveFilters,
   scopedAbsent,
   scopedRows,
-  state,
-  update,
   visibleServers,
-} from "../lib/store.js";
+} from "../features/servers/selectors.js";
+import { clearFilters } from "../features/servers/reducers.js";
 import { playableGames } from "../lib/session.js";
 import { watchReading, watchedEntries } from "../lib/player-alerts.js";
 
