@@ -4,7 +4,7 @@
 // of these functions, so a change to a command signature has exactly one place
 // to land.
 //
-// Commands (crates/reveille-app/src/main.rs):
+// Commands (registered by `generate_handler!` in crates/reveille-app/src/main.rs):
 //   detect_install(selectedPath?)              -> Installation | null
 //     Installation.products is what is on disk; Installation.playable is what can be run — an
 //     expansion needs the base game underneath it. Offer `playable`.

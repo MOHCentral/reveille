@@ -159,6 +159,14 @@ live-catalogue:
     cargo test -p reveille-core --test live_catalogue --locked -- --ignored --nocapture
 
 # ---------------------------------------------------------------------------
+# Refactoring.
+# ---------------------------------------------------------------------------
+
+# Every test by the behaviour it guards; with a git ref, only what was removed, moved or added since.
+inventory REF="":
+    node tools/test-inventory.mjs {{ REF }}
+
+# ---------------------------------------------------------------------------
 # Project management.
 # ---------------------------------------------------------------------------
 
