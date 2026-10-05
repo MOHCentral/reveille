@@ -25,9 +25,11 @@
 #[cfg(windows)]
 mod app_icon;
 mod autostart;
+mod logs;
 mod notice;
 mod popup;
 mod self_update;
+mod session;
 mod telemetry;
 mod tray;
 
@@ -67,14 +69,14 @@ use reveille_core::platform::reborn::{
 };
 use reveille_platform as platform;
 use serde::{Deserialize, Serialize};
+use session::{Session, SessionError, installed_maps, session_installation, session_search_path};
 use sha2::{Digest as _, Sha256};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
-use telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry, TelemetryStatus, UiEvent};
+use telemetry::{BrowseFailureKind, DownloadSource, Event, JoinFailureReason, Telemetry};
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::{info, warn};
-use tracing_subscriber::EnvFilter;
 
 /// Events the frontend listens for, kept together so the contract reads in one place.
 const BROWSE_EVENT: &str = "reveille://browse";
@@ -83,8 +85,6 @@ const INSTALL_EVENT: &str = "reveille://install";
 const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
 const INSTALLATION_COPY_EVENT: &str = "reveille://installation-copy";
-const APP_LOG_FILENAME: &str = "reveille.log";
-const PREVIOUS_APP_LOG_FILENAME: &str = "reveille.previous.log";
 
 /// Deadline for one per-server UDP probe.
 ///
@@ -542,39 +542,6 @@ impl OpenMohaaFailure {
             detail: detail.to_string(),
         }
     }
-}
-
-/// Why the server list could not be built, classified once here rather than by matching message
-/// text in JavaScript.
-///
-/// The same argument as [`OpenMohaaFailureKind`], applied to the other command that talks to the
-/// network. A local routing or socket-permission failure, a community master that refuses or
-/// resets its TCP connection, and a master whose reply is truncated are different observations,
-/// and all three used to reach the status bar as one raw
-/// `error.to_string()` -- "master reply body has 42 bytes; expected a multiple of 6" -- with no
-/// cause and no next action.
-///
-/// `detail` carries the original message for diagnosis. The shell chooses its wording from `kind`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum BrowseFailureKind {
-    /// The local socket could not use the network: no route, no usable address, or no permission.
-    /// The master exchange is TCP; per-server UDP failures are recorded separately.
-    NoNetwork,
-    /// The master timed out, refused the TCP connection, or reset an established exchange.
-    MasterUnreachable,
-    /// The master answered and the answer could not be read: a truncated body, a missing
-    /// terminator, a challenge of the wrong length.
-    MasterUnreadable,
-    /// The saved game folder no longer reads, or no longer holds the selected game.
-    GameUnavailable,
-    /// The saved engine is missing from the folder or cannot run on this PC.
-    EngineUnavailable,
-    /// The folder resolved but the maps in it could not be indexed.
-    MapsUnreadable,
-    /// A failure outside the master exchange, carried through with its own message rather than
-    /// dressed up as one of the causes above.
-    Internal,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1604,37 +1571,6 @@ fn forget_checked_server(
     Ok(())
 }
 
-/// What every server-facing command needs before it can say anything: which game folder, which
-/// engine program, and which of the three games.
-///
-/// One struct rather than three repeated parameters, so a command cannot be given the folder and
-/// the engine and quietly left with the wrong game.
-#[derive(Clone, Deserialize)]
-struct Session {
-    path: String,
-    engine: EngineChoice,
-    game: TargetGame,
-}
-
-/// Resolve the installation, confirm the engine it will run, and index the maps on disk.
-///
-/// This path is deliberately read-only. Browsing and joining a server whose map is already on disk
-/// need no writable destination, so a Program Files installation must reach them without a probe.
-/// The index still covers every directory the engine reads, including `main` beneath an expansion.
-fn installed_maps(session: &Session) -> Result<MapIndex, SessionError> {
-    let search = session_search_path(session)?;
-    MapIndex::scan_chain(&search).map_err(SessionError::Maps)
-}
-
-fn session_search_path(session: &Session) -> Result<Vec<PathBuf>, SessionError> {
-    let installation = session_installation(session)?;
-    Ok(platform::content_search_path(
-        &installation.root,
-        session.game,
-        platform::ClientKind::from(session.engine),
-    ))
-}
-
 /// Resolve where downloaded content goes for this session, and nothing else.
 ///
 /// Called exactly once, and only after a shopping list proves this join will write a file. The
@@ -1647,42 +1583,6 @@ fn install_destination(session: &Session) -> Result<platform::InstallTarget, Str
         platform::ClientKind::from(session.engine),
     )
     .map_err(|error| error.to_string())
-}
-
-/// Why a saved session no longer matches the PC it runs on: the folder, the game in it, the engine
-/// program, or the maps it holds. Typed so the server list can tell a player which one to fix.
-#[derive(Debug, Error)]
-enum SessionError {
-    #[error(transparent)]
-    Folder(install::Error),
-    // The directory name is what the check actually looked at, and it is exactly the detail a
-    // newcomer cannot act on. Say which game is missing from the folder they picked.
-    #[error("{} cannot be run from this game folder: its game files are not there.", .0.label())]
-    GameMissing(TargetGame),
-    #[error(transparent)]
-    Engine(platform::engine::EngineError),
-    #[error(transparent)]
-    Maps(reveille_core::mapindex::Error),
-}
-
-impl From<SessionError> for String {
-    fn from(error: SessionError) -> Self {
-        error.to_string()
-    }
-}
-
-fn session_installation(session: &Session) -> Result<Installation, SessionError> {
-    let installation = install::identify(&session.path).map_err(SessionError::Folder)?;
-    if !installation.provides(session.game) {
-        return Err(SessionError::GameMissing(session.game));
-    }
-    platform::engine::resolve_choice(
-        &installation.root,
-        Some(session.engine),
-        &platform::HostCapabilities::current(),
-    )
-    .map_err(SessionError::Engine)?;
-    Ok(installation)
 }
 
 fn classified(server: &Server, index: &MapIndex) -> BrowserServer {
@@ -2549,157 +2449,6 @@ async fn install_candidate(
     Ok(installed)
 }
 
-#[derive(Serialize)]
-struct AppLogFiles {
-    current: String,
-    previous: String,
-}
-
-#[derive(Debug, Error)]
-enum AppLoggingError {
-    #[error("could not access the app log at {path}")]
-    Filesystem {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("could not install the app log subscriber: {0}")]
-    Subscriber(String),
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves the app handle only for by-value command parameters"
-)]
-fn app_log_files(app: tauri::AppHandle) -> Result<AppLogFiles, String> {
-    let directory = app
-        .path()
-        .app_log_dir()
-        .map_err(|error| error.to_string())?;
-    let (current, previous) = app_log_paths(&directory);
-    Ok(AppLogFiles {
-        current: current.to_string_lossy().into_owned(),
-        previous: previous.to_string_lossy().into_owned(),
-    })
-}
-
-fn app_log_paths(directory: &Path) -> (PathBuf, PathBuf) {
-    (
-        directory.join(APP_LOG_FILENAME),
-        directory.join(PREVIOUS_APP_LOG_FILENAME),
-    )
-}
-
-fn prepare_app_log(directory: &Path) -> Result<(fs::File, PathBuf), AppLoggingError> {
-    fs::create_dir_all(directory).map_err(|source| AppLoggingError::Filesystem {
-        path: directory.to_path_buf(),
-        source,
-    })?;
-    let (current, previous) = app_log_paths(directory);
-    let current_exists = current
-        .try_exists()
-        .map_err(|source| AppLoggingError::Filesystem {
-            path: current.clone(),
-            source,
-        })?;
-    if current_exists {
-        match fs::remove_file(&previous) {
-            Ok(()) => {}
-            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(AppLoggingError::Filesystem {
-                    path: previous,
-                    source,
-                });
-            }
-        }
-        fs::rename(&current, &previous).map_err(|source| AppLoggingError::Filesystem {
-            path: current.clone(),
-            source,
-        })?;
-    }
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&current)
-        .map_err(|source| AppLoggingError::Filesystem {
-            path: current.clone(),
-            source,
-        })?;
-    Ok((file, current))
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn telemetry_status(telemetry: tauri::State<'_, Telemetry>) -> TelemetryStatus {
-    telemetry.status()
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn set_telemetry_shared(
-    shared: bool,
-    telemetry: tauri::State<'_, Telemetry>,
-) -> Result<TelemetryStatus, String> {
-    info!(shared, "telemetry choice changed");
-    telemetry
-        .set_shared(shared)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn track_event(event: UiEvent, telemetry: tauri::State<'_, Telemetry>) {
-    telemetry.track_ui(event);
-}
-
-/// Load the telemetry choice and send this run's start. A build or machine without a usable
-/// config directory gets telemetry that is unavailable rather than a failed start.
-fn init_telemetry(app: &tauri::App) -> Telemetry {
-    let version = app.package_info().version.to_string();
-    let telemetry = match app.path().app_config_dir() {
-        Ok(directory) => Telemetry::load(directory, version, telemetry::Sink::from_build()),
-        Err(error) => {
-            warn!(%error, "could not resolve the app config directory; telemetry is off");
-            Telemetry::unavailable(version)
-        }
-    };
-    telemetry.install_panic_hook();
-    telemetry.start();
-    telemetry
-}
-
-fn logging_filter() -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"))
-}
-
-fn init_logging(directory: &Path) -> Result<PathBuf, AppLoggingError> {
-    let (file, path) = prepare_app_log(directory)?;
-    tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_env_filter(logging_filter())
-        .with_writer(file)
-        .try_init()
-        .map_err(|error| AppLoggingError::Subscriber(error.to_string()))?;
-    Ok(path)
-}
-
-fn init_stderr_logging() {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,reveille=info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
-}
-
 fn main() {
     // The one exemption to the crate's `expect_used` deny, and the narrowest form of it: a
     // statement attribute on the last statement of an executable `main`, where a failed Tauri run
@@ -2730,21 +2479,9 @@ fn main() {
                 .build(),
         )
         .setup(|app| {
-            match app.path().app_log_dir() {
-                Ok(directory) => match init_logging(&directory) {
-                    Ok(path) => info!(log_path = %path.display(), "starting Reveille app shell"),
-                    Err(error) => {
-                        init_stderr_logging();
-                        warn!(%error, "persistent app logging is unavailable");
-                    }
-                },
-                Err(error) => {
-                    init_stderr_logging();
-                    warn!(%error, "could not resolve the app log directory");
-                }
-            }
+            logs::init(app);
             app.manage(AppState::default());
-            app.manage(init_telemetry(app));
+            app.manage(telemetry::commands::init_telemetry(app));
             app.manage(tray::TrayState::default());
             app.manage(popup::PopupState::default());
             #[cfg(windows)]
@@ -2796,10 +2533,10 @@ fn main() {
             self_update::cancel_reveille_update,
             tray::set_close_to_tray,
             tray::set_tray_tooltip,
-            app_log_files,
-            telemetry_status,
-            set_telemetry_shared,
-            track_event
+            logs::app_log_files,
+            telemetry::commands::telemetry_status,
+            telemetry::commands::set_telemetry_shared,
+            telemetry::commands::track_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running Reveille");
@@ -2808,7 +2545,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::io::{self, Write as _};
+    use std::io;
     use std::path::Path;
 
     use reveille_core::bsp::Checksum;
@@ -2830,38 +2567,14 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        APP_LOG_FILENAME, AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason,
-        DiscoveryError, EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation,
-        OpenMohaaFailure, OpenMohaaFailureKind, OpenMohaaInstalledBuild, PREVIOUS_APP_LOG_FILENAME,
-        QueryPort, RequestError, Server, Session, TargetGame, answered_for_another_game,
-        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, failed, installed_maps,
-        installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
-        platform, prepare_app_log, preview_cache_matches, record_openmohaa_install, refusal_reason,
-        shopping_list_will_write,
+        AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError,
+        EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation, OpenMohaaFailure,
+        OpenMohaaFailureKind, OpenMohaaInstalledBuild, QueryPort, RequestError, Server, Session,
+        TargetGame, answered_for_another_game, cache_openmohaa_offer, cached_openmohaa_offer,
+        catalogue_reason, failed, installed_maps, installed_openmohaa_build, launch_refusal,
+        merge_checked_server, openmohaa_client_path, platform, preview_cache_matches,
+        record_openmohaa_install, refusal_reason, shopping_list_will_write,
     };
-
-    #[test]
-    fn app_logging_retains_the_previous_session() {
-        let directory = TempDir::new().expect("temporary log directory");
-        let current = directory.path().join(APP_LOG_FILENAME);
-        fs::write(&current, "previous session\n").expect("seed current log");
-
-        let (mut file, path) = prepare_app_log(directory.path()).expect("prepare app log");
-        file.write_all(b"current session\n")
-            .expect("write current log");
-        drop(file);
-
-        assert_eq!(path, current);
-        assert_eq!(
-            fs::read_to_string(directory.path().join(PREVIOUS_APP_LOG_FILENAME))
-                .expect("read previous log"),
-            "previous session\n"
-        );
-        assert_eq!(
-            fs::read_to_string(current).expect("read current log"),
-            "current session\n"
-        );
-    }
 
     fn assessment(
         state: CompatibilityState,
@@ -2881,71 +2594,6 @@ mod tests {
             }),
             current_map,
         }
-    }
-
-    #[test]
-    fn the_session_payload_matches_what_the_shell_sends() {
-        // `lib/api.js` sends `{ session: { path, engine, game } }`, and both enums travel as the
-        // snake_case names the rest of the payloads already use. A rename on either side is a
-        // silent "invalid args" on every command, so it is pinned here rather than found by hand.
-        let session: Session = serde_json::from_str(
-            r#"{"path":"D:\\Games\\MOHAA","engine":"openmohaa","game":"breakthrough"}"#,
-        )
-        .expect("the shell's session payload");
-
-        assert_eq!(session.path, r"D:\Games\MOHAA");
-        assert_eq!(session.engine, EngineChoice::Openmohaa);
-        assert_eq!(session.game, TargetGame::Breakthrough);
-    }
-
-    #[test]
-    fn a_game_the_folder_has_no_files_for_is_refused_before_anything_is_probed() {
-        let temporary = TempDir::new().expect("temporary directory");
-        fs::create_dir(temporary.path().join("main")).expect("main directory");
-        fs::write(
-            platform::default_client(
-                temporary.path(),
-                TargetGame::AlliedAssault,
-                platform::ClientKind::OpenMohaa,
-            ),
-            [],
-        )
-        .expect("client marker");
-        let path = temporary.path().to_string_lossy().into_owned();
-
-        // Allied Assault is what this folder has, and it indexes.
-        installed_maps(&Session {
-            path: path.clone(),
-            engine: EngineChoice::Openmohaa,
-            game: TargetGame::AlliedAssault,
-        })
-        .expect("the base game indexes");
-
-        // Spearhead is not, and saying so beats an empty map index that would report every map
-        // on the server as missing. The message names the game, never the engine's directory:
-        // `mainta` is what the check looked at and is not something a player can act on.
-        let refusal = installed_maps(&Session {
-            path: path.clone(),
-            engine: EngineChoice::Openmohaa,
-            game: TargetGame::Spearhead,
-        })
-        .expect_err("an absent expansion is refused")
-        .to_string();
-        assert!(refusal.contains("Spearhead"), "{refusal}");
-        assert!(!refusal.contains("mainta"), "{refusal}");
-
-        // "Before anything is probed" is the load-bearing half: this folder has no retail
-        // executable either, so asking for Original as well proves which check runs first. A
-        // writability probe or a home fallback must never happen for a game that was never
-        // runnable from this folder.
-        let refusal = installed_maps(&Session {
-            path,
-            engine: EngineChoice::Original,
-            game: TargetGame::Spearhead,
-        })
-        .expect_err("an absent expansion is refused whatever the engine")
-        .to_string();
-        assert!(refusal.contains("Spearhead"), "{refusal}");
     }
 
     #[test]
@@ -2987,56 +2635,6 @@ mod tests {
         assert_eq!(
             browse_kind(&path, EngineChoice::Reborn, TargetGame::AlliedAssault),
             BrowseFailureKind::EngineUnavailable
-        );
-    }
-
-    #[test]
-    fn read_only_indexing_does_not_resolve_or_create_a_write_target() {
-        let temporary = TempDir::new().expect("temporary directory");
-        let root = temporary.path();
-        fs::create_dir_all(root.join("main/maps/dm")).expect("map directory");
-        let client_name = if cfg!(windows) {
-            "openmohaa.exe"
-        } else {
-            "openmohaa"
-        };
-        fs::write(root.join(client_name), b"openmohaa client").expect("openmohaa client");
-        let bsp = [
-            b"2015".as_slice(),
-            &19_i32.to_le_bytes(),
-            &42_i32.to_le_bytes(),
-        ]
-        .concat();
-        fs::write(root.join("main/maps/dm/stock.bsp"), bsp).expect("stock map");
-        let mut before = fs::read_dir(root)
-            .expect("installation entries")
-            .map(|entry| entry.expect("entry").file_name())
-            .collect::<Vec<_>>();
-        before.sort();
-
-        let index = installed_maps(&Session {
-            path: root.to_string_lossy().into_owned(),
-            engine: EngineChoice::Openmohaa,
-            game: TargetGame::AlliedAssault,
-        })
-        .expect("read-only index");
-
-        assert!(index.get("dm/stock").is_some());
-        let mut after = fs::read_dir(root)
-            .expect("installation entries")
-            .map(|entry| entry.expect("entry").file_name())
-            .collect::<Vec<_>>();
-        after.sort();
-        assert_eq!(after, before);
-        assert!(!root.join(".reveille-engines").exists());
-        assert!(
-            fs::read_dir(root.join("main"))
-                .expect("main entries")
-                .all(|entry| !entry
-                    .expect("main entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".reveille-write-probe"))
         );
     }
 

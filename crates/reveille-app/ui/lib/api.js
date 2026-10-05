@@ -38,7 +38,7 @@
 //   telemetry_status()                         -> { available, shared }
 //   set_telemetry_shared(shared)               -> { available, shared }
 //   track_event(event)                         -> void; `event` is one of the `UiEvent` variants
-//     in src/telemetry.rs. Every other telemetry event is sent by the command that observes it.
+//     in src/telemetry/mod.rs. Every other telemetry event is sent by the command that observes it.
 //
 // A `session` is `{ path, engine, game }`: which game folder, which engine program, and which of
 // the three games — Allied Assault, Spearhead or Breakthrough. Every server-facing command takes

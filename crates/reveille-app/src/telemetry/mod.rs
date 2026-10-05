@@ -22,6 +22,8 @@ use thiserror::Error;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+pub mod commands;
+
 const CHOICE_FILENAME: &str = "telemetry.json";
 const CRASH_FILENAME: &str = "telemetry-crash.json";
 /// The EU region of `PostHog`, so events stay under EU data-protection law.
@@ -99,6 +101,39 @@ pub enum JoinFailureReason {
     LaunchFailed,
     /// Anything not classified above.
     Unknown,
+}
+
+/// Why the server list could not be built, classified once here rather than by matching message
+/// text in JavaScript.
+///
+/// The same argument as `OpenMohaaFailureKind`, applied to the other command that talks to the
+/// network. A local routing or socket-permission failure, a community master that refuses or
+/// resets its TCP connection, and a master whose reply is truncated are different observations,
+/// and all three used to reach the status bar as one raw
+/// `error.to_string()` -- "master reply body has 42 bytes; expected a multiple of 6" -- with no
+/// cause and no next action.
+///
+/// `detail` carries the original message for diagnosis. The shell chooses its wording from `kind`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowseFailureKind {
+    /// The local socket could not use the network: no route, no usable address, or no permission.
+    /// The master exchange is TCP; per-server UDP failures are recorded separately.
+    NoNetwork,
+    /// The master timed out, refused the TCP connection, or reset an established exchange.
+    MasterUnreachable,
+    /// The master answered and the answer could not be read: a truncated body, a missing
+    /// terminator, a challenge of the wrong length.
+    MasterUnreadable,
+    /// The saved game folder no longer reads, or no longer holds the selected game.
+    GameUnavailable,
+    /// The saved engine is missing from the folder or cannot run on this PC.
+    EngineUnavailable,
+    /// The folder resolved but the maps in it could not be indexed.
+    MapsUnreadable,
+    /// A failure outside the master exchange, carried through with its own message rather than
+    /// dressed up as one of the causes above.
+    Internal,
 }
 
 /// A panic in the shape of `PostHog`'s manual exception capture, with its source position as the
@@ -200,7 +235,7 @@ pub enum Event {
     ServerListFailed {
         game: TargetGame,
         engine: EngineChoice,
-        reason: crate::BrowseFailureKind,
+        reason: BrowseFailureKind,
     },
     ServerSelected {
         ready: bool,

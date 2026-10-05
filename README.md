@@ -167,7 +167,7 @@ Windows username or computer name, folder paths, error messages or your server h
 location lookup is turned off for every event, and the PostHog project discards client IP
 addresses.
 
-Every event is defined in one place, [`crates/reveille-app/src/telemetry.rs`](crates/reveille-app/src/telemetry.rs).
+Every event is defined in one place, [`crates/reveille-app/src/telemetry/mod.rs`](crates/reveille-app/src/telemetry/mod.rs).
 Builds made without the `REVEILLE_TELEMETRY_KEY` environment variable, including every local
 build, never send anything.
 
