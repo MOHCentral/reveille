@@ -13,7 +13,7 @@ import { installTauri } from "../../fakes/tauri.js";
 const document = installDom();
 installStorage();
 const bridge = installTauri();
-const { state } = await import("../../../ui/lib/store.js");
+const { state, subscribe } = await import("../../../ui/lib/store.js");
 const { selfUpdate } = await import("../../../ui/features/self-update/index.js");
 
 const OFFER = { version: "0.7.0", current_version: "0.6.1" };
@@ -207,4 +207,24 @@ test("a stop that Rust refuses keeps the download running and says why", async (
   assert.equal(part("error").textContent, "too late");
   assert.equal(part("stop").textContent, "Stop download");
   assert.equal(state.selfUpdate.running, true);
+});
+
+test("every change to the update reaches the store's subscribers", async () => {
+  // The titlebar button and Setup's offer read `state.selfUpdate` on render, so a write that
+  // skipped `update()` would leave them showing a stale offer or an enabled control.
+  const { updates, part } = mount();
+  updates.open();
+  const seen = [];
+  const unsubscribe = subscribe(() => seen.push(state.selfUpdate.progress?.phase ?? null));
+  try {
+    const install = holdInstall();
+    part("install").dispatch("click");
+    bridge.emit(EVENT, { phase: "downloading", received: 1, total: 2 });
+    part("stop").dispatch("click");
+    install.reject("download cancelled");
+    await settle();
+  } finally {
+    unsubscribe();
+  }
+  assert.deepEqual(seen, ["downloading", "downloading", "downloading", "cancelled"]);
 });

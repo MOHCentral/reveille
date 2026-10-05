@@ -4,7 +4,7 @@
 // "Update and restart" installs it; the Rust side keeps the checked release in between.
 
 import { errorText } from "../../lib/shell.js";
-import { state, update } from "../../lib/store.js";
+import { state, subscribe, update } from "../../lib/store.js";
 import { cancelReveilleUpdate, checkReveilleUpdate, installReveilleUpdate, onSelfUpdateProgress } from "./api.js";
 import { selfUpdateDialog } from "./dialog.js";
 
@@ -23,7 +23,7 @@ export function selfUpdate({ host, onOffer }) {
   });
   void onSelfUpdateProgress(receive);
 
-  const render = () => view.render(state.selfUpdate);
+  subscribe(() => view.render(state.selfUpdate));
 
   /** A failed background check is unrelated to the player's current task and stays non-blocking. */
   async function find() {
@@ -45,7 +45,7 @@ export function selfUpdate({ host, onOffer }) {
 
   function open() {
     if (!state.selfUpdate.offer || state.joining) return;
-    render();
+    view.render(state.selfUpdate);
     view.dialog.showModal();
   }
 
@@ -55,44 +55,47 @@ export function selfUpdate({ host, onOffer }) {
 
   async function start() {
     if (state.selfUpdate.running || !state.selfUpdate.offer) return;
-    state.selfUpdate.running = true;
-    state.selfUpdate.stopping = false;
-    state.selfUpdate.progress = { phase: "downloading", received: 0, total: null };
-    state.selfUpdate.error = null;
-    render();
+    update(({ selfUpdate }) => {
+      selfUpdate.running = true;
+      selfUpdate.stopping = false;
+      selfUpdate.progress = { phase: "downloading", received: 0, total: null };
+      selfUpdate.error = null;
+    });
     try {
       await installReveilleUpdate();
     } catch (error) {
-      const stopped = state.selfUpdate.stopping;
-      state.selfUpdate.running = false;
-      state.selfUpdate.stopping = false;
-      if (stopped) state.selfUpdate.progress = { phase: "cancelled" };
-      else if (state.selfUpdate.progress?.phase !== "cancelled") state.selfUpdate.error = errorText(error);
-      render();
+      update(({ selfUpdate }) => {
+        const stopped = selfUpdate.stopping;
+        selfUpdate.running = false;
+        selfUpdate.stopping = false;
+        if (stopped) selfUpdate.progress = { phase: "cancelled" };
+        else if (selfUpdate.progress?.phase !== "cancelled") selfUpdate.error = errorText(error);
+      });
     }
   }
 
   async function stop() {
     const progress = state.selfUpdate.progress;
     if (!state.selfUpdate.running || progress?.phase !== "downloading") return;
-    state.selfUpdate.stopping = true;
-    render();
+    update((next) => (next.selfUpdate.stopping = true));
     try {
       await cancelReveilleUpdate();
     } catch (error) {
-      state.selfUpdate.stopping = false;
-      state.selfUpdate.error = errorText(error);
-      render();
+      update(({ selfUpdate }) => {
+        selfUpdate.stopping = false;
+        selfUpdate.error = errorText(error);
+      });
     }
   }
 
   function receive(progress) {
-    state.selfUpdate.progress = progress;
-    if (progress.phase === "cancelled") {
-      state.selfUpdate.running = false;
-      state.selfUpdate.stopping = false;
-    }
-    render();
+    update(({ selfUpdate }) => {
+      selfUpdate.progress = progress;
+      if (progress.phase === "cancelled") {
+        selfUpdate.running = false;
+        selfUpdate.stopping = false;
+      }
+    });
   }
 
   return { open, find, check };
