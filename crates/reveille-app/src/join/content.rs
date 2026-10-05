@@ -96,7 +96,7 @@ pub async fn install_server_files(
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<ServerFilesResult, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "installing server files");
-    let server = listing.find(&address)?;
+    let server = listing.find(&address, session.game)?;
     let result = apply_server_files(&Shell::new(&session, &app, &telemetry), server).await?;
     cache_preview(&cache, &session, result.preview.clone());
     Ok(result)

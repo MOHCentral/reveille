@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use super::failure::BrowseFailure;
-use super::{BrowserServer, Listing, PROBE_TIMEOUT, classified};
+use super::{BrowserServer, ListTicket, Listing, PROBE_TIMEOUT, classified};
 use crate::session::{Session, installed_maps};
 use crate::telemetry::{Event, Telemetry};
 
@@ -96,11 +96,7 @@ async fn sweep_servers(
     drop(tokio::time::timeout(Duration::ZERO, state.cancel.notified()).await);
     // Rows are offered to the player as they stream, so a join prepared mid-sweep must be able to
     // find its server. The list is rebuilt from the authoritative report when the sweep ends.
-    state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?
-        .clear();
+    let ticket = state.begin_sweep(session.game)?;
 
     let (sink, mut events) = mpsc::channel(64);
     let sweep = tokio::spawn(discovery::browse_streaming(
@@ -114,7 +110,7 @@ async fn sweep_servers(
         sink,
     ));
 
-    let cancelled = stream_sweep(&app, &state, &index, &mut events).await?;
+    let cancelled = stream_sweep(&app, &state, ticket, &index, &mut events).await?;
     // Dropping the receiver is what stops the sweep. It returns what it already inspected.
     drop(events);
 
@@ -147,10 +143,9 @@ async fn sweep_servers(
                 .map_or(0, discovery::ClientsReported::get),
         )
     });
-    *state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())? = servers;
+    if state.update(ticket, |list| *list = servers)?.is_none() {
+        info!("a newer sweep replaced this one; its servers were not kept");
+    }
 
     Ok(BrowserPayload {
         servers: rows,
@@ -174,6 +169,7 @@ async fn sweep_servers(
 async fn stream_sweep(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, Listing>,
+    ticket: ListTicket,
     index: &MapIndex,
     events: &mut mpsc::Receiver<BrowseEvent>,
 ) -> Result<bool, String> {
@@ -214,11 +210,7 @@ async fn stream_sweep(
                     .map(|server| classified(server, index));
                 if let Some(server) = outcome.server {
                     progress.answered += 1;
-                    state
-                        .servers
-                        .lock()
-                        .map_err(|_| "server list state is unavailable".to_owned())?
-                        .push(server);
+                    state.update(ticket, |list| list.push(server))?;
                 } else {
                     progress.non_results += 1;
                 }

@@ -2,12 +2,13 @@
 
 use std::net::SocketAddrV4;
 
-use reveille_core::discovery::{self, MasterEndpoint, QueryPort, Server, TargetGame};
+use reveille_core::discovery::{self, MasterEndpoint, ProbeOutcome, QueryPort, Server, TargetGame};
+use reveille_core::mapindex::MapIndex;
 use serde::Serialize;
 use tracing::info;
 
 use super::browse::{NonResultGroup, group_non_results};
-use super::{BrowserServer, Listing, PROBE_TIMEOUT, classified};
+use super::{BrowserServer, ListTicket, Listing, PROBE_TIMEOUT, classified};
 use crate::session::{Session, installed_maps};
 
 /// What checking one remembered server found.
@@ -39,13 +40,26 @@ pub async fn check_server(
     let address = address
         .parse::<SocketAddrV4>()
         .map_err(|error| format!("Reveille could not read the address {address}: {error}"))?;
+    // Taken before anything is awaited: a sweep that starts while the probe is out replaces the
+    // list this check was asked about.
+    let ticket = state.ticket(session.game)?;
     let index = installed_maps(&session)?;
     let endpoint = MasterEndpoint {
         address: *address.ip(),
         query_port: QueryPort::new(query_port),
     };
     let outcome = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT).await;
+    settle_check(&state, ticket, &index, address, outcome)
+}
 
+/// Record what a check found in the list it was asked about, if that list is still current.
+fn settle_check(
+    listing: &Listing,
+    ticket: ListTicket,
+    index: &MapIndex,
+    address: SocketAddrV4,
+    outcome: ProbeOutcome,
+) -> Result<CheckResult, String> {
     let Some(server) = outcome.server else {
         // Not an error. Why it did not answer is what the player asked for.
         //
@@ -53,7 +67,9 @@ pub async fn check_server(
         // check that ran and got no answer is evidence about now that outranks whatever the sweep
         // saw — the same reason the shell drops the row. Leaving it would keep a join preparable
         // from figures the interface has already withdrawn.
-        forget_checked_server(&state, address)?;
+        settle(listing.update(ticket, |servers| {
+            forget_checked_server(servers, address);
+        })?);
         return Ok(CheckResult {
             row: None,
             non_result: outcome
@@ -63,10 +79,12 @@ pub async fn check_server(
             other_game: None,
         });
     };
-    if let Some(published) = answered_for_another_game(&server, session.game) {
+    if let Some(published) = answered_for_another_game(&server, ticket.game) {
         info!(published_game = ?published, "checked server answered for another game");
         // It answered, for a game this session's client cannot join. Not a joinable entry either.
-        forget_checked_server(&state, address)?;
+        settle(listing.update(ticket, |servers| {
+            forget_checked_server(servers, address);
+        })?);
         return Ok(CheckResult {
             row: None,
             non_result: None,
@@ -76,19 +94,24 @@ pub async fn check_server(
     // The server publishes its own `hostport`, so a server that moved answers at an address other
     // than the remembered one. The row carries the address it actually answered at; repointing the
     // bookmark at it would be a guess about whether it is the same server.
-    let row = classified(&server, &index);
-    let mut servers = state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?;
-    merge_checked_server(&mut servers, server);
-    drop(servers);
-    info!("checked server answered and was merged into active list");
+    let row = classified(&server, index);
+    if settle(listing.update(ticket, |servers| merge_checked_server(servers, server))?) {
+        info!("checked server answered and was merged into active list");
+    }
     Ok(CheckResult {
         row: Some(row),
         non_result: None,
         other_game: None,
     })
+}
+
+/// Whether a check's change landed. One that outlived its list still reports what it found; the
+/// shell discards that answer for the same reason.
+fn settle(applied: Option<()>) -> bool {
+    if applied.is_none() {
+        info!("the server list was replaced while the check ran; it was left as it is");
+    }
+    applied.is_some()
 }
 
 /// The family a checked server belongs to, when it is not this session's.
@@ -121,25 +144,19 @@ fn merge_checked_server(servers: &mut Vec<Server>, server: Server) {
 ///
 /// Deliberately keyed on the game address the check was asked about, not on the query port: the
 /// caller asked about one join target and learned that it is not there.
-fn forget_checked_server(
-    state: &tauri::State<'_, Listing>,
-    address: SocketAddrV4,
-) -> Result<(), String> {
-    let mut servers = state
-        .servers
-        .lock()
-        .map_err(|_| "server list state is unavailable".to_owned())?;
+fn forget_checked_server(servers: &mut Vec<Server>, address: SocketAddrV4) {
     servers.retain(|existing| {
         (existing.endpoint.address, existing.game_port.get()) != (*address.ip(), address.port())
     });
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use reveille_core::discovery::{MasterEndpoint, QueryPort, Server, TargetGame};
+    use reveille_core::discovery::{MasterEndpoint, ProbeOutcome, QueryPort, Server, TargetGame};
+    use reveille_core::mapindex::MapIndex;
 
-    use super::{answered_for_another_game, merge_checked_server};
+    use super::{answered_for_another_game, merge_checked_server, settle_check};
+    use crate::servers::Listing;
 
     /// The minimum of a `Server` this test needs: the two fields that identify a game endpoint,
     /// plus a hostname to tell two answers apart.
@@ -246,5 +263,119 @@ mod tests {
         merge_checked_server(&mut servers, probed("10.0.0.1", 12300, 12204, "new port"));
 
         assert_eq!(servers.len(), 2);
+    }
+
+    fn answered(server: Server) -> ProbeOutcome {
+        ProbeOutcome {
+            endpoint: server.endpoint,
+            gamespy_reachable: true,
+            server: Some(server),
+            non_result: None,
+        }
+    }
+
+    #[test]
+    fn a_check_delayed_across_a_game_switch_leaves_the_new_list_alone() {
+        let listing = Listing::default();
+        listing
+            .begin_sweep(TargetGame::AlliedAssault)
+            .expect("sweep");
+        // The probe goes out while Allied Assault is listed...
+        let ticket = listing.ticket(TargetGame::AlliedAssault).expect("ticket");
+        // ...and the player switches to Spearhead before it answers.
+        let spearhead = listing.begin_sweep(TargetGame::Spearhead).expect("sweep");
+        listing
+            .update(spearhead, |servers| {
+                servers.push(probed("10.0.0.2", 12300, 12203, "a Spearhead server"));
+            })
+            .expect("update");
+
+        let result = settle_check(
+            &listing,
+            ticket,
+            &MapIndex::default(),
+            "10.0.0.1:12203".parse().expect("address"),
+            answered(probed("10.0.0.1", 12300, 12203, "an Allied Assault server")),
+        )
+        .expect("check");
+
+        // The answer is still reported; the shell drops it by its own generation.
+        assert!(result.row.is_some());
+        assert!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::Spearhead)
+                .is_err()
+        );
+        assert!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::AlliedAssault)
+                .is_err()
+        );
+        assert!(
+            listing
+                .find("10.0.0.2:12203", TargetGame::Spearhead)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn an_unanswered_check_delayed_across_a_sweep_does_not_drop_the_new_entry() {
+        let listing = Listing::default();
+        let ticket = listing.ticket(TargetGame::AlliedAssault).expect("ticket");
+        let sweep = listing
+            .begin_sweep(TargetGame::AlliedAssault)
+            .expect("sweep");
+        listing
+            .update(sweep, |servers| {
+                servers.push(probed("10.0.0.1", 12300, 12203, "answered the sweep"));
+            })
+            .expect("update");
+
+        settle_check(
+            &listing,
+            ticket,
+            &MapIndex::default(),
+            "10.0.0.1:12203".parse().expect("address"),
+            ProbeOutcome {
+                endpoint: MasterEndpoint {
+                    address: "10.0.0.1".parse().expect("address"),
+                    query_port: QueryPort::new(12300),
+                },
+                gamespy_reachable: false,
+                server: None,
+                non_result: None,
+            },
+        )
+        .expect("check");
+
+        assert!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::AlliedAssault)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_check_on_the_current_list_is_joinable() {
+        let listing = Listing::default();
+        listing.begin_sweep(TargetGame::Spearhead).expect("sweep");
+        let ticket = listing.ticket(TargetGame::Spearhead).expect("ticket");
+
+        settle_check(
+            &listing,
+            ticket,
+            &MapIndex::default(),
+            "10.0.0.1:12203".parse().expect("address"),
+            answered(probed("10.0.0.1", 12300, 12203, "a favourite")),
+        )
+        .expect("check");
+
+        assert_eq!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::Spearhead)
+                .expect("joinable")
+                .hostname,
+            "a favourite"
+        );
     }
 }

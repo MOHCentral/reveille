@@ -117,7 +117,7 @@ pub async fn preview_join(
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<JoinPreview, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "building join preview");
-    let server = listing.find(&address)?;
+    let server = listing.find(&address, session.game)?;
     let preview = build_preview(&Shell::new(&session, &app, &telemetry), server).await?;
     cache_preview(&cache, &session, preview.clone());
     Ok(preview)
@@ -217,7 +217,7 @@ async fn join_and_launch(
         "starting install-and-launch flow"
     );
     let server = listing
-        .find(&address)
+        .find(&address, session.game)
         .map_err(failed(JoinFailureReason::ServerGone))?;
     let preview = match take_cached_preview(cache, &session, &address) {
         Some(preview) => preview,
