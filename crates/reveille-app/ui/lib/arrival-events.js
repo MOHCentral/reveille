@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+import { GAMES as CATALOG_GAMES } from "./catalog.js";
+
 const KEY = "reveille.arrival-events";
 const LIMIT = 50;
-const GAMES = new Set(["allied_assault", "spearhead", "breakthrough"]);
+const GAMES = new Set(CATALOG_GAMES);
 const recent = new Map();
 
 export function arrivalEvents() {

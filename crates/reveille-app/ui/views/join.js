@@ -45,8 +45,8 @@ import { historyByAddress, isFavorite, toggleFavorite } from "../lib/bookmarks.j
 import { icon } from "../lib/icons.js";
 import { THRESHOLDS, playerAlert, setAlertThreshold } from "../lib/player-alerts.js";
 import { closePopover, openPopover } from "../lib/popover.js";
+import { GAME_LABELS } from "../lib/catalog.js";
 import {
-  GAME_LABELS,
   canRecheck,
   playableGames,
   selectedRow,

@@ -70,8 +70,8 @@ import {
 } from "./lib/player-alerts.js";
 import { alertDetail, clockTime, displayPath, occupancy, plural, timeAgo } from "./lib/format.js";
 import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./lib/reach.js";
+import { ENGINE_LABELS, GAME_LABELS } from "./lib/catalog.js";
 import {
-  GAME_LABELS,
   SCOPES,
   adoptBackgroundSweep,
   applyCheckNonResult,
@@ -1514,7 +1514,5 @@ setup.detect();
 void findReveilleUpdate();
 
 function engineLabel(engine) {
-  if (engine === "openmohaa") return "OpenMoHAA";
-  if (engine === "reborn") return "Reborn";
-  return "Original game";
+  return ENGINE_LABELS[engine] ?? ENGINE_LABELS.original;
 }

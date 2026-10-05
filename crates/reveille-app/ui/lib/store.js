@@ -5,21 +5,13 @@
 
 import { favorites, history, historyByAddress } from "./bookmarks.js";
 import { occupancy, occupancyFill } from "./format.js";
+import { DEFAULT_GAME, ENGINES, GAMES } from "./catalog.js";
 import { alertId, playerAlerts } from "./player-alerts.js";
 
 const INSTALL_KEY = "reveille.install";
 const FILTERS_KEY = "reveille.filters";
 const ENGINES_KEY = "reveille.engines";
 const GAMES_KEY = "reveille.games";
-
-/** The three games, as the Rust side spells them. Also how `Installation.products` spells them. */
-export const GAMES = ["allied_assault", "spearhead", "breakthrough"];
-
-export const GAME_LABELS = {
-  allied_assault: "Allied Assault",
-  spearhead: "Spearhead",
-  breakthrough: "Breakthrough",
-};
 
 export const state = {
   /** A newer signed Reveille release retained by the Rust updater, when one was found. */
@@ -35,7 +27,7 @@ export const state = {
    * It is not a filter over one list: each game has its own master registration, its own servers,
    * and its own search path on disk, so changing it starts a different sweep.
    */
-  game: "allied_assault",
+  game: DEFAULT_GAME,
 
   /** The folder accepted on a previous run, if any. */
   rememberedInstall: null,
@@ -215,7 +207,7 @@ export function rememberEngine(root, engine) {
 export function recallEngine(root) {
   try {
     const engine = JSON.parse(localStorage.getItem(ENGINES_KEY) ?? "{}")[root];
-    return ["original", "openmohaa", "reborn"].includes(engine) ? engine : null;
+    return ENGINES.includes(engine) ? engine : null;
   } catch {
     return null;
   }
@@ -286,7 +278,7 @@ export function defaultGame(install) {
   const games = playableGames(install);
   const remembered = install ? recallGame(install.root) : null;
   if (remembered && games.includes(remembered)) return remembered;
-  return games[0] ?? "allied_assault";
+  return games[0] ?? DEFAULT_GAME;
 }
 
 /** The three facts every server-facing command needs. */

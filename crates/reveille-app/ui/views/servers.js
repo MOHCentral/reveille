@@ -48,8 +48,8 @@ import {
   historyByAddress,
   toggleFavorite,
 } from "../lib/bookmarks.js";
+import { GAME_LABELS } from "../lib/catalog.js";
 import {
-  GAME_LABELS,
   PING_LIMITS,
   SCOPES,
   canRecheck,

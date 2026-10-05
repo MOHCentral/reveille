@@ -3,6 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { GAMES } from "../../ui/lib/catalog.js";
 import { installDom } from "../fakes/dom.js";
 import { installStorage } from "../fakes/storage.js";
 import { installTauri } from "../fakes/tauri.js";
@@ -13,7 +14,6 @@ const bridge = installTauri();
 const store = await import("../../ui/lib/store.js");
 const { setupView } = await import("../../ui/views/setup.js");
 
-const GAMES = ["allied_assault", "spearhead", "breakthrough"];
 const INSTALL = { root: "C:\\Games\\MOHAA", products: GAMES, playable: GAMES };
 const MB = 1024 * 1024;
 

@@ -25,6 +25,8 @@
 #[cfg(windows)]
 mod app_icon;
 mod autostart;
+#[cfg(test)]
+mod catalog_contract;
 mod notice;
 mod popup;
 mod self_update;

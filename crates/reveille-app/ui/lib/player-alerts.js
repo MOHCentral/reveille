@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+import { GAMES as CATALOG_GAMES } from "./catalog.js";
+
 const KEY = "reveille.player-alerts";
 const INTERVAL_MS = 60_000;
 const COOLDOWN_MS = 15 * 60_000;
 const MISSES_BRIDGED = 2;
-const GAMES = new Set(["allied_assault", "spearhead", "breakthrough"]);
+const GAMES = new Set(CATALOG_GAMES);
 
 /** The player counts a watch can wait for. 1 is "anyone at all", which is what every watch meant before. */
 export const THRESHOLDS = [1, 2, 4, 8, 12];

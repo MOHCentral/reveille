@@ -7,19 +7,18 @@ import {
   installationStorage, onInstallationCopyProgress, onOpenMohaaInstallProgress,
   onRebornInstallProgress, openMohaaStatus, pickCopyDestination, pickInstallFolder, selectEngine,
 } from "../lib/api.js";
+import { ENGINE_LABELS, GAME_LABELS } from "../lib/catalog.js";
 import { bytes, displayPath } from "../lib/format.js";
 import {
-  GAME_LABELS, defaultGame, migrateInstallationPreferences, notify, playableGames, recallEngine,
+  defaultGame, migrateInstallationPreferences, notify, playableGames, recallEngine,
   rememberEngine, rememberGame, rememberInstall, state,
 } from "../lib/store.js";
 
-const PRODUCT_NAMES = { allied_assault: "Allied Assault", spearhead: "Spearhead", breakthrough: "Breakthrough" };
 const DESCRIPTIONS = {
   openmohaa: "Open-source rebuild of the game, made for modern Windows and still updated.",
   reborn: "The original game with community fixes. Windows only.",
   original: "The game program you already have, unchanged.",
 };
-const LABELS = { openmohaa: "OpenMoHAA", reborn: "Reborn", original: "Original game" };
 const RECOMMENDED = "openmohaa";
 
 /**
@@ -227,7 +226,7 @@ function changed() {
 /* Folder ------------------------------------------------------------------- */
 
 function folderBox(install, render) {
-  const products = (install.products ?? []).map((product) => PRODUCT_NAMES[product] ?? product);
+  const products = (install.products ?? []).map((product) => GAME_LABELS[product] ?? product);
   return el("div", { className: "folder-box" },
     el("span", { className: "folder-box__path data selectable" }, displayPath(install.root)),
     el("button", { type: "button", className: "btn btn--sm", disabled: locked(), onclick: () => void browse(render) },
@@ -323,7 +322,7 @@ function programRow(engine, install, render) {
   return el("div", { className: `program ${selected ? "program--selected" : ""}` },
     el("input", { id, type: "radio", name: "engine-choice", value: engine, checked: selected, onchange: () => void chooseEngine(engine, install, render) }),
     el("label", { for: id, className: "program__label" },
-      el("span", { className: "program__name" }, LABELS[engine], engine === RECOMMENDED && el("span", { className: "program__tag" }, "Recommended")),
+      el("span", { className: "program__name" }, ENGINE_LABELS[engine], engine === RECOMMENDED && el("span", { className: "program__tag" }, "Recommended")),
       el("span", { className: `program__state ${status.ok ? "program__state--ok" : ""}` }, status.text),
       el("span", { className: "program__desc" }, DESCRIPTIONS[engine])),
     selected && programDetails(engine, install, render));
@@ -468,7 +467,7 @@ function installProgress(render) {
   const percent = total ? Math.min(100, (received / total) * 100) : null;
   return el("div", { className: "install-progress", role: "status" },
     el("span", { className: "row-between" },
-      el("span", { className: "quiet" }, `Downloading ${LABELS[view.installing]}`),
+      el("span", { className: "quiet" }, `Downloading ${ENGINE_LABELS[view.installing]}`),
       el("span", { className: "data" }, total ? `${bytes(received)} of ${bytes(total)}` : "Preparing download")),
     el("span", { className: `meter ${percent === null ? "meter--indeterminate" : ""}` }, el("span", { className: "meter__fill", style: percent === null ? null : `width: ${percent}%` })),
     el("span", { className: "row-between" },
@@ -490,7 +489,7 @@ function primaryAction() {
   const verb = view.mode === "change" ? "switch" : "continue";
   const engine = view.selected;
   if (!view.overview || !engine) return { label: "Choose a game program" };
-  const name = LABELS[engine];
+  const name = ENGINE_LABELS[engine];
   if (engine === "reborn" && !view.overview.reborn.supported) return { label: "Choose an available program" };
   if (isInstalled(engine)) {
     if (view.mode !== "change") return { label: "Continue to servers", run: accept };

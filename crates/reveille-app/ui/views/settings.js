@@ -15,7 +15,8 @@ import {
   preferences,
   setPreference,
 } from "../lib/preferences.js";
-import { GAME_LABELS, state, update } from "../lib/store.js";
+import { GAME_LABELS } from "../lib/catalog.js";
+import { state, update } from "../lib/store.js";
 
 export const START_AT_LOGIN_LABEL = "Start Reveille in the background when I sign in";
 const ALERT_STYLE_LABELS = {
