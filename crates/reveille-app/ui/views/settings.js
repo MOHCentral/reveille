@@ -6,6 +6,7 @@
 import { $, el, preserveFocus } from "../lib/dom.js";
 import { openDialog } from "../lib/dialog.js";
 import { displayPath } from "../lib/format.js";
+import { alertErrorLine } from "../features/alerts/bell.js";
 import { THRESHOLDS } from "../features/alerts/player-alerts.js";
 import { PING_FAIR_CHOICES, PING_GOOD_CHOICES, preferences, setPreference } from "../lib/preferences.js";
 import { ALERT_STYLES, COOLDOWN_CHOICES } from "../features/alerts/preferences.js";
@@ -280,20 +281,6 @@ function updateLine(onUpdate, onCheckUpdate, redraw) {
 
 function section(title, ...children) {
   return el("section", { className: "settings__section" }, el("h3", { className: "label" }, title), ...children);
-}
-
-/** The notification failure, with the way to fix it where the system has a page for it. */
-export function alertErrorLine(onNotificationSettings) {
-  return el(
-    "p",
-    { className: "error", role: "alert" },
-    `${state.alertError} `,
-    el(
-      "button",
-      { type: "button", className: "btn btn--sm btn--utility", onclick: onNotificationSettings },
-      "Open notification settings",
-    ),
-  );
 }
 
 export function toggle(id, label, on, onChange, disabled = false) {

@@ -3,5 +3,6 @@
 // What other features may use from Settings.
 
 import { START_AT_LOGIN_LABEL, toggle } from "../../views/settings.js";
+import { setCloseToTray, startAtLogin } from "./api.js";
 
-export { START_AT_LOGIN_LABEL, toggle };
+export { setCloseToTray, START_AT_LOGIN_LABEL, startAtLogin, toggle };
