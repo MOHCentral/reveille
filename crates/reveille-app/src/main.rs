@@ -25,6 +25,7 @@
 #[cfg(windows)]
 mod app_icon;
 mod autostart;
+mod engines;
 mod installation;
 mod logs;
 mod notice;
@@ -105,8 +106,6 @@ struct AppState {
     cancel_browse: Notify,
     /// The most recent join preview, reused so a launch does not repeat the catalogue pass.
     preview: Mutex<Option<CachedPreview>>,
-    /// Only one engine archive may target an installation at a time.
-    openmohaa_install: tokio::sync::Mutex<()>,
     /// Read between download chunks; cancellation never interrupts the atomic apply phase.
     openmohaa_cancel: AtomicBool,
     /// Release offers already shown to the player, retained so Install uses those exact bytes.
@@ -268,24 +267,6 @@ struct JoinResult {
 }
 
 #[derive(Serialize)]
-struct EngineOverview {
-    capabilities: platform::HostCapabilities,
-    inventory: platform::engine::EngineInventory,
-    resolved: Option<EngineChoice>,
-    selection_error: Option<String>,
-    reborn: RebornSummary,
-}
-
-#[derive(Clone, Serialize)]
-struct RebornSummary {
-    version: &'static str,
-    filename: String,
-    size: u64,
-    sha256: &'static str,
-    supported: bool,
-}
-
-#[derive(Serialize)]
 struct RebornInstallResult {
     engine: EngineChoice,
     inventory: platform::engine::EngineInventory,
@@ -403,12 +384,6 @@ enum OpenMohaaRunningProgram {
     Game,
     DedicatedServer,
     Launcher,
-}
-
-#[derive(Clone, Serialize)]
-struct OpenMohaaInstallProgress {
-    received: u64,
-    total: Option<u64>,
 }
 
 /// Why an engine step stopped, classified once here rather than by matching message text.
@@ -582,71 +557,18 @@ impl From<String> for BrowseFailure {
 }
 
 #[tauri::command]
-fn engine_overview(
-    path: String,
-    saved_engine: Option<EngineChoice>,
-) -> Result<EngineOverview, String> {
-    let installation = install::identify(path).map_err(|error| error.to_string())?;
-    let package = reborn::package(reborn::RebornProductSet::from_products(
-        &installation.products,
-    ));
-    let capabilities = platform::HostCapabilities::current();
-    let resolved =
-        platform::engine::resolve_choice(&installation.root, saved_engine, &capabilities);
-    let (resolved, selection_error) = match resolved {
-        Ok(choice) => (Some(choice), None),
-        Err(error) => (None, Some(error.to_string())),
-    };
-    Ok(EngineOverview {
-        capabilities: capabilities.clone(),
-        inventory: platform::engine::inventory(&installation.root),
-        resolved,
-        selection_error,
-        reborn: RebornSummary {
-            version: package.version,
-            filename: package.filename,
-            size: package.size,
-            sha256: package.sha256,
-            supported: capabilities.supports(EngineChoice::Reborn),
-        },
-    })
-}
-
-#[tauri::command]
-fn select_engine(path: String, engine: EngineChoice) -> Result<EngineOverview, String> {
-    let installation = install::identify(path).map_err(|error| error.to_string())?;
-    let capabilities = platform::HostCapabilities::current();
-    if engine == EngineChoice::Openmohaa {
-        platform::engine::resolve_choice(&installation.root, Some(engine), &capabilities)
-            .map_err(|error| error.to_string())?;
-    } else {
-        platform::engine::activate(
-            &installation.root,
-            engine,
-            platform::engine::retail_activity(),
-            &capabilities,
-        )
-        .map_err(|error| error.to_string())?;
-    }
-    engine_overview(
-        installation.root.to_string_lossy().into_owned(),
-        Some(engine),
-    )
-}
-
-#[tauri::command]
 async fn install_reborn(
     path: String,
     app: tauri::AppHandle,
+    gate: tauri::State<'_, engines::InstallGate>,
     state: tauri::State<'_, AppState>,
 ) -> Result<RebornInstallResult, String> {
     let capabilities = platform::HostCapabilities::current();
     capabilities
         .require(EngineChoice::Reborn)
         .map_err(|error| error.to_string())?;
-    let _guard = state
-        .openmohaa_install
-        .try_lock()
+    let _guard = gate
+        .try_enter()
         .map_err(|_| "another engine install is already running".to_owned())?;
     state.reborn_cancel.store(false, Ordering::Release);
     let installation = install::identify(path).map_err(|error| error.to_string())?;
@@ -658,7 +580,7 @@ async fn install_reborn(
         .download_reporting(&package, |RebornDownloadProgress { received, total }| {
             drop(app.emit(
                 REBORN_INSTALL_EVENT,
-                OpenMohaaInstallProgress { received, total },
+                engines::DownloadProgress { received, total },
             ));
             if state.reborn_cancel.load(Ordering::Acquire) {
                 ControlFlow::Break(())
@@ -728,14 +650,14 @@ async fn install_openmohaa(
     path: String,
     offer_id: OpenMohaaOfferId,
     app: tauri::AppHandle,
+    gate: tauri::State<'_, engines::InstallGate>,
     state: tauri::State<'_, AppState>,
 ) -> Result<OpenMohaaInstallResult, OpenMohaaFailure> {
     platform::HostCapabilities::current()
         .require(EngineChoice::Openmohaa)
         .map_err(|error| OpenMohaaFailure::other(&error))?;
-    let _install_guard = state
-        .openmohaa_install
-        .try_lock()
+    let _install_guard = gate
+        .try_enter()
         .map_err(|_| OpenMohaaFailure::other(&"an OpenMoHAA install is already running"))?;
     state.openmohaa_cancel.store(false, Ordering::Release);
 
@@ -771,7 +693,7 @@ async fn install_openmohaa(
             |ReleaseDownloadProgress { received, total }| {
                 drop(app.emit(
                     OPENMOHAA_INSTALL_EVENT,
-                    OpenMohaaInstallProgress { received, total },
+                    engines::DownloadProgress { received, total },
                 ));
                 if cancel.load(Ordering::Acquire) {
                     ControlFlow::Break(())
@@ -2269,6 +2191,7 @@ fn main() {
                 tray::start_hidden(app.handle());
             }
             installation::register(app);
+            engines::register(app);
             self_update::register(app);
             Ok(())
         })
@@ -2276,8 +2199,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             installation::detect_install,
             installation::identify_install,
-            engine_overview,
-            select_engine,
+            engines::engine_overview,
+            engines::select_engine,
             install_reborn,
             cancel_reborn_install,
             openmohaa_status,
@@ -2347,12 +2270,11 @@ mod tests {
     use super::{
         AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError,
         EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation, OpenMohaaFailure,
-        OpenMohaaFailureKind, OpenMohaaInstallProgress, OpenMohaaInstalledBuild, QueryPort,
-        RequestError, Server, Session, TargetGame, answered_for_another_game,
-        cache_openmohaa_offer, cached_openmohaa_offer, catalogue_reason, failed, installed_maps,
-        installed_openmohaa_build, launch_refusal, merge_checked_server, openmohaa_client_path,
-        platform, preview_cache_matches, record_openmohaa_install, refusal_reason,
-        shopping_list_will_write,
+        OpenMohaaFailureKind, OpenMohaaInstalledBuild, QueryPort, RequestError, Server, Session,
+        TargetGame, answered_for_another_game, cache_openmohaa_offer, cached_openmohaa_offer,
+        catalogue_reason, failed, installed_maps, installed_openmohaa_build, launch_refusal,
+        merge_checked_server, openmohaa_client_path, platform, preview_cache_matches,
+        record_openmohaa_install, refusal_reason, shopping_list_will_write,
     };
 
     fn assessment(
@@ -2469,28 +2391,6 @@ mod tests {
             }),
             &std::collections::HashSet::new(),
         ));
-    }
-
-    /// Both engine install events carry this payload, and the setup view reads its two fields by
-    /// name, so its shape is part of the frozen IPC contract.
-    #[test]
-    fn engine_download_progress_keeps_its_wire_shape() {
-        assert_eq!(
-            serde_json::to_value(OpenMohaaInstallProgress {
-                received: 512,
-                total: Some(2048),
-            })
-            .expect("serialized progress"),
-            serde_json::json!({ "received": 512, "total": 2048 })
-        );
-        assert_eq!(
-            serde_json::to_value(OpenMohaaInstallProgress {
-                received: 0,
-                total: None,
-            })
-            .expect("serialized progress"),
-            serde_json::json!({ "received": 0, "total": null })
-        );
     }
 
     #[test]
