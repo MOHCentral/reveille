@@ -3906,7 +3906,9 @@ mod tests {
     fn the_self_update_offer_is_explicit_and_keeps_the_checked_release() {
         // A background response may reveal an offer, but only the player's labelled action may
         // install it. The Rust side retains Tauri's checked Update object so the frontend cannot
-        // swap its URL or signature between those two moments.
+        // swap its URL or signature between those two moments. That the shell checks without
+        // installing, refuses to open during a join and cannot be dismissed mid-install is
+        // asserted behaviourally in `ui-tests/features/self-update/dialog.test.js`.
         let updater = include_str!("self_update.rs");
         let shell = include_str!("../ui/app.js");
         let setup = include_str!("../ui/views/setup.js");
@@ -3916,12 +3918,8 @@ mod tests {
         assert!(updater.contains("pending: Mutex<Option<Update>>"));
         assert!(updater.contains("let update = state"));
         assert!(updater.contains("update.install(bytes)?;"));
-        assert!(shell.contains("await checkReveilleUpdate()"));
-        assert!(shell.contains("await installReveilleUpdate()"));
-        assert!(shell.contains("if (!state.selfUpdate.running)"));
         assert!(shell.contains("setup.renderUpdateOffer()"));
         assert!(!shell.contains("if (!state.install) setup.render();"));
-        assert!(shell.contains("if (!state.selfUpdate.offer || state.joining) return;"));
         assert!(shell.contains(r##"$("#reveille-update-btn").disabled = state.joining;"##));
         assert!(!shell.contains(r##"$("#reveille-update-btn").disabled = state.browse.running"##));
         assert!(setup.contains("data-self-update-offer"));
