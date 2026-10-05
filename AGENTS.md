@@ -2,10 +2,6 @@
 
 Do not create markdown documents unless requested.
 
-## Project Structure & Module Organization
-
-This Rust 2024 workspace contains reusable logic (`reveille-core`), Windows policy (`reveille-platform`), the CLI (`reveille-cli`), and Tauri shell (`reveille-app`). Frontend code and tests live in the app's `ui/` and `ui-tests/`; core integration tests and fixtures live in `crates/reveille-core/tests/`. Automation is in `tools/`, CI in `.github/workflows/`, and the site in `website/`.
-
 ## Build, Test, and Development Commands
 
 - `just check`: run the complete local gate used by CI.
