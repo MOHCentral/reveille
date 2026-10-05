@@ -10,7 +10,7 @@ import { importViolations, readImports } from "../../../../tools/ui-imports.mjs"
 function tree(changes = {}) {
   const files = new Map(Object.entries({
     "app.js": 'import { join } from "./features/join/api.js";\nimport "./features/alerts/preferences.js";\n',
-    "popup.js": 'import { fit } from "./features/alerts/api.js";\n',
+    "features/alerts/popup/main.js": 'import { fit } from "../api.js";\n',
     "lib/bridge.js": "export const invoke = () => window.__TAURI__.core.invoke();\n",
     "lib/store.js": 'import { plural } from "./format.js";\nexport const state = {};\n',
     "lib/format.js": "export const plural = (n) => n;\n",
@@ -80,7 +80,7 @@ test("dynamic import and re-export forms fail", () => {
 
 test("nothing imports an entry point", () => {
   fails({ "features/servers/view.js": 'import "../../app.js";\n' }, /imports the entry point app\.js/);
-  fails({ "lib/format.js": 'import "../popup.js";\n' }, /imports the entry point popup\.js/);
+  fails({ "features/alerts/index.js": 'import "./popup/main.js";\n' }, /imports the entry point features\/alerts\/popup\/main\.js/);
 });
 
 test("a specifier must be a relative path to a module that exists", () => {

@@ -11,7 +11,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, relative, sep } from "node:path";
 
 /** Loaded by an HTML page, so nothing may import them. */
-export const ENTRY_POINTS = ["app.js", "popup.js"];
+export const ENTRY_POINTS = ["app.js", "features/alerts/popup/main.js"];
 
 const BRIDGE = "lib/bridge.js";
 const FEATURE = /^features\/([^/]+)\//u;

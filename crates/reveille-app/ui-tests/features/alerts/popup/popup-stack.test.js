@@ -12,7 +12,7 @@ import {
   removeCard,
   resume,
   revealed,
-} from "../../ui/lib/popup-stack.js";
+} from "../../../../ui/features/alerts/popup/popup-stack.js";
 
 const card = (eventId, address = eventId, count = 1) => ({
   eventId,
