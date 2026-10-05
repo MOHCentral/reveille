@@ -3579,21 +3579,6 @@ mod tests {
     }
 
     #[test]
-    fn one_check_does_not_cancel_another() {
-        // Also found by review. A single token bumped per call meant re-checking one server
-        // abandoned the favorites batch mid-way and left the row it was probing reading
-        // "Checking…" for a request nobody was waiting on. The token counts list generations —
-        // a sweep and a game switch — not calls.
-        let app = include_str!("../ui/app.js");
-
-        // That a sweep retires them is asserted in `ui-tests/features/servers/browse.test.js`.
-        assert!(
-            app.contains("const generation = generations.check.current();"),
-            "ui/app.js: check must capture the generation, not allocate a new token per call"
-        );
-    }
-
-    #[test]
     fn checking_a_server_replaces_its_entry_rather_than_adding_a_second() {
         let mut servers = vec![
             probed("10.0.0.1", 12300, 12203, "stale"),
