@@ -56,7 +56,6 @@ import {
   foldedEmpty,
   listIsStale,
   modeChoices,
-  playableGames,
   playerTrend,
   playersFound,
   savedEntries,
@@ -67,6 +66,7 @@ import {
   update,
   visibleServers,
 } from "../lib/store.js";
+import { playableGames } from "../lib/session.js";
 import { watchReading, watchedEntries } from "../lib/player-alerts.js";
 
 const COLUMNS = [

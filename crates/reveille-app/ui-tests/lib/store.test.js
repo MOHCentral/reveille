@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// `lib/store.js`: the persisted preferences, the session identity, and the derived list.
-//
-// The migration test here is the one that used to live inside `tools/check-sources.mjs`, which had
-// grown two behavioural assertions because there was nowhere else to put them. There is now.
+// `lib/store.js`: the persisted filters and the derived list.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -53,113 +50,6 @@ function reset(seed = {}) {
   store.state.previousCounts = new Map();
   return storage;
 }
-
-/* The protected-install copy ------------------------------------------------ */
-
-test("the installation copy moves the root, engine and game together", () => {
-  const storage = reset({
-    "reveille.install": String.raw`C:\Program Files\MOHAA`,
-    "reveille.engines": JSON.stringify({
-      [String.raw`C:\Program Files\MOHAA`]: "reborn",
-      [String.raw`D:\Keep`]: "original",
-    }),
-    "reveille.games": JSON.stringify({
-      [String.raw`C:\Program Files\MOHAA`]: "spearhead",
-      [String.raw`D:\Keep`]: "breakthrough",
-    }),
-  });
-
-  store.migrateInstallationPreferences(
-    String.raw`C:\Program Files\MOHAA`,
-    String.raw`C:\Users\Player\Games\MOHAA`,
-    "reborn",
-    "spearhead",
-  );
-
-  const engines = storage.json("reveille.engines");
-  const games = storage.json("reveille.games");
-
-  assert.equal(storage.raw("reveille.install"), String.raw`C:\Users\Player\Games\MOHAA`);
-  assert.equal(engines[String.raw`C:\Users\Player\Games\MOHAA`], "reborn");
-  assert.equal(games[String.raw`C:\Users\Player\Games\MOHAA`], "spearhead");
-
-  // The whole point of "as one transaction": the old root must not be left behind pointing at a
-  // folder the player was moved out of.
-  assert.ok(!(String.raw`C:\Program Files\MOHAA` in engines));
-  assert.ok(!(String.raw`C:\Program Files\MOHAA` in games));
-
-  // And an unrelated installation is not collateral damage.
-  assert.equal(engines[String.raw`D:\Keep`], "original");
-  assert.equal(games[String.raw`D:\Keep`], "breakthrough");
-});
-
-test("a migration survives storage that refuses to be written", () => {
-  reset();
-  installBrokenStorage();
-  // The comment in store.js says a launcher that cannot persist a preference still works. Assert
-  // it rather than trust it: this must not throw into the setup flow.
-  assert.doesNotThrow(() =>
-    store.migrateInstallationPreferences("old", "new", "openmohaa", "spearhead"),
-  );
-  installStorage();
-});
-
-/* Remembered engine and game ------------------------------------------------ */
-
-test("an engine or game the enum does not contain is not recalled", () => {
-  reset({
-    "reveille.engines": JSON.stringify({ "C:/Game": "quake" }),
-    "reveille.games": JSON.stringify({ "C:/Game": "wolfenstein" }),
-  });
-  assert.equal(store.recallEngine("C:/Game"), null);
-  assert.equal(store.recallGame("C:/Game"), null);
-});
-
-test("defaultGame prefers the remembered game only while the install can still run it", () => {
-  reset({ "reveille.games": JSON.stringify({ "C:/Game": "breakthrough" }) });
-  const install = { root: "C:/Game", playable: ["allied_assault", "breakthrough"] };
-  assert.equal(store.defaultGame(install), "breakthrough");
-
-  // The expansion's data is gone. Opening on a game the folder cannot serve would be a session
-  // that fails on its first command, so the remembered choice is dropped rather than honoured.
-  assert.equal(store.defaultGame({ root: "C:/Game", playable: ["allied_assault"] }), "allied_assault");
-  assert.equal(store.defaultGame({ root: "C:/Game", playable: [] }), "allied_assault");
-});
-
-/* The session the list was swept for (H12) ---------------------------------- */
-
-test("the list belongs to the session only when the folder, engine and game all still match", () => {
-  reset();
-  store.state.install = { root: "C:/Game", playable: ["allied_assault"] };
-  store.state.engine = "openmohaa";
-  store.state.game = "allied_assault";
-  store.state.listSession = { path: "C:/Game", engine: "openmohaa", game: "allied_assault" };
-  assert.equal(store.listIsForCurrentSession(), true);
-
-  // All three facts count. The game decides which master registration was asked and so which
-  // servers exist at all; the folder and engine decide the search path every row's compatibility
-  // was judged against. Leaving Spearhead's rows on screen under Allied Assault would be the same
-  // false currency as a bookmark's old figures (rule H12).
-  for (const change of [
-    () => (store.state.game = "spearhead"),
-    () => (store.state.engine = "reborn"),
-    () => (store.state.install = { root: "D:/Other", playable: ["allied_assault"] }),
-  ]) {
-    reset();
-    store.state.install = { root: "C:/Game", playable: ["allied_assault"] };
-    store.state.engine = "openmohaa";
-    store.state.game = "allied_assault";
-    store.state.listSession = { path: "C:/Game", engine: "openmohaa", game: "allied_assault" };
-    change();
-    assert.equal(store.listIsForCurrentSession(), false);
-  }
-});
-
-test("a list with no sweep behind it belongs to no session", () => {
-  reset();
-  store.state.install = { root: "C:/Game", playable: ["allied_assault"] };
-  assert.equal(store.listIsForCurrentSession(), false);
-});
 
 /* Filters -------------------------------------------------------------------*/
 

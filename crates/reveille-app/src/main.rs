@@ -3546,8 +3546,8 @@ mod tests {
 
     #[test]
     fn protected_setup_offers_a_cancellable_copy_and_migrates_only_the_validated_result() {
-        // The `store.js` migration and the `api.js` path-prefix stripping that this test used to
-        // assert as source text are now behavioural, in `ui-tests/lib/store.test.js` and
+        // The `session.js` migration and the `api.js` path-prefix stripping that this test used to
+        // assert as source text are now behavioural, in `ui-tests/lib/session.test.js` and
         // `ui-tests/lib/api.test.js` respectively — where the migration is exercised against a
         // real preference blob rather than checked for two spellings.
         //
@@ -3589,11 +3589,11 @@ mod tests {
         let app = include_str!("../ui/app.js");
 
         assert!(
-            app.contains("const generation = checkGeneration;"),
+            app.contains("const generation = generations.check.current();"),
             "ui/app.js: check must capture the generation, not allocate a new token per call"
         );
         assert!(
-            app.contains("  checkGeneration += 1;\n  const swept = session();"),
+            app.contains("  generations.check.next();\n  const swept = session();"),
             "ui/app.js: a sweep must retire the checks still in flight against the old list"
         );
     }

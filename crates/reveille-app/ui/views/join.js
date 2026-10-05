@@ -47,11 +47,11 @@ import { closePopover, openPopover } from "../lib/popover.js";
 import { GAME_LABELS } from "../lib/catalog.js";
 import {
   canRecheck,
-  playableGames,
   selectedRow,
   state,
   update,
 } from "../lib/store.js";
+import { playableGames } from "../lib/session.js";
 
 export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert }) {
   const scroll = el("div", { className: "detail-pane__scroll" });

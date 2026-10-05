@@ -9,10 +9,11 @@ import {
 } from "../features/setup/api.js";
 import { ENGINE_LABELS, GAME_LABELS } from "../lib/catalog.js";
 import { bytes, displayPath } from "../lib/format.js";
+import { notify, state } from "../lib/store.js";
 import {
-  defaultGame, migrateInstallationPreferences, notify, playableGames, recallEngine,
-  rememberEngine, rememberGame, rememberInstall, state,
-} from "../lib/store.js";
+  defaultGame, migrateInstallationPreferences, playableGames, recallEngine,
+  rememberEngine, rememberGame, rememberInstall,
+} from "../lib/session.js";
 
 const DESCRIPTIONS = {
   openmohaa: "Open-source rebuild of the game, made for modern Windows and still updated.",

@@ -4,12 +4,9 @@
 // on change; nothing else holds application state.
 
 import { occupancy, occupancyFill } from "./format.js";
-import { DEFAULT_GAME, ENGINES, GAMES } from "./catalog.js";
+import { DEFAULT_GAME } from "./catalog.js";
 
-const INSTALL_KEY = "reveille.install";
 const FILTERS_KEY = "reveille.filters";
-const ENGINES_KEY = "reveille.engines";
-const GAMES_KEY = "reveille.games";
 
 export const state = {
   /** A newer signed Reveille release retained by the Rust updater, when one was found. */
@@ -174,130 +171,7 @@ export function update(mutate) {
   notify();
 }
 
-/* Persistence -------------------------------------------------------------- */
-
-export function rememberInstall(root) {
-  try {
-    localStorage.setItem(INSTALL_KEY, root);
-  } catch {
-    // A launcher that cannot write a preference still works; detection reruns.
-  }
-}
-
-export function recallInstall() {
-  try {
-    return localStorage.getItem(INSTALL_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function rememberEngine(root, engine) {
-  try {
-    const choices = JSON.parse(localStorage.getItem(ENGINES_KEY) ?? "{}");
-    choices[root] = engine;
-    localStorage.setItem(ENGINES_KEY, JSON.stringify(choices));
-  } catch {
-    // The explicit in-memory choice still works for this session.
-  }
-}
-
-export function recallEngine(root) {
-  try {
-    const engine = JSON.parse(localStorage.getItem(ENGINES_KEY) ?? "{}")[root];
-    return ENGINES.includes(engine) ? engine : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Remember the game per install folder, like the engine.
- *
- * Per folder rather than globally: a second installation may not have the same expansions, and a
- * remembered game its data directories cannot serve would be a session that fails on its first
- * command.
- */
-export function rememberGame(root, game) {
-  try {
-    const choices = JSON.parse(localStorage.getItem(GAMES_KEY) ?? "{}");
-    choices[root] = game;
-    localStorage.setItem(GAMES_KEY, JSON.stringify(choices));
-  } catch {
-    // The explicit in-memory choice still works for this session.
-  }
-}
-
-export function recallGame(root) {
-  try {
-    const game = JSON.parse(localStorage.getItem(GAMES_KEY) ?? "{}")[root];
-    return GAMES.includes(game) ? game : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Move the setup choices to a copy only after Rust has returned a re-identified installation.
- *
- * The old keys are removed so the remembered root and its engine/game choices move together. If
- * browser storage is unavailable, the validated copy still becomes the in-memory candidate and
- * setup remains usable for this run.
- */
-export function migrateInstallationPreferences(oldRoot, newRoot, engine, game) {
-  try {
-    const engines = JSON.parse(localStorage.getItem(ENGINES_KEY) ?? "{}");
-    const games = JSON.parse(localStorage.getItem(GAMES_KEY) ?? "{}");
-    delete engines[oldRoot];
-    delete games[oldRoot];
-    if (engine) engines[newRoot] = engine;
-    if (game) games[newRoot] = game;
-    localStorage.setItem(ENGINES_KEY, JSON.stringify(engines));
-    localStorage.setItem(GAMES_KEY, JSON.stringify(games));
-    localStorage.setItem(INSTALL_KEY, newRoot);
-  } catch {
-    // The explicit in-memory choices still work for this session.
-  }
-}
-
-/**
- * The games an install can actually run, which is not the same as the products detected in it:
- * an expansion needs the base game underneath it, and the Rust side decides that.
- */
-export function playableGames(install) {
-  return install?.playable ?? [];
-}
-
-/**
- * The game a session should open on: the remembered one when this install can still run it,
- * otherwise the first game it can.
- */
-export function defaultGame(install) {
-  const games = playableGames(install);
-  const remembered = install ? recallGame(install.root) : null;
-  if (remembered && games.includes(remembered)) return remembered;
-  return games[0] ?? DEFAULT_GAME;
-}
-
-/** The three facts every server-facing command needs. */
-export function session() {
-  return { path: state.install.root, engine: state.engine, game: state.game };
-}
-
-/**
- * Whether the rows on screen were swept for the session in force now.
- *
- * All three facts count. The game decides which master registration was asked and which servers
- * exist at all; the folder and the engine decide the search path every row's compatibility was
- * judged against. A change to any of them makes the list an answer to a question no longer being
- * asked.
- */
-export function listIsForCurrentSession() {
-  const swept = state.listSession;
-  if (!swept || !state.install) return false;
-  const now = session();
-  return swept.path === now.path && swept.engine === now.engine && swept.game === now.game;
-}
+/* Filters ------------------------------------------------------------------ */
 
 export function saveFilters() {
   try {

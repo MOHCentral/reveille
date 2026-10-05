@@ -80,21 +80,25 @@ import {
   canRecheck,
   countsByAddress,
   droppedIdentity,
-  listIsForCurrentSession,
   listIsStale,
   loadFilters,
   notify,
-  playableGames,
-  recallInstall,
-  rememberGame,
   rememberReadyJoin,
   saveFilters,
   selectedRow,
-  session,
   state,
   subscribe,
   update,
 } from "./lib/store.js";
+import {
+  generations,
+  listIsForCurrentSession,
+  playableGames,
+  recallInstall,
+  rememberGame,
+  retireInFlight,
+  session,
+} from "./lib/session.js";
 import { setupView } from "./views/setup.js";
 import { alertErrorLine, openSettings } from "./views/settings.js";
 import { openAlertsIntro } from "./views/alerts-intro.js";
@@ -636,8 +640,8 @@ function enterServers() {
 /**
  * Adopt the folder, program and game the setup dialog confirmed, without leaving the list.
  *
- * Every result still in flight was asked of the session being left, so the same three tokens
- * `selectGame` bumps are bumped here, and a running sweep is stopped rather than left to fill the
+ * Every result still in flight was asked of the session being left, so the generations
+ * `selectGame` retires are retired here, and a running sweep is stopped rather than left to fill the
  * table with the old session's rows. The list is searched again only when the session changed.
  */
 async function applyInstallChange({ install, engine, game }) {
@@ -645,9 +649,7 @@ async function applyInstallChange({ install, engine, game }) {
     stopBrowse();
     await browseFinished();
   }
-  previewToken += 1;
-  checkGeneration += 1;
-  joinToken += 1;
+  retireInFlight();
   update((next) => {
     next.install = install;
     next.engine = engine;
@@ -674,7 +676,7 @@ async function applyInstallChange({ install, engine, game }) {
  * Every operation already in flight was started for the game being left. Each one captured its own
  * session and will still finish against it, so their *results* are stale the moment this returns —
  * an install started for Allied Assault would otherwise render its outcome into a Spearhead
- * session. Bumping all three tokens is what discards them. A join cannot be abandoned half-written,
+ * session. Retiring every generation is what discards them. A join cannot be abandoned half-written,
  * so the control is refused outright while one is running rather than raced — `joining`, not
  * `installRun`, because a compatible server has nothing to download and still has a game to start.
  *
@@ -694,9 +696,7 @@ async function selectGame(game) {
     if (wantedGame !== game || state.joining || game === state.game) return;
     wantedGame = null;
   }
-  previewToken += 1;
-  checkGeneration += 1;
-  joinToken += 1;
+  retireInFlight();
   update((next) => {
     next.game = game;
     next.checks = new Map();
@@ -725,7 +725,7 @@ function refreshOnReturn() {
 }
 
 async function refreshBehind() {
-  checkGeneration += 1;
+  generations.check.next();
   const swept = session();
   update((next) => {
     next.browse = {
@@ -764,7 +764,7 @@ async function refreshBehind() {
 async function refresh() {
   if (state.browse.running) return;
   // Any check still in flight is about the list this sweep is replacing.
-  checkGeneration += 1;
+  generations.check.next();
   const swept = session();
   // What is on screen now, kept only so a sweep that fails outright has something honest to fall
   // back to. Blanking the table on a failed sweep left the centre of the window reading "Nothing
@@ -858,7 +858,6 @@ onBrowseProgress((progress) => {
 
 /* Selecting and previewing -------------------------------------------------- */
 
-let previewToken = 0;
 let previewTimer = null;
 
 /**
@@ -873,7 +872,7 @@ let previewTimer = null;
 const PREVIEW_SETTLE_MS = 220;
 
 function select(address) {
-  const token = ++previewToken;
+  const token = generations.preview.next();
   if (previewTimer !== null) {
     clearTimeout(previewTimer);
     previewTimer = null;
@@ -925,16 +924,16 @@ function activate(address) {
 }
 
 async function resolvePreview(address, token) {
-  if (token !== previewToken) return;
+  if (!generations.preview.isCurrent(token)) return;
   try {
     const preview = await previewJoin(session(), address);
-    if (token !== previewToken) return;
+    if (!generations.preview.isCurrent(token)) return;
     update((next) => {
       next.preview = preview;
       next.previewProgress = null;
     });
   } catch (error) {
-    if (token !== previewToken) return;
+    if (!generations.preview.isCurrent(token)) return;
     update((next) => {
       next.previewProgress = null;
       next.previewError = errorText(error);
@@ -949,10 +948,8 @@ onPreviewProgress((progress) => {
 
 /* Getting files and joining in stages ---------------------------------------- */
 
-let joinToken = 0;
-
 async function getServerFiles(row) {
-  const token = ++joinToken;
+  const token = generations.join.next();
   update((next) => {
     next.joinError = null;
     next.joinResult = null;
@@ -962,7 +959,7 @@ async function getServerFiles(row) {
 
   try {
     const result = await installServerFiles(session(), row.address);
-    if (token !== joinToken) return;
+    if (!generations.join.isCurrent(token)) return;
     update((next) => {
       next.joining = false;
       next.installRun = null;
@@ -974,7 +971,7 @@ async function getServerFiles(row) {
         : null;
     });
   } catch (error) {
-    if (token !== joinToken) return;
+    if (!generations.join.isCurrent(token)) return;
     update((next) => {
       next.joining = false;
       next.installRun = null;
@@ -984,7 +981,7 @@ async function getServerFiles(row) {
 }
 
 async function getAndJoin(row, acceptIncomplete) {
-  const token = ++joinToken;
+  const token = generations.join.next();
   const preview = state.preview?.address === row.address ? state.preview : null;
   const totals = preview
     ? shoppingTotals(preview)
@@ -1013,7 +1010,7 @@ async function getAndJoin(row, acceptIncomplete) {
     // if the session moved on — it really did happen — but its result is not rendered into a
     // session it is no longer about.
     if (result.outcome?.launch === "launched") recordLaunch(row);
-    if (token !== joinToken) return;
+    if (!generations.join.isCurrent(token)) return;
     update((next) => {
       next.joining = false;
       next.installRun = null;
@@ -1021,7 +1018,7 @@ async function getAndJoin(row, acceptIncomplete) {
       rememberReadyJoin(next, row, result);
     });
   } catch (error) {
-    if (token !== joinToken) return;
+    if (!generations.join.isCurrent(token)) return;
     update((next) => {
       next.joining = false;
       next.installRun = null;
@@ -1055,17 +1052,6 @@ onInstallProgress((progress) => {
 /* Checking one server on its own --------------------------------------------- */
 
 /**
- * Results from before the list was replaced are discarded, and that is all this counts.
- *
- * It is a generation, not a cancellation: a sweep and a game switch both make every answer still in
- * flight an answer about a list that no longer exists. Two checks running at once do **not** cancel
- * each other — an earlier design bumped this on every call, so re-checking one server abandoned the
- * favorites batch mid-way and left the row it was probing reading "Checking…" for a request nobody
- * was waiting on.
- */
-let checkGeneration = 0;
-
-/**
  * Ask one server directly, without a master list.
  *
  * Two players want this, for opposite reasons. A favorite is often not in the sweep — the master
@@ -1080,11 +1066,11 @@ let checkGeneration = 0;
  */
 async function check(subject) {
   const entries = Array.isArray(subject) ? subject : [subject];
-  const generation = checkGeneration;
+  const generation = generations.check.current();
   let checked = null;
 
   for (const entry of entries) {
-    if (generation !== checkGeneration) return;
+    if (!generations.check.isCurrent(generation)) return;
     // The row this check is about to replace, kept so `resettle` below can compare, and the
     // identity to fall back on if the check replaces it with nothing (`droppedIdentity`, in
     // store.js where it can be tested).
@@ -1096,13 +1082,13 @@ async function check(subject) {
     try {
       result = await checkServer(session(), entry.address, entry.queryPort);
     } catch (error) {
-      if (generation !== checkGeneration) return;
+      if (!generations.check.isCurrent(generation)) return;
       update((next) =>
         next.checks.set(entry.address, { status: "failed", error: errorText(error), dropped }),
       );
       continue;
     }
-    if (generation !== checkGeneration) return;
+    if (!generations.check.isCurrent(generation)) return;
     update((next) => {
       if (result.row) applyCheckedRow(next, entry, result, dropped, new Date().toISOString());
       else applyCheckNonResult(next, entry, result, dropped);
@@ -1141,7 +1127,7 @@ function recheck(row) {
  */
 function resettle(before, after) {
   if (!after || after.address !== before?.address) {
-    previewToken += 1;
+    generations.preview.next();
     update((next) => {
       next.preview = null;
       next.previewProgress = null;
