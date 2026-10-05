@@ -16,12 +16,12 @@
 // verdict, because "needs 3 maps" is one click away from joinable. The four
 // canonical state names stay in the detail pane, where the decision is made.
 
-import { el, fill, preserveFocus } from "../lib/dom.js";
-import { icon } from "../lib/icons.js";
-import { lastArrivals } from "../lib/arrival-events.js";
-import { preferences } from "../lib/preferences.js";
-import { openMenu } from "../lib/menu.js";
-import { closePopover, openPopover } from "../lib/popover.js";
+import { el, fill, preserveFocus } from "../../lib/dom.js";
+import { icon } from "../../lib/icons.js";
+import { lastArrivals } from "../../lib/arrival-events.js";
+import { preferences } from "../../lib/preferences.js";
+import { openMenu } from "../../lib/menu.js";
+import { closePopover, openPopover } from "../../lib/popover.js";
 import {
   gameType,
   launchedLabel,
@@ -34,14 +34,14 @@ import {
   roundTrip,
   shortVersion,
   timeAgo,
-} from "../lib/format.js";
+} from "../../lib/format.js";
 import {
   browseFailureText,
   mapNeed,
   nonResultReason,
   sweepProgressText,
-} from "../features/servers/format.js";
-import { watchLine } from "../features/alerts/format.js";
+} from "./format.js";
+import { watchLine } from "../alerts/index.js";
 import {
   clearHistory,
   favoriteAddresses,
@@ -49,10 +49,10 @@ import {
   history,
   historyByAddress,
   toggleFavorite,
-} from "../lib/bookmarks.js";
-import { GAME_LABELS } from "../lib/catalog.js";
-import { state, update } from "../lib/store.js";
-import { PING_LIMITS, SCOPES, saveFilters } from "../features/servers/state.js";
+} from "../../lib/bookmarks.js";
+import { GAME_LABELS } from "../../lib/catalog.js";
+import { state, update } from "../../lib/store.js";
+import { PING_LIMITS, SCOPES, saveFilters } from "./state.js";
 import {
   canRecheck,
   filtering,
@@ -65,10 +65,10 @@ import {
   scopedAbsent,
   scopedRows,
   visibleServers,
-} from "../features/servers/selectors.js";
-import { clearFilters } from "../features/servers/reducers.js";
-import { playableGames } from "../lib/session.js";
-import { watchReading, watchedEntries } from "../lib/player-alerts.js";
+} from "./selectors.js";
+import { clearFilters } from "./reducers.js";
+import { playableGames } from "../../lib/session.js";
+import { watchReading, watchedEntries } from "../../lib/player-alerts.js";
 
 const COLUMNS = [
   // The star has no label: a column heading over one glyph reads as data. The cell's own

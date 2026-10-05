@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The shortcut sheet behind `?` and the titlebar's More menu. Every key here must also be handled
-// by the keydown listener in app.js or the grid in views/servers.js.
+// by the keydown listener in app.js or the grid in features/servers/view.js.
 
 import { openDialog } from "../lib/dialog.js";
 import { el } from "../lib/dom.js";

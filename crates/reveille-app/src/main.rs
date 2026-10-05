@@ -3483,14 +3483,14 @@ mod tests {
         // state, which need a real DOM with real attribute reflection. `ui-tests/fakes/dom.js`
         // deliberately does not model that, because a fake that approximated it would hand back
         // confidence it had not earned.
-        let servers = include_str!("../ui/views/servers.js");
+        let servers = include_str!("../ui/features/servers/view.js");
         assert!(
             servers.contains("`${count} offline`"),
-            "ui/views/servers.js: the disclosure must say how many entries it is folding away"
+            "ui/features/servers/view.js: the disclosure must say how many entries it is folding away"
         );
         assert!(
             servers.contains(r#""aria-expanded": open ? "true" : "false","#),
-            "ui/views/servers.js: the disclosure must publish its open state"
+            "ui/features/servers/view.js: the disclosure must publish its open state"
         );
     }
 
@@ -3794,23 +3794,23 @@ mod tests {
         // from the search box and made the arrow keys the table was designed around redundant. A
         // grid is a composite widget: exactly one row is tabbable and everything else is reached
         // with the arrows. A regression here is invisible to anyone using a mouse.
-        let servers = include_str!("../ui/views/servers.js");
+        let servers = include_str!("../ui/features/servers/view.js");
 
         assert!(
             servers.contains("tr.tabIndex = tr === tabbable ? 0 : -1;"),
-            "ui/views/servers.js: exactly one row may hold the grid's tab stop"
+            "ui/features/servers/view.js: exactly one row may hold the grid's tab stop"
         );
         assert!(
             servers.contains("const tabbable = selected ?? rows[0] ?? gridRows[0] ?? null;"),
-            "ui/views/servers.js: an absent-only saved scope must still expose a grid tab stop"
+            "ui/features/servers/view.js: an absent-only saved scope must still expose a grid tab stop"
         );
         assert!(
             servers.contains("control.tabIndex = -1;"),
-            "ui/views/servers.js: controls inside a row must not be tab stops of their own"
+            "ui/features/servers/view.js: controls inside a row must not be tab stops of their own"
         );
         assert!(
             servers.contains(r#"{ className: "servers", role: "grid", "aria-label": "Servers" }"#),
-            "ui/views/servers.js: aria-selected on a row needs the grid role to mean anything"
+            "ui/features/servers/view.js: aria-selected on a row needs the grid role to mean anything"
         );
     }
 
