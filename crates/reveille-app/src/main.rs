@@ -22,6 +22,7 @@
 //! Tauri shell. This layer owns presentation policy: it turns the pipeline's typed results into
 //! payloads and progress events, and decides nothing the core has not already established.
 
+mod alerts;
 #[cfg(windows)]
 mod app_icon;
 mod autostart;
@@ -46,7 +47,7 @@ use reveille_core::content::{
     self, CatalogueCandidate, CatalogueNonResultReason, CatalogueResolutionPass, DownloadProgress,
     PakRadarDownloadProgress, PakRadarEntry, PakRadarPackageStatus, ResolutionOutcome, WantedMap,
 };
-use reveille_core::discovery::{self, MasterEndpoint, QueryPort, Server, TargetGame};
+use reveille_core::discovery::{Server, TargetGame};
 use reveille_core::engine::EngineChoice;
 use reveille_core::install;
 use reveille_core::join::{
@@ -56,8 +57,6 @@ use reveille_core::join::{
 use reveille_core::mapindex::MapKey;
 use reveille_platform as platform;
 use serde::Serialize;
-use servers::PROBE_TIMEOUT;
-use servers::check::answered_for_another_game;
 use session::{Session, installed_maps, session_installation, session_search_path};
 use tauri::{Emitter, Manager};
 use telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry};
@@ -168,64 +167,6 @@ struct JoinResult {
     engine: EngineChoice,
     game: TargetGame,
     outcome: LaunchOutcome,
-}
-
-/// Whether a game client is running now; null when the process list cannot be read.
-#[tauri::command]
-async fn game_client_running() -> Option<bool> {
-    tokio::task::spawn_blocking(platform::game_client_running)
-        .await
-        .ok()
-        .flatten()
-}
-
-/// What one probe of a watched server saw: enough to decide an alert and to word its toast.
-#[derive(Serialize)]
-struct WatchReading {
-    clients: Option<u32>,
-    bots: Option<u32>,
-    map: Option<String>,
-    mode: Option<String>,
-    round_trip: u32,
-}
-
-/// Read a watched endpoint's occupancy and current round. Unlike `check_server`, this does not
-/// index maps or alter the browse list behind a pending join.
-#[tauri::command]
-async fn read_watched_server(
-    address: String,
-    query_port: u16,
-    game: TargetGame,
-) -> Option<WatchReading> {
-    let address = address.parse::<SocketAddrV4>().ok()?;
-    if query_port == 0 {
-        return None;
-    }
-    let endpoint = MasterEndpoint {
-        address: *address.ip(),
-        query_port: QueryPort::new(query_port),
-    };
-    let server = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT)
-        .await
-        .server?;
-    if answered_for_another_game(&server, game).is_some()
-        || SocketAddrV4::new(server.endpoint.address, server.game_port.get()) != address
-    {
-        return None;
-    }
-    Some(WatchReading {
-        clients: server
-            .occupancy
-            .clients_reported
-            .map(discovery::ClientsReported::get),
-        bots: server
-            .occupancy
-            .bots_reported
-            .map(discovery::BotsReported::get),
-        map: server.current_map,
-        mode: server.game_type,
-        round_trip: server.status_round_trip.get(),
-    })
 }
 
 /// Resolve where downloaded content goes for this session, and nothing else.
@@ -1128,8 +1069,8 @@ fn main() {
             servers::browse::cancel_browse,
             servers::browse::browse_servers,
             servers::check::check_server,
-            read_watched_server,
-            game_client_running,
+            alerts::read_watched_server,
+            alerts::game_client_running,
             notice::send_player_notification,
             notice::send_reveille_notice,
             notice::open_notification_settings,
