@@ -35,15 +35,13 @@ mod session;
 mod telemetry;
 mod tray;
 
-use std::cmp;
-use std::collections::{HashSet, VecDeque};
-use std::fs;
-use std::io::{self, Read as _};
+use std::collections::HashSet;
+use std::io;
 use std::net::SocketAddrV4;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use reveille_core::content::{
@@ -55,27 +53,20 @@ use reveille_core::discovery::{
     NonResultReason, ProbeStage, QueryPort, RequestError, Server, TargetGame,
 };
 use reveille_core::engine::EngineChoice;
-use reveille_core::install::{self, Installation};
+use reveille_core::install;
 use reveille_core::join::{
     CompatibilityAssessment, CompatibilityState, CurrentMapReadiness, FsGame, LaunchCommand,
     LaunchProfile,
 };
 use reveille_core::mapindex::{MapIndex, MapKey};
-use reveille_core::platform::openmohaa::{
-    ClientActivity, OpenMohaaError, OpenMohaaReleaseClient, ReleaseChannel,
-    ReleaseDownloadProgress, ReleasePackage, ReleaseSelector, ReleaseTarget, ReleaseVersion,
-    UpdateOutcome,
-};
 use reveille_core::platform::reborn::{
     self, DownloadProgress as RebornDownloadProgress, RebornClient,
 };
 use reveille_platform as platform;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use session::{Session, SessionError, installed_maps, session_installation, session_search_path};
-use sha2::{Digest as _, Sha256};
 use tauri::{Emitter, Manager};
 use telemetry::{BrowseFailureKind, DownloadSource, Event, JoinFailureReason, Telemetry};
-use thiserror::Error;
 use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
@@ -83,7 +74,6 @@ use tracing::{info, warn};
 const BROWSE_EVENT: &str = "reveille://browse";
 const PREVIEW_EVENT: &str = "reveille://preview";
 const INSTALL_EVENT: &str = "reveille://install";
-const OPENMOHAA_INSTALL_EVENT: &str = "reveille://openmohaa-install";
 const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
 
 /// Deadline for one per-server UDP probe.
@@ -95,8 +85,6 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(2_500);
 /// Bytes between download progress emissions. A 24 MB shopping list produces a few hundred events
 /// rather than tens of thousands.
 const DOWNLOAD_EVENT_STRIDE: u64 = 256 * 1024;
-const OPENMOHAA_RECEIPT_FILENAME: &str = ".reveille-openmohaa.json";
-const OPENMOHAA_RECEIPT_FORMAT: OpenMohaaReceiptFormat = OpenMohaaReceiptFormat(1);
 
 #[derive(Default)]
 struct AppState {
@@ -106,24 +94,8 @@ struct AppState {
     cancel_browse: Notify,
     /// The most recent join preview, reused so a launch does not repeat the catalogue pass.
     preview: Mutex<Option<CachedPreview>>,
-    /// Read between download chunks; cancellation never interrupts the atomic apply phase.
-    openmohaa_cancel: AtomicBool,
-    /// Release offers already shown to the player, retained so Install uses those exact bytes.
-    openmohaa_offers: Mutex<VecDeque<CachedOpenMohaaOffer>>,
-    /// Opaque identity generator for cached offers.
-    openmohaa_next_offer: AtomicU64,
     /// Cancellation for the pinned Reborn archive transfer.
     reborn_cancel: AtomicBool,
-}
-
-const OPENMOHAA_OFFER_CACHE_CAPACITY: usize = 8;
-
-#[derive(Clone)]
-struct CachedOpenMohaaOffer {
-    id: OpenMohaaOfferId,
-    installation_root: PathBuf,
-    target: ReleaseTarget,
-    package: ReleasePackage,
 }
 
 struct CachedPreview {
@@ -272,218 +244,6 @@ struct RebornInstallResult {
     inventory: platform::engine::EngineInventory,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(transparent)]
-struct OpenMohaaOfferId(u64);
-
-#[derive(Clone, Serialize)]
-struct OpenMohaaReleaseSummary {
-    offer_id: OpenMohaaOfferId,
-    channel: ReleaseChannel,
-    version: String,
-    /// Whether the offered release is a prerelease. The preview channel serves the stable release
-    /// once it outranks the newest candidate, so the channel alone does not answer this.
-    prerelease: bool,
-    asset_name: String,
-    size: u64,
-    digest: String,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(transparent)]
-struct OpenMohaaReceiptFormat(u8);
-
-#[derive(Debug, Deserialize, Serialize)]
-struct OpenMohaaInstallReceipt {
-    format: OpenMohaaReceiptFormat,
-    channel: ReleaseChannel,
-    version: String,
-    asset_name: String,
-    release_digest: String,
-    client_sha256: String,
-}
-
-#[derive(Debug, Error)]
-enum OpenMohaaReceiptError {
-    #[error("could not access OpenMoHAA receipt data at {path}")]
-    Filesystem {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("could not encode or decode the OpenMoHAA receipt")]
-    Json(#[from] serde_json::Error),
-}
-
-#[derive(Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-enum OpenMohaaInstalledBuild {
-    Absent,
-    Current,
-    KnownOther {
-        channel: ReleaseChannel,
-        version: String,
-        relation: OfferRelation,
-    },
-    Unknown,
-}
-
-/// Where the offered release sits relative to the installed one, by semver precedence.
-///
-/// The interface may not call every replacement an update. The channel selector can legitimately
-/// offer a *lower* version than the one installed - a player on preview holding `v0.83.0-rc.2`
-/// who switches to stable is offered `v0.82.1` - and naming that "update" would turn a rollback
-/// into a word the player did not choose. A receipt written before semver tags
-/// (`Development build 2026-08-20`) has no place in that ordering and takes `Incomparable`, so the
-/// shell offers a plain install rather than inventing a direction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum OfferRelation {
-    /// The offered version outranks the installed one.
-    Newer,
-    /// The installed version outranks the offered one.
-    Older,
-    /// The same version by semver precedence, from a different release file.
-    SameVersion,
-    /// The installed version is not semver, so the two cannot be ordered.
-    Incomparable,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "availability", rename_all = "snake_case")]
-enum OpenMohaaStatus {
-    Available {
-        target: ReleaseTarget,
-        installed_build: OpenMohaaInstalledBuild,
-        activity: OpenMohaaActivitySummary,
-        package: OpenMohaaReleaseSummary,
-    },
-    Unsupported {
-        os: String,
-        architecture: String,
-    },
-}
-
-#[derive(Serialize)]
-struct OpenMohaaInstallResult {
-    package: OpenMohaaReleaseSummary,
-    outcome: UpdateOutcome,
-    activity: OpenMohaaActivitySummary,
-    installed_build: OpenMohaaInstalledBuild,
-}
-
-#[derive(Clone, Serialize)]
-struct OpenMohaaActivitySummary {
-    state: ClientActivity,
-    running: Vec<OpenMohaaRunningProgram>,
-}
-
-#[derive(Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum OpenMohaaRunningProgram {
-    Game,
-    DedicatedServer,
-    Launcher,
-}
-
-/// Why an engine step stopped, classified once here rather than by matching message text.
-///
-/// The interface has to say what actually happened — a release that published no digest is not
-/// a corrupted download, and neither is a release that has no build for this machine. Reading
-/// that distinction out of a formatted `OpenMohaaError` string in JavaScript is how the two got
-/// merged, so the classification lives beside the errors it names. `detail` carries the original
-/// message for diagnosis; the shell chooses its own wording from `kind`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum OpenMohaaFailureKind {
-    /// GitHub could not be reached or refused the request.
-    Unreachable,
-    /// The release exists but publishes nothing for this machine.
-    NoAssetForHost,
-    /// The release metadata is unusable — no digest, an ambiguous asset, no dev identity.
-    /// Nothing was downloaded, so retrying changes nothing.
-    ReleaseMetadata,
-    /// Bytes arrived but did not match the published size or digest.
-    CorruptDownload,
-    /// The archive itself was rejected before any file was written.
-    ArchiveRejected,
-    /// The player pressed Stop.
-    Cancelled,
-    /// Writing into the game folder failed; existing files were restored.
-    Filesystem,
-    /// A failure outside the release pipeline, carried through with its own message rather than
-    /// dressed up as one of the causes above.
-    Internal,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct OpenMohaaFailure {
-    kind: OpenMohaaFailureKind,
-    detail: String,
-}
-
-impl From<OpenMohaaError> for OpenMohaaFailure {
-    fn from(error: OpenMohaaError) -> Self {
-        use OpenMohaaFailureKind as Kind;
-
-        let detail = match &error {
-            OpenMohaaError::Filesystem { path, source }
-                if source.kind() == io::ErrorKind::PermissionDenied =>
-            {
-                format!(
-                    "Windows protects {}, so Reveille cannot change files there. Make a writable copy of the game folder first.",
-                    path.display()
-                )
-            }
-            _ => error.to_string(),
-        };
-        let kind = match error {
-            OpenMohaaError::Client(_)
-            | OpenMohaaError::Network(_)
-            | OpenMohaaError::HttpStatus(_) => Kind::Unreachable,
-            OpenMohaaError::MissingAsset(_) => Kind::NoAssetForHost,
-            OpenMohaaError::MalformedRelease(_)
-            | OpenMohaaError::AmbiguousAsset(_)
-            | OpenMohaaError::NoSelectableRelease(_)
-            | OpenMohaaError::UnversionedRelease(_)
-            | OpenMohaaError::MissingDigest(_)
-            | OpenMohaaError::UnsupportedDigest(_)
-            | OpenMohaaError::InvalidDigest(_)
-            | OpenMohaaError::AssetTooLarge { .. } => Kind::ReleaseMetadata,
-            OpenMohaaError::SizeMismatch { .. } | OpenMohaaError::DigestMismatch { .. } => {
-                Kind::CorruptDownload
-            }
-            OpenMohaaError::DownloadCancelled => Kind::Cancelled,
-            OpenMohaaError::InvalidZip(_)
-            | OpenMohaaError::UnsafeArchiveEntry(_)
-            | OpenMohaaError::DuplicateArchiveEntry(_)
-            | OpenMohaaError::EmptyArchive => Kind::ArchiveRejected,
-            OpenMohaaError::NoDestinationParent(_)
-            | OpenMohaaError::TargetIsDirectory(_)
-            | OpenMohaaError::IncompleteTransaction
-            | OpenMohaaError::Filesystem { .. } => Kind::Filesystem,
-        };
-        Self { kind, detail }
-    }
-}
-
-impl OpenMohaaFailure {
-    /// A failure outside the release pipeline: an unreadable folder, or a busy install lock.
-    fn other(detail: &impl ToString) -> Self {
-        Self {
-            kind: OpenMohaaFailureKind::Internal,
-            detail: detail.to_string(),
-        }
-    }
-
-    fn no_asset_for_host(detail: &impl ToString) -> Self {
-        Self {
-            kind: OpenMohaaFailureKind::NoAssetForHost,
-            detail: detail.to_string(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize)]
 struct BrowseFailure {
     kind: BrowseFailureKind,
@@ -613,307 +373,6 @@ async fn install_reborn(
 )]
 fn cancel_reborn_install(state: tauri::State<'_, AppState>) {
     state.reborn_cancel.store(true, Ordering::Release);
-}
-
-#[tauri::command]
-async fn openmohaa_status(
-    path: String,
-    channel: ReleaseChannel,
-    state: tauri::State<'_, AppState>,
-) -> Result<OpenMohaaStatus, OpenMohaaFailure> {
-    platform::HostCapabilities::current()
-        .require(EngineChoice::Openmohaa)
-        .map_err(|error| OpenMohaaFailure::other(&error))?;
-    let installation = install::identify(&path).map_err(|error| OpenMohaaFailure::other(&error))?;
-    let target = match ReleaseTarget::for_host() {
-        Ok(target) => target,
-        Err(unsupported) => {
-            return Ok(OpenMohaaStatus::Unsupported {
-                os: unsupported.os,
-                architecture: unsupported.architecture,
-            });
-        }
-    };
-    let client = OpenMohaaReleaseClient::new(Duration::from_secs(120))?;
-    let package = client.release(ReleaseSelector { channel, target }).await?;
-    let offer_id = cache_openmohaa_offer(&state, &installation, target, package.clone())?;
-    Ok(OpenMohaaStatus::Available {
-        target,
-        installed_build: installed_openmohaa_build(&installation.root, target, &package),
-        activity: activity_summary(&platform::openmohaa_activity()),
-        package: release_summary(&package, offer_id),
-    })
-}
-
-#[tauri::command]
-async fn install_openmohaa(
-    path: String,
-    offer_id: OpenMohaaOfferId,
-    app: tauri::AppHandle,
-    gate: tauri::State<'_, engines::InstallGate>,
-    state: tauri::State<'_, AppState>,
-) -> Result<OpenMohaaInstallResult, OpenMohaaFailure> {
-    platform::HostCapabilities::current()
-        .require(EngineChoice::Openmohaa)
-        .map_err(|error| OpenMohaaFailure::other(&error))?;
-    let _install_guard = gate
-        .try_enter()
-        .map_err(|_| OpenMohaaFailure::other(&"an OpenMoHAA install is already running"))?;
-    state.openmohaa_cancel.store(false, Ordering::Release);
-
-    // Re-identification prevents a stale or forged frontend path from becoming an arbitrary
-    // archive extraction destination.
-    let installation = install::identify(&path).map_err(|error| OpenMohaaFailure::other(&error))?;
-    let target =
-        ReleaseTarget::for_host().map_err(|error| OpenMohaaFailure::no_asset_for_host(&error))?;
-    let offer = cached_openmohaa_offer(&state, offer_id)?;
-    if offer.installation_root != installation.root || offer.target != target {
-        return Err(OpenMohaaFailure::other(
-            &"the displayed OpenMoHAA offer does not belong to this game folder",
-        ));
-    }
-    let client = OpenMohaaReleaseClient::new(Duration::from_secs(120))?;
-    let summary = release_summary(&offer.package, offer.id);
-    let cancel = &state.openmohaa_cancel;
-    let observed_activity = Mutex::new(platform::OpenMohaaActivity::unknown());
-    let outcome = client
-        .download_and_install_reporting(
-            &offer.package,
-            &installation.root,
-            // Probed after the transfer, not before it: the archive takes long enough to
-            // download that a player can start the client in between.
-            || {
-                let activity = platform::openmohaa_activity();
-                let client_activity = activity.client_activity();
-                if let Ok(mut observed) = observed_activity.lock() {
-                    *observed = activity;
-                }
-                client_activity
-            },
-            |ReleaseDownloadProgress { received, total }| {
-                drop(app.emit(
-                    OPENMOHAA_INSTALL_EVENT,
-                    engines::DownloadProgress { received, total },
-                ));
-                if cancel.load(Ordering::Acquire) {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-            },
-        )
-        .await?;
-    let installed_build = if matches!(
-        outcome,
-        UpdateOutcome::Installed { .. } | UpdateOutcome::Updated { .. }
-    ) {
-        // The engine install succeeded even if this evidence record cannot be written. Without a
-        // valid receipt the result and next status check honestly fall back to Version unknown.
-        if record_openmohaa_install(&installation.root, target, &offer.package).is_ok() {
-            OpenMohaaInstalledBuild::Current
-        } else {
-            OpenMohaaInstalledBuild::Unknown
-        }
-    } else {
-        installed_openmohaa_build(&installation.root, target, &offer.package)
-    };
-    let activity = match observed_activity.into_inner() {
-        Ok(activity) => activity,
-        Err(error) => error.into_inner(),
-    };
-    Ok(OpenMohaaInstallResult {
-        package: summary,
-        outcome,
-        activity: activity_summary(&activity),
-        installed_build,
-    })
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri resolves managed state only for by-value command parameters"
-)]
-fn cancel_openmohaa_install(state: tauri::State<'_, AppState>) {
-    state.openmohaa_cancel.store(true, Ordering::Release);
-}
-
-fn cache_openmohaa_offer(
-    state: &AppState,
-    installation: &Installation,
-    target: ReleaseTarget,
-    package: ReleasePackage,
-) -> Result<OpenMohaaOfferId, OpenMohaaFailure> {
-    let id = OpenMohaaOfferId(state.openmohaa_next_offer.fetch_add(1, Ordering::Relaxed));
-    let mut offers = state
-        .openmohaa_offers
-        .lock()
-        .map_err(|error| OpenMohaaFailure::other(&error))?;
-    if offers.len() == OPENMOHAA_OFFER_CACHE_CAPACITY {
-        offers.pop_front();
-    }
-    offers.push_back(CachedOpenMohaaOffer {
-        id,
-        installation_root: installation.root.clone(),
-        target,
-        package,
-    });
-    Ok(id)
-}
-
-fn cached_openmohaa_offer(
-    state: &AppState,
-    id: OpenMohaaOfferId,
-) -> Result<CachedOpenMohaaOffer, OpenMohaaFailure> {
-    state
-        .openmohaa_offers
-        .lock()
-        .map_err(|error| OpenMohaaFailure::other(&error))?
-        .iter()
-        .find(|offer| offer.id == id)
-        .cloned()
-        .ok_or_else(|| {
-            OpenMohaaFailure::other(
-                &"the displayed OpenMoHAA offer expired; refresh before installing",
-            )
-        })
-}
-
-fn release_summary(
-    package: &ReleasePackage,
-    offer_id: OpenMohaaOfferId,
-) -> OpenMohaaReleaseSummary {
-    OpenMohaaReleaseSummary {
-        offer_id,
-        channel: package.channel,
-        version: package.version.clone(),
-        prerelease: package.prerelease,
-        asset_name: package.asset_name.clone(),
-        size: package.size,
-        digest: package.digest.to_string(),
-    }
-}
-
-fn activity_summary(activity: &platform::OpenMohaaActivity) -> OpenMohaaActivitySummary {
-    let running = activity
-        .running_programs()
-        .iter()
-        .map(|program| match program {
-            platform::OpenMohaaProgram::Game => OpenMohaaRunningProgram::Game,
-            platform::OpenMohaaProgram::DedicatedServer => OpenMohaaRunningProgram::DedicatedServer,
-            platform::OpenMohaaProgram::Launcher => OpenMohaaRunningProgram::Launcher,
-        })
-        .collect();
-    OpenMohaaActivitySummary {
-        state: activity.client_activity(),
-        running,
-    }
-}
-
-fn installed_openmohaa_build(
-    root: &Path,
-    target: ReleaseTarget,
-    selected: &ReleasePackage,
-) -> OpenMohaaInstalledBuild {
-    let client_path = openmohaa_client_path(root, target);
-    if !client_path.is_file() {
-        return OpenMohaaInstalledBuild::Absent;
-    }
-    let Some(receipt) = validated_openmohaa_receipt(root, &client_path) else {
-        return OpenMohaaInstalledBuild::Unknown;
-    };
-    if receipt.version == selected.version
-        && receipt.asset_name == selected.asset_name
-        && receipt.release_digest == selected.digest.to_string()
-    {
-        OpenMohaaInstalledBuild::Current
-    } else {
-        let relation = match ReleaseVersion::parse(&receipt.version) {
-            Some(installed) => match installed.cmp(&selected.semver) {
-                cmp::Ordering::Less => OfferRelation::Newer,
-                cmp::Ordering::Greater => OfferRelation::Older,
-                cmp::Ordering::Equal => OfferRelation::SameVersion,
-            },
-            None => OfferRelation::Incomparable,
-        };
-        OpenMohaaInstalledBuild::KnownOther {
-            channel: receipt.channel,
-            version: receipt.version,
-            relation,
-        }
-    }
-}
-
-fn validated_openmohaa_receipt(root: &Path, client_path: &Path) -> Option<OpenMohaaInstallReceipt> {
-    let receipt_path = root.join(OPENMOHAA_RECEIPT_FILENAME);
-    let bytes = fs::read(&receipt_path).ok()?;
-    let receipt = serde_json::from_slice::<OpenMohaaInstallReceipt>(&bytes).ok()?;
-    if receipt.format != OPENMOHAA_RECEIPT_FORMAT {
-        return None;
-    }
-    let client_sha256 = sha256_file(client_path).ok()?;
-    (receipt.client_sha256 == client_sha256).then_some(receipt)
-}
-
-fn record_openmohaa_install(
-    root: &Path,
-    target: ReleaseTarget,
-    package: &ReleasePackage,
-) -> Result<(), OpenMohaaReceiptError> {
-    let client_path = openmohaa_client_path(root, target);
-    let receipt = OpenMohaaInstallReceipt {
-        format: OPENMOHAA_RECEIPT_FORMAT,
-        channel: package.channel,
-        version: package.version.clone(),
-        asset_name: package.asset_name.clone(),
-        release_digest: package.digest.to_string(),
-        client_sha256: sha256_file(&client_path)?,
-    };
-    let encoded = serde_json::to_vec_pretty(&receipt)?;
-    let receipt_path = root.join(OPENMOHAA_RECEIPT_FILENAME);
-    fs::write(&receipt_path, encoded).map_err(|source| OpenMohaaReceiptError::Filesystem {
-        path: receipt_path,
-        source,
-    })
-}
-
-fn sha256_file(path: &Path) -> Result<String, OpenMohaaReceiptError> {
-    let mut file = fs::File::open(path).map_err(|source| OpenMohaaReceiptError::Filesystem {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0_u8; 16 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|source| OpenMohaaReceiptError::Filesystem {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        if read == 0 {
-            break;
-        }
-        digest.update(&buffer[..read]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
-fn openmohaa_client_path(root: &Path, target: ReleaseTarget) -> PathBuf {
-    // openmoh/openmohaa v0.82.1 release archive layout: Windows uses `openmohaa.exe`; every Unix
-    // archive uses the extensionless `openmohaa` binary at its root.
-    let filename = match target {
-        ReleaseTarget::WindowsX64 | ReleaseTarget::WindowsX86 | ReleaseTarget::WindowsArm64 => {
-            "openmohaa.exe"
-        }
-        ReleaseTarget::LinuxAmd64
-        | ReleaseTarget::LinuxArm64
-        | ReleaseTarget::LinuxArmhf
-        | ReleaseTarget::LinuxI686
-        | ReleaseTarget::MacosArm64
-        | ReleaseTarget::MacosX64 => "openmohaa",
-    };
-    root.join(filename)
 }
 
 /// Stop the sweep currently running, if any. Servers already probed are kept.
@@ -2203,9 +1662,9 @@ fn main() {
             engines::select_engine,
             install_reborn,
             cancel_reborn_install,
-            openmohaa_status,
-            install_openmohaa,
-            cancel_openmohaa_install,
+            engines::openmohaa::openmohaa_status,
+            engines::openmohaa::install_openmohaa,
+            engines::openmohaa::cancel_openmohaa_install,
             installation::copy::installation_storage,
             installation::copy::pick_copy_destination,
             installation::copy::copy_game_installation,
@@ -2255,26 +1714,19 @@ mod tests {
         ResolutionOutcome, WantedMap,
     };
     use reveille_core::discovery::ParseError;
-    use reveille_core::install::{IdentificationMethod, Product};
     use reveille_core::join::{
         CompatibilityAssessment, CompatibilityState, CurrentMapReadiness, MapsNeeded,
     };
     use reveille_core::mapindex::MapKey;
-    use reveille_core::platform::openmohaa::{
-        OpenMohaaError, PublishedSha256, ReleaseChannel, ReleasePackage, ReleaseSelector,
-        ReleaseTarget, ReleaseVersion,
-    };
     use reveille_core::preflight::{MapResult, MapStatus, Report, Verdict};
     use tempfile::TempDir;
 
     use super::{
-        AppState, BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError,
-        EngineChoice, JoinFailureReason, MasterEndpoint, OfferRelation, OpenMohaaFailure,
-        OpenMohaaFailureKind, OpenMohaaInstalledBuild, QueryPort, RequestError, Server, Session,
-        TargetGame, answered_for_another_game, cache_openmohaa_offer, cached_openmohaa_offer,
-        catalogue_reason, failed, installed_maps, installed_openmohaa_build, launch_refusal,
-        merge_checked_server, openmohaa_client_path, platform, preview_cache_matches,
-        record_openmohaa_install, refusal_reason, shopping_list_will_write,
+        BrowseFailure, BrowseFailureKind, CatalogueNonResultReason, DiscoveryError, EngineChoice,
+        JoinFailureReason, MasterEndpoint, QueryPort, RequestError, Server, Session, TargetGame,
+        answered_for_another_game, catalogue_reason, failed, installed_maps, launch_refusal,
+        merge_checked_server, platform, preview_cache_matches, refusal_reason,
+        shopping_list_will_write,
     };
 
     fn assessment(
@@ -2391,347 +1843,6 @@ mod tests {
             }),
             &std::collections::HashSet::new(),
         ));
-    }
-
-    #[test]
-    fn a_release_without_a_published_file_check_is_not_reported_as_a_bad_download() {
-        let digest = PublishedSha256::parse(
-            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .expect("fixture digest");
-        let cases = [
-            (
-                OpenMohaaError::MissingDigest("openmohaa.zip".to_owned()),
-                OpenMohaaFailureKind::ReleaseMetadata,
-            ),
-            (
-                OpenMohaaError::UnsupportedDigest("md5:00".to_owned()),
-                OpenMohaaFailureKind::ReleaseMetadata,
-            ),
-            (
-                OpenMohaaError::InvalidDigest("sha256:zz".to_owned()),
-                OpenMohaaFailureKind::ReleaseMetadata,
-            ),
-            (
-                OpenMohaaError::AmbiguousAsset(ReleaseSelector::stable(ReleaseTarget::WindowsX64)),
-                OpenMohaaFailureKind::ReleaseMetadata,
-            ),
-            (
-                OpenMohaaError::MissingAsset(ReleaseSelector::stable(ReleaseTarget::WindowsX64)),
-                OpenMohaaFailureKind::NoAssetForHost,
-            ),
-            (
-                OpenMohaaError::DigestMismatch {
-                    expected: digest,
-                    actual: digest,
-                },
-                OpenMohaaFailureKind::CorruptDownload,
-            ),
-            (
-                OpenMohaaError::SizeMismatch {
-                    expected: 1,
-                    actual: 2,
-                },
-                OpenMohaaFailureKind::CorruptDownload,
-            ),
-            (
-                OpenMohaaError::DownloadCancelled,
-                OpenMohaaFailureKind::Cancelled,
-            ),
-            (
-                OpenMohaaError::EmptyArchive,
-                OpenMohaaFailureKind::ArchiveRejected,
-            ),
-        ];
-
-        for (error, expected) in cases {
-            let rendered = error.to_string();
-            let failure = OpenMohaaFailure::from(error);
-            assert_eq!(failure.kind, expected, "misclassified {rendered:?}");
-            assert_eq!(failure.detail, rendered);
-        }
-    }
-
-    #[test]
-    fn openmohaa_client_path_matches_the_published_archive_layout() {
-        let root = Path::new(r"C:\Games\MOHAA");
-        for target in [
-            ReleaseTarget::WindowsX64,
-            ReleaseTarget::WindowsX86,
-            ReleaseTarget::WindowsArm64,
-        ] {
-            assert_eq!(
-                openmohaa_client_path(root, target),
-                root.join("openmohaa.exe")
-            );
-        }
-        for target in [
-            ReleaseTarget::LinuxAmd64,
-            ReleaseTarget::LinuxArm64,
-            ReleaseTarget::LinuxArmhf,
-            ReleaseTarget::LinuxI686,
-            ReleaseTarget::MacosArm64,
-            ReleaseTarget::MacosX64,
-        ] {
-            assert_eq!(openmohaa_client_path(root, target), root.join("openmohaa"));
-        }
-    }
-
-    #[test]
-    fn installation_reuses_the_exact_release_offer_that_status_returned() {
-        let state = AppState::default();
-        let installation = reveille_core::install::Installation {
-            root: Path::new(r"C:\Games\MOHAA").to_path_buf(),
-            products: vec![Product::AlliedAssault],
-            playable: vec![Product::AlliedAssault],
-            binaries: Vec::new(),
-            identification: IdentificationMethod::DataDirectoriesOnly,
-        };
-        let stable = ReleasePackage {
-            channel: ReleaseChannel::Stable,
-            version: "v0.82.1".to_owned(),
-            semver: ReleaseVersion::parse("v0.82.1").expect("stable semver"),
-            prerelease: false,
-            asset_name: "stable.zip".to_owned(),
-            download_url: "https://example.invalid/stable.zip".to_owned(),
-            size: 6,
-            digest: PublishedSha256::parse(
-                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-            )
-            .expect("stable digest"),
-        };
-        let preview = ReleasePackage {
-            channel: ReleaseChannel::Preview,
-            version: "v0.83.0-rc.1".to_owned(),
-            semver: ReleaseVersion::parse("v0.83.0-rc.1").expect("preview semver"),
-            prerelease: true,
-            asset_name: "preview.zip".to_owned(),
-            download_url: "https://example.invalid/preview.zip".to_owned(),
-            size: 7,
-            digest: PublishedSha256::parse(
-                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            )
-            .expect("preview digest"),
-        };
-
-        let stable_id = cache_openmohaa_offer(
-            &state,
-            &installation,
-            ReleaseTarget::WindowsX64,
-            stable.clone(),
-        )
-        .expect("cache stable offer");
-        let preview_id =
-            cache_openmohaa_offer(&state, &installation, ReleaseTarget::WindowsX64, preview)
-                .expect("cache preview offer");
-
-        assert_ne!(stable_id, preview_id);
-        assert_eq!(
-            cached_openmohaa_offer(&state, stable_id)
-                .expect("displayed stable offer")
-                .package,
-            stable
-        );
-    }
-
-    #[test]
-    fn identical_openmohaa_packages_are_current_across_channels() {
-        let temporary = TempDir::new().expect("temporary directory");
-        let root = temporary.path();
-        fs::write(root.join("openmohaa.exe"), b"installed stable").expect("client fixture");
-        let mut package = reveille_core::platform::openmohaa::parse_latest_release(
-            include_str!("../../reveille-core/tests/fixtures/openmohaa_latest_release.json"),
-            ReleaseTarget::WindowsX64,
-        )
-        .expect("stable package");
-        for channel in [ReleaseChannel::Preview, ReleaseChannel::Stable] {
-            package.channel = channel;
-            record_openmohaa_install(root, ReleaseTarget::WindowsX64, &package).expect("receipt");
-            package.channel = match channel {
-                ReleaseChannel::Preview => ReleaseChannel::Stable,
-                ReleaseChannel::Stable => ReleaseChannel::Preview,
-            };
-            assert_eq!(
-                installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &package),
-                OpenMohaaInstalledBuild::Current
-            );
-            for changed in [
-                ReleasePackage {
-                    version: "v0.82.2".into(),
-                    ..package.clone()
-                },
-                ReleasePackage {
-                    asset_name: "another-windows-x64.zip".into(),
-                    ..package.clone()
-                },
-                ReleasePackage {
-                    digest: PublishedSha256::parse(&format!("sha256:{}", "0".repeat(64)))
-                        .expect("digest"),
-                    ..package.clone()
-                },
-            ] {
-                assert!(matches!(
-                    installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &changed),
-                    OpenMohaaInstalledBuild::KnownOther { .. }
-                ));
-            }
-        }
-        fs::write(root.join("openmohaa.exe"), b"externally replaced").expect("changed client");
-        assert_eq!(
-            installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &package),
-            OpenMohaaInstalledBuild::Unknown
-        );
-    }
-
-    #[test]
-    fn legacy_dev_receipts_keep_their_installed_build_identity() {
-        let temporary = TempDir::new().expect("temporary directory");
-        let root = temporary.path();
-        let client = root.join("openmohaa.exe");
-        fs::write(&client, b"legacy preview").expect("client fixture");
-        let receipt = serde_json::json!({
-            "format": super::OPENMOHAA_RECEIPT_FORMAT,
-            "channel": "dev",
-            "version": "Development build 2026-08-20",
-            "asset_name": "openmohaa-dev-windows-x64-pdb.zip",
-            "release_digest": format!("sha256:{}", "0".repeat(64)),
-            "client_sha256": super::sha256_file(&client).expect("client hash"),
-        });
-        fs::write(
-            root.join(super::OPENMOHAA_RECEIPT_FILENAME),
-            receipt.to_string(),
-        )
-        .expect("legacy receipt");
-        let validated =
-            super::validated_openmohaa_receipt(root, &client).expect("legacy receipt recognized");
-        assert_eq!(validated.channel, ReleaseChannel::Preview);
-        assert_eq!(validated.version, "Development build 2026-08-20");
-        assert_eq!(
-            serde_json::to_value(&validated).expect("serialized receipt")["channel"],
-            "preview"
-        );
-        let selected = reveille_core::platform::openmohaa::parse_latest_release(
-            include_str!("../../reveille-core/tests/fixtures/openmohaa_latest_release.json"),
-            ReleaseTarget::WindowsX64,
-        )
-        .expect("selected package");
-        assert_eq!(
-            installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &selected),
-            OpenMohaaInstalledBuild::KnownOther {
-                channel: ReleaseChannel::Preview,
-                version: validated.version,
-                relation: OfferRelation::Incomparable,
-            }
-        );
-        fs::write(&client, b"externally replaced").expect("changed client");
-        assert!(super::validated_openmohaa_receipt(root, &client).is_none());
-    }
-
-    #[test]
-    fn a_receipt_only_identifies_the_unchanged_client_and_exact_release() {
-        let temporary = TempDir::new().expect("temporary directory");
-        let root = temporary.path();
-        fs::write(root.join("openmohaa.exe"), b"installed preview").expect("client fixture");
-        let preview = ReleasePackage {
-            channel: ReleaseChannel::Preview,
-            version: "v0.83.0-rc.1".to_owned(),
-            semver: ReleaseVersion::parse("v0.83.0-rc.1").expect("preview semver"),
-            prerelease: true,
-            asset_name: "openmohaa-v0.83.0-rc.1-windows-x64.zip".to_owned(),
-            download_url: "https://example.invalid/preview.zip".to_owned(),
-            size: 7,
-            digest: PublishedSha256::parse(
-                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            )
-            .expect("preview digest"),
-        };
-
-        assert_eq!(
-            installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &preview),
-            OpenMohaaInstalledBuild::Unknown
-        );
-        record_openmohaa_install(root, ReleaseTarget::WindowsX64, &preview).expect("write receipt");
-        assert_eq!(
-            installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &preview),
-            OpenMohaaInstalledBuild::Current
-        );
-
-        let stable = ReleasePackage {
-            channel: ReleaseChannel::Stable,
-            version: "v0.82.1".to_owned(),
-            semver: ReleaseVersion::parse("v0.82.1").expect("stable semver"),
-            prerelease: false,
-            asset_name: "openmohaa-v0.82.1-windows-x64.zip".to_owned(),
-            download_url: "https://example.invalid/stable.zip".to_owned(),
-            size: 6,
-            digest: PublishedSha256::parse(
-                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-            )
-            .expect("stable digest"),
-        };
-        assert_eq!(
-            installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &stable),
-            OpenMohaaInstalledBuild::KnownOther {
-                channel: ReleaseChannel::Preview,
-                version: preview.version.clone(),
-                relation: OfferRelation::Older,
-            }
-        );
-
-        fs::write(root.join("openmohaa.exe"), b"externally replaced")
-            .expect("replace client fixture");
-        assert_eq!(
-            installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &preview),
-            OpenMohaaInstalledBuild::Unknown
-        );
-    }
-
-    /// The interface takes its word for the action from this ordering, so a channel switch that
-    /// offers a lower version cannot be called an update.
-    #[test]
-    fn the_offered_release_is_ordered_against_the_installed_one() {
-        let temporary = TempDir::new().expect("temporary directory");
-        let root = temporary.path();
-        fs::write(root.join("openmohaa.exe"), b"installed build").expect("client fixture");
-        let installed = ReleasePackage {
-            channel: ReleaseChannel::Preview,
-            version: "v0.83.0-rc.2".to_owned(),
-            semver: ReleaseVersion::parse("v0.83.0-rc.2").expect("installed semver"),
-            prerelease: true,
-            asset_name: "openmohaa-v0.83.0-rc.2-windows-x64.zip".to_owned(),
-            download_url: "https://example.invalid/installed.zip".to_owned(),
-            size: 9,
-            digest: PublishedSha256::parse(&format!("sha256:{}", "2".repeat(64)))
-                .expect("installed digest"),
-        };
-        record_openmohaa_install(root, ReleaseTarget::WindowsX64, &installed).expect("receipt");
-
-        // A different published file every time, so the same-version case is a rebuilt release
-        // rather than the current one.
-        let offered = |tag: &str| ReleasePackage {
-            version: tag.to_owned(),
-            semver: ReleaseVersion::parse(tag).expect("offered semver"),
-            asset_name: format!("openmohaa-{tag}-windows-x64.zip"),
-            digest: PublishedSha256::parse(&format!("sha256:{}", "3".repeat(64)))
-                .expect("offered digest"),
-            ..installed.clone()
-        };
-        for (tag, relation) in [
-            ("v0.84.0-rc.1", OfferRelation::Newer),
-            ("v0.82.1", OfferRelation::Older),
-            ("v0.83.0-rc.2", OfferRelation::SameVersion),
-        ] {
-            assert_eq!(
-                installed_openmohaa_build(root, ReleaseTarget::WindowsX64, &offered(tag)),
-                OpenMohaaInstalledBuild::KnownOther {
-                    channel: ReleaseChannel::Preview,
-                    version: installed.version.clone(),
-                    relation,
-                },
-                "offering {tag} against an installed {}",
-                installed.version
-            );
-        }
     }
 
     /// The minimum of a `Server` this test needs: the two fields that identify a game endpoint,

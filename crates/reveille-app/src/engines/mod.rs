@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+pub mod openmohaa;
+
 use reveille_core::engine::EngineChoice;
 use reveille_core::install;
 use reveille_core::platform::reborn;
@@ -98,6 +100,7 @@ pub fn select_engine(path: String, engine: EngineChoice) -> Result<EngineOvervie
 
 pub fn register(app: &mut tauri::App) {
     app.manage(InstallGate::default());
+    openmohaa::register(app);
 }
 
 #[cfg(test)]
