@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 pub mod openmohaa;
+pub mod reborn;
 
 use reveille_core::engine::EngineChoice;
 use reveille_core::install;
-use reveille_core::platform::reborn;
+use reveille_core::platform::reborn as reborn_package;
 use reveille_platform as platform;
 use serde::Serialize;
 use tauri::Manager;
@@ -51,7 +52,7 @@ pub fn engine_overview(
     saved_engine: Option<EngineChoice>,
 ) -> Result<EngineOverview, String> {
     let installation = install::identify(path).map_err(|error| error.to_string())?;
-    let package = reborn::package(reborn::RebornProductSet::from_products(
+    let package = reborn_package::package(reborn_package::RebornProductSet::from_products(
         &installation.products,
     ));
     let capabilities = platform::HostCapabilities::current();
@@ -101,6 +102,7 @@ pub fn select_engine(path: String, engine: EngineChoice) -> Result<EngineOvervie
 pub fn register(app: &mut tauri::App) {
     app.manage(InstallGate::default());
     openmohaa::register(app);
+    reborn::register(app);
 }
 
 #[cfg(test)]

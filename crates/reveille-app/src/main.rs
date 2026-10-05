@@ -38,10 +38,8 @@ mod tray;
 use std::collections::HashSet;
 use std::io;
 use std::net::SocketAddrV4;
-use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use reveille_core::content::{
@@ -59,9 +57,6 @@ use reveille_core::join::{
     LaunchProfile,
 };
 use reveille_core::mapindex::{MapIndex, MapKey};
-use reveille_core::platform::reborn::{
-    self, DownloadProgress as RebornDownloadProgress, RebornClient,
-};
 use reveille_platform as platform;
 use serde::Serialize;
 use session::{Session, SessionError, installed_maps, session_installation, session_search_path};
@@ -74,7 +69,6 @@ use tracing::{info, warn};
 const BROWSE_EVENT: &str = "reveille://browse";
 const PREVIEW_EVENT: &str = "reveille://preview";
 const INSTALL_EVENT: &str = "reveille://install";
-const REBORN_INSTALL_EVENT: &str = "reveille://reborn-install";
 
 /// Deadline for one per-server UDP probe.
 ///
@@ -94,8 +88,6 @@ struct AppState {
     cancel_browse: Notify,
     /// The most recent join preview, reused so a launch does not repeat the catalogue pass.
     preview: Mutex<Option<CachedPreview>>,
-    /// Cancellation for the pinned Reborn archive transfer.
-    reborn_cancel: AtomicBool,
 }
 
 struct CachedPreview {
@@ -238,12 +230,6 @@ struct JoinResult {
     outcome: LaunchOutcome,
 }
 
-#[derive(Serialize)]
-struct RebornInstallResult {
-    engine: EngineChoice,
-    inventory: platform::engine::EngineInventory,
-}
-
 #[derive(Clone, Debug, Serialize)]
 struct BrowseFailure {
     kind: BrowseFailureKind,
@@ -314,65 +300,6 @@ impl From<String> for BrowseFailure {
             detail,
         }
     }
-}
-
-#[tauri::command]
-async fn install_reborn(
-    path: String,
-    app: tauri::AppHandle,
-    gate: tauri::State<'_, engines::InstallGate>,
-    state: tauri::State<'_, AppState>,
-) -> Result<RebornInstallResult, String> {
-    let capabilities = platform::HostCapabilities::current();
-    capabilities
-        .require(EngineChoice::Reborn)
-        .map_err(|error| error.to_string())?;
-    let _guard = gate
-        .try_enter()
-        .map_err(|_| "another engine install is already running".to_owned())?;
-    state.reborn_cancel.store(false, Ordering::Release);
-    let installation = install::identify(path).map_err(|error| error.to_string())?;
-    let package = reborn::package(reborn::RebornProductSet::from_products(
-        &installation.products,
-    ));
-    let client = RebornClient::new(Duration::from_secs(120)).map_err(|error| error.to_string())?;
-    let bytes = client
-        .download_reporting(&package, |RebornDownloadProgress { received, total }| {
-            drop(app.emit(
-                REBORN_INSTALL_EVENT,
-                engines::DownloadProgress { received, total },
-            ));
-            if state.reborn_cancel.load(Ordering::Acquire) {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        })
-        .await
-        .map_err(|error| error.to_string())?;
-    let executables =
-        reborn::inspect_package(&package, &bytes).map_err(|error| error.to_string())?;
-    platform::engine::install_reborn(
-        &installation.root,
-        &package,
-        &executables,
-        platform::engine::retail_activity(),
-        &capabilities,
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(RebornInstallResult {
-        engine: EngineChoice::Reborn,
-        inventory: platform::engine::inventory(&installation.root),
-    })
-}
-
-#[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri managed state parameter"
-)]
-fn cancel_reborn_install(state: tauri::State<'_, AppState>) {
-    state.reborn_cancel.store(true, Ordering::Release);
 }
 
 /// Stop the sweep currently running, if any. Servers already probed are kept.
@@ -1660,8 +1587,8 @@ fn main() {
             installation::identify_install,
             engines::engine_overview,
             engines::select_engine,
-            install_reborn,
-            cancel_reborn_install,
+            engines::reborn::install_reborn,
+            engines::reborn::cancel_reborn_install,
             engines::openmohaa::openmohaa_status,
             engines::openmohaa::install_openmohaa,
             engines::openmohaa::cancel_openmohaa_install,
