@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Source-text checks over `ui/views/setup.js` for claims `ui-tests/views/setup.test.js` cannot
-// reach through the fakes: exact wording, and the order of statements inside the copy flow.
+// Source-text checks over `ui/features/setup/view.js` for claims
+// `ui-tests/features/setup/view.test.js` cannot reach through the fakes: exact wording, and the order of statements inside the copy flow.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { read } from "./read.js";
 
-const setup = read("ui/views/setup.js");
+const setup = read("ui/features/setup/view.js");
 
 test("an installed engine can still be changed from setup", () => {
   // Both engine actions were drawn only while nothing was installed, so a player who already had
@@ -17,21 +17,21 @@ test("an installed engine can still be changed from setup", () => {
   // installs nothing.
   assert.ok(
     !setup.includes('!isInstalled("openmohaa")') && !setup.includes('!isInstalled("reborn")'),
-    "ui/views/setup.js: an engine action must not be withheld merely because something is installed",
+    "ui/features/setup/view.js: an engine action must not be withheld merely because something is installed",
   );
   // Installing from nothing rides on the setup's own priced primary button; anything already
   // installed keeps a secondary action on its row, whatever build it is.
   assert.ok(
     setup.includes("return { label: `Install ${name} (${bytes(size)}) and ${verb}`, run: installAndAccept };"),
-    "ui/views/setup.js: a program that is not installed must be installable from the primary action",
+    "ui/features/setup/view.js: a program that is not installed must be installable from the primary action",
   );
   assert.ok(
     setup.includes('available && isInstalled("openmohaa") && !view.installing && openAction(install, status, render)'),
-    "ui/views/setup.js: an installed OpenMoHAA must keep its action whenever a release is available",
+    "ui/features/setup/view.js: an installed OpenMoHAA must keep its action whenever a release is available",
   );
   assert.ok(
     setup.includes('isInstalled("reborn") && !view.installing && rebornAction(install, info, build, render)'),
-    "ui/views/setup.js: an installed Reborn must keep its action whatever build it is",
+    "ui/features/setup/view.js: an installed Reborn must keep its action whatever build it is",
   );
 
   // The label states the direction the Rust comparison found, and never guesses one.
@@ -42,20 +42,20 @@ test("an installed engine can still be changed from setup", () => {
   ]) {
     assert.ok(
       setup.includes(wording),
-      `ui/views/setup.js: the engine action must be named from the receipt comparison — missing ${wording}`,
+      `ui/features/setup/view.js: the engine action must be named from the receipt comparison — missing ${wording}`,
     );
   }
 
   // The install can legitimately write nothing, and that is not a success.
   assert.ok(
     setup.includes('if (result.outcome?.outcome === "deferred")'),
-    "ui/views/setup.js: a deferred install must be reported as having changed nothing",
+    "ui/features/setup/view.js: a deferred install must be reported as having changed nothing",
   );
 });
 
 test("protected setup offers a cancellable copy and migrates only the validated result", () => {
-  // The `store.js` migration and the `api.js` path-prefix stripping are asserted behaviourally in
-  // `ui-tests/lib/store.test.js` and `ui-tests/lib/api.test.js`. What stays is the ordering claim:
+  // The `session.js` migration and the path-prefix stripping are asserted behaviourally in
+  // `ui-tests/lib/session.test.js` and `ui-tests/lib/format.test.js`. What stays is the ordering claim:
   // the preferences move only after Rust has returned a re-identified installation. That has no
   // runtime equivalent short of driving the whole copy flow with a filesystem behind it.
   for (const wording of [

@@ -10,13 +10,14 @@
 // **What this models.** `createElement`, `createElementNS`, `createDocumentFragment`, `activeElement`, `Node`,
 // `CSS.escape`, and per element: `append`, `replaceChildren`, `setAttribute`, `addEventListener`,
 // `dataset`, `classList`, `querySelector`, `contains`, `focus`, `setSelectionRange`, `textContent`, and the
-// reflected properties `el()` distinguishes by `key in node`.
+// reflected properties `el()` distinguishes by `key in node`. Inline `style` is a plain object, and a
+// `<dialog>` has `open`, `showModal()` and `close()`, which fires its `close` listeners.
 //
 // **What it does not model, and therefore what must not be tested against it.** Layout, styles,
 // event dispatch and bubbling, real focus semantics, and — importantly — the ARIA and tabindex
-// reflection that `views/servers.js`'s one-tab-stop behaviour depends on. A fake that approximated
-// those would hand back confidence it had not earned, so those behaviours stay guarded by the
-// source-text tests in `ui-tests/source/`.
+// reflection that `features/servers/view.js`'s one-tab-stop behaviour depends on. A fake that
+// approximated those would hand back confidence it had not earned, so those behaviours stay
+// guarded by the source-text tests in `ui-tests/source/`.
 //
 // The `key in node` branch in `el()` is the subtle one: `className` must be a property and
 // `aria-label` must not, or the builder would put the wrong things in the wrong place. REFLECTED
@@ -54,6 +55,18 @@ class FakeElement extends FakeNode {
     this.selectionRanges = [];
     for (const key of REFLECTED) this[key] = undefined;
     this.textContent = "";
+    this.style = {};
+    if (this.tagName === "DIALOG") {
+      this.open = false;
+      this.showModal = () => {
+        this.open = true;
+      };
+      this.close = () => {
+        if (!this.open) return;
+        this.open = false;
+        this.dispatch("close");
+      };
+    }
     this.classList = {
       add: (...names) => this.#setClasses(names, true),
       remove: (...names) => this.#setClasses(names, false),

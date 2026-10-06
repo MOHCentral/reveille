@@ -1,0 +1,732 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+
+/* The server list: toolbar, split, table and status bar. */
+
+/* Toolbar ------------------------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.toolbar__search {
+  flex: 1 1 160px;
+  max-width: 340px;
+}
+
+.toolbar__spacer {
+  flex: 1;
+}
+
+.toolbar__action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar__refresh {
+  color: var(--dim);
+}
+
+.toolbar__refresh:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.toolbar__age {
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--faint);
+}
+
+/* Past five minutes the counts on screen have likely moved. */
+.toolbar__refresh--stale {
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn-text);
+}
+
+.toolbar__refresh--stale .toolbar__age {
+  color: var(--warn-text);
+}
+
+/* A window with its right-hand panel: filled when the panel shows. */
+.toolbar__pane-glyph {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.toolbar__pane-glyph::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  border-left: 1.5px solid currentColor;
+}
+
+.toolbar__pane[aria-pressed="true"] .toolbar__pane-glyph::after {
+  background: currentColor;
+}
+
+.toolbar__refresh-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Sits on the button's bottom edge so a sweep's progress takes no room of its own. */
+.toolbar__meter {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  left: 1px;
+  height: 2px;
+  border-radius: 0;
+  pointer-events: none;
+}
+
+/* Main split --------------------------------------------------------------- */
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr var(--detail-width);
+  min-height: 0;
+}
+
+.split--wide {
+  grid-template-columns: 1fr;
+}
+
+.list-pane {
+  min-width: 0;
+  overflow-y: auto;
+  /* Reserve the scrollbar's 10px whether or not it is drawn. Every column but
+     Server has a fixed width, so the name column absorbs the whole difference:
+     without this, All (which scrolls) and a short Favorites or History (which
+     does not) laid the same names out at two different widths, and switching
+     scope visibly shifted the column. */
+  scrollbar-gutter: stable;
+  /* The table lays out to the pane, so it never scrolls sideways: no column can
+     end up off the right edge for the player to go hunting for. */
+  overflow-x: hidden;
+}
+
+.detail-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.detail-pane__scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* Server table ------------------------------------------------------------- */
+
+.servers {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--text-base);
+}
+
+/* The Server name takes whatever is left; every other column is sized to its
+   content, so no cell's contents can push another column out of view. */
+.servers .col-star {
+  width: 60px;
+  padding-left: var(--space-2);
+  padding-right: 0;
+}
+
+.servers .col-clients {
+  width: 146px;
+}
+
+.servers th.col-clients {
+  text-align: left;
+}
+
+.servers .col-map {
+  width: 164px;
+}
+
+/* Wide enough for "Round-Based-Match", the longest label the stock engine sets
+   (gamecvars.cpp:566). A mod may publish anything, so the cell also ellipsises. */
+.servers .col-mode {
+  width: 122px;
+}
+
+.servers .col-ping {
+  width: 80px;
+  padding-left: var(--space-2);
+}
+
+.servers .col-runs {
+  width: 104px;
+}
+
+.servers thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px var(--space-4);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-family: var(--face-display);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.servers th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.servers th button:hover {
+  color: var(--dim);
+}
+
+.servers th[aria-sort] button {
+  color: var(--ink);
+}
+
+.servers th .sort-arrow {
+  font-size: 9px;
+  color: var(--brass);
+}
+
+/* The arrow is always in the DOM so its column can be updated in place; an unsorted column must
+   not pay for the button's gap. */
+.servers th .sort-arrow:empty {
+  display: none;
+}
+
+.servers th.num,
+.servers td.num {
+  text-align: right;
+}
+
+.servers tbody td {
+  height: var(--row-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.servers tbody tr:hover td {
+  background: #171c22;
+}
+
+.servers tbody tr[aria-selected="true"] td {
+  background: color-mix(in srgb, var(--brass) 7%, var(--rise));
+}
+
+.servers tbody tr[aria-selected="true"] td:first-child {
+  box-shadow: inset 3px 0 0 var(--brass);
+}
+
+.servers tbody tr[aria-selected="true"] .server-name {
+  font-weight: 600;
+}
+
+.servers tbody tr:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+.name-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.row-join {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--brass);
+  border-radius: var(--radius);
+  background: var(--brass);
+  color: var(--brass-ink);
+  font-family: var(--face-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.row-join:hover {
+  background: #e6b558;
+}
+
+.row-join .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.servers--inline-join tr:hover .row-join,
+.servers--inline-join tr[aria-selected="true"] .row-join {
+  display: inline-flex;
+}
+
+.server-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-name);
+  font-weight: 500;
+}
+
+/* A name recalled from a past check, not reported by this one. Set apart from a live name so
+   the two are never read as the same kind of fact. */
+.server-name--remembered {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--dim);
+}
+
+.played-cell {
+  color: var(--dim);
+}
+
+.row-watched .occupancy__count {
+  display: inline-block;
+  min-width: 2ch;
+}
+
+/* The name identifies the row, so the note gives up its width first; the heavy shrink weight makes
+   it absorb nearly all of the overflow before the name loses a character. */
+.history-line {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.found-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-xs);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* The head of the absent block. It is a control, not a measurement, so it takes the text face and
+   no colour; the caret and `aria-expanded` carry the state. */
+.row-disclosure td {
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.row-fold td {
+  background: var(--bg);
+  padding-left: 22px;
+}
+
+.row-fold .disclosure {
+  gap: 14px;
+  font-size: var(--text-base);
+}
+
+.row-fold .disclosure__caret {
+  width: 14px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.disclosure:hover {
+  color: var(--ink);
+}
+
+/* The one thing on the row that has to be readable across the table at a glance: it is the whole
+   difference between rows folded away and rows that are not there. `line-height: 0` keeps the
+   glyph from setting the row height. */
+.disclosure__caret {
+  color: var(--faint);
+  font-size: 32px;
+  line-height: 0;
+}
+
+/* A remembered server this check did not return. Nothing in it is a measurement, so nothing in
+   it is styled like one — no colour, and the cell holds a sentence and a button instead. */
+.row-absent td {
+  color: var(--faint);
+}
+
+.row-absent .absent-note {
+  margin-right: var(--space-3);
+  font-style: italic;
+}
+
+.occupancy {
+  display: grid;
+  grid-template-columns: 54px 34px 1fr;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--face-data);
+  white-space: nowrap;
+}
+
+.occupancy__count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.occupancy__clients {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Since the last check. Small and quiet: a direction, not a verdict. */
+.trend {
+  margin-right: 3px;
+  font-size: 9px;
+  vertical-align: 1px;
+}
+
+.trend--up {
+  color: var(--ok-text);
+}
+
+.trend--down {
+  color: var(--faint);
+}
+
+.occupancy__capacity {
+  color: var(--faint);
+}
+
+.occupancy__bar {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+
+.occupancy__players {
+  background: var(--brass);
+}
+
+.occupancy__bar--busy .occupancy__players,
+.occupancy__bar--full .occupancy__players {
+  background: var(--warn);
+}
+
+.occupancy__botfill {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--faint-deco) 0 2px,
+    transparent 2px 4px
+  );
+}
+
+.occupancy__bots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.occupancy__bots .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.occupancy__full {
+  font-family: var(--face-display);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--warn-text);
+}
+
+/* Activity at a glance: a row with people on it is drawn at full strength, and the rest step back
+   so the eye lands on the servers worth joining. */
+.row--bots .server-name,
+.row--empty .server-name {
+  color: var(--dim);
+}
+
+.row--bots .occupancy__clients,
+.row--empty .occupancy__clients {
+  color: var(--faint);
+  font-weight: 400;
+}
+
+.map-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.need {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--dim);
+}
+
+.need .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.need--missing {
+  color: var(--bad-text);
+}
+
+.map-cell {
+  display: block;
+  min-width: 0;
+  font-family: var(--face-data);
+  font-size: var(--text-sm);
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The server's own word for what it is running. Set in the text face rather than
+   the data face: it is a label the server wrote, not a figure to compare down the
+   column, and it carries no colour for the same reason Ping does not — a mode is
+   not a verdict on a server. Ellipsised, because a mod may publish any string. */
+.mode-cell {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The dot carries the colour; the number stays at Map's weight so neither reads as the answer. */
+.ping-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--face-data);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.ping-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.ping-dot--good {
+  background: var(--ok);
+}
+
+.ping-dot--fair {
+  background: var(--warn);
+}
+
+.ping-dot--poor {
+  background: var(--bad);
+}
+
+/* The build string, kept quiet: it is the one thing here nobody reads to choose a
+   server, and the first column a narrow window gives up. */
+.runs-cell {
+  display: block;
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Filter chips: quiet until set, then brass like the scope they narrow. */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.filter-chip:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.filter-chip--on {
+  border-color: color-mix(in srgb, var(--brass) 55%, transparent);
+  background: color-mix(in srgb, var(--brass) 12%, transparent);
+  color: var(--ink);
+}
+
+.filter-clear {
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.filter-clear:hover {
+  color: var(--ink);
+}
+
+.popover--narrow {
+  width: 260px;
+}
+
+.filter-options {
+  display: grid;
+  padding: var(--space-2) 0;
+}
+
+.filter-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.filter-option:hover {
+  background: var(--rise);
+}
+
+.filter-option__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-option__count {
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.filter-ping {
+  padding: var(--space-3);
+}
+
+/* The row that says the list below it is a past reading.
+   Brass, like every other note that changes what the player should believe, and
+   never red: nothing here failed, it simply has not been asked again. */
+.row-stale td {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid var(--brass);
+  background: var(--rise);
+  color: var(--dim);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.row-stale__mark {
+  margin-right: var(--space-2);
+  color: var(--brass);
+}
+
+/* Status bar ---------------------------------------------------------------- */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  padding: 7px var(--space-4);
+  background: var(--void);
+  border-top: 1px solid var(--line);
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.statusbar strong {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.statusbar__spacer {
+  flex: 1;
+}
+
+.statusbar button {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.statusbar button:hover {
+  color: var(--brass);
+}

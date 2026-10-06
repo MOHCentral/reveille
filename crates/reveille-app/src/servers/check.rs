@@ -79,7 +79,7 @@ fn settle_check(
             other_game: None,
         });
     };
-    if let Some(published) = answered_for_another_game(&server, ticket.game) {
+    if let Some(published) = server.answered_for_another_game(ticket.game) {
         info!(published_game = ?published, "checked server answered for another game");
         // It answered, for a game this session's client cannot join. Not a joinable entry either.
         settle(listing.update(ticket, |servers| {
@@ -114,21 +114,6 @@ fn settle(applied: Option<()>) -> bool {
     applied.is_some()
 }
 
-/// The family a checked server belongs to, when it is not this session's.
-///
-/// A bookmark is an address, so it outlives the game it was starred under. A server that answers
-/// for another family is real and reachable and still cannot be joined from this session: the
-/// client this session launches speaks a different protocol and would be dropped at connect. A
-/// server that publishes no family at all is not guessed about — it is listed, exactly as the
-/// sweep would have listed it.
-pub fn answered_for_another_game(server: &Server, game: TargetGame) -> Option<TargetGame> {
-    server
-        .game_name
-        .as_deref()
-        .and_then(TargetGame::from_game_name)
-        .filter(|published| *published != game)
-}
-
 /// Merge a freshly checked server into the current list, replacing any entry for the same game
 /// endpoint.
 ///
@@ -155,7 +140,7 @@ mod tests {
     use reveille_core::discovery::{MasterEndpoint, ProbeOutcome, QueryPort, Server, TargetGame};
     use reveille_core::mapindex::MapIndex;
 
-    use super::{answered_for_another_game, merge_checked_server, settle_check};
+    use super::{merge_checked_server, settle_check};
     use crate::servers::Listing;
 
     /// The minimum of a `Server` this test needs: the two fields that identify a game endpoint,
@@ -188,37 +173,6 @@ mod tests {
             pure: None,
             status_round_trip: reveille_core::discovery::RoundTripMillis::new(12),
         }
-    }
-
-    #[test]
-    fn a_checked_server_from_another_game_is_named_rather_than_listed() {
-        let mut server = probed("10.0.0.1", 12300, 12203, "a Spearhead server");
-        server.game_name = Some("mohaas".to_owned());
-
-        // Browsing Spearhead, this is an ordinary row.
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::Spearhead),
-            None
-        );
-        // Browsing Allied Assault, it answered — for something this session cannot join.
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            Some(TargetGame::Spearhead)
-        );
-
-        // A server that publishes no family is not guessed about. The sweep would have listed it,
-        // and so does a check.
-        server.game_name = None;
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            None
-        );
-        // Neither is one whose family is not a MOHAA family at all.
-        server.game_name = Some("quake3".to_owned());
-        assert_eq!(
-            answered_for_another_game(&server, TargetGame::AlliedAssault),
-            None
-        );
     }
 
     #[test]

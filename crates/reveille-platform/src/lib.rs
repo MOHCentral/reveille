@@ -224,11 +224,12 @@ impl ClientKind {
 
 impl fmt::Display for ClientKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::OpenMohaa => "OpenMoHAA",
-            Self::Retail => "Original game",
-            Self::Reborn => "Reborn",
-        })
+        let engine = match self {
+            Self::OpenMohaa => EngineChoice::Openmohaa,
+            Self::Retail => EngineChoice::Original,
+            Self::Reborn => EngineChoice::Reborn,
+        };
+        formatter.write_str(engine.label())
     }
 }
 

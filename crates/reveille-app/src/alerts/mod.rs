@@ -7,7 +7,6 @@ use reveille_platform as platform;
 use serde::Serialize;
 
 use crate::servers::PROBE_TIMEOUT;
-use crate::servers::check::answered_for_another_game;
 
 /// Whether a game client is running now; null when the process list cannot be read.
 #[tauri::command]
@@ -47,7 +46,7 @@ pub async fn read_watched_server(
     let server = discovery::inspect_endpoint(endpoint, PROBE_TIMEOUT)
         .await
         .server?;
-    if answered_for_another_game(&server, game).is_some()
+    if server.answered_for_another_game(game).is_some()
         || SocketAddrV4::new(server.endpoint.address, server.game_port.get()) != address
     {
         return None;

@@ -1,0 +1,101 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+
+/* The window shell and its titlebar. The views' own sheets follow it. */
+
+.shell {
+  display: grid;
+  grid-template-rows: var(--titlebar-height) auto 1fr auto;
+  height: 100vh;
+}
+
+/* Titlebar ----------------------------------------------------------------- */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--void);
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  font-family: var(--face-display);
+  font-weight: 700;
+  font-size: var(--text-base);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.titlebar__spacer {
+  flex: 1;
+}
+
+/* What this session plays: the game, then the engine. The folder is in its menu and tooltip. */
+.game-switch {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.game-switch:hover,
+.game-switch[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  background: var(--panel);
+}
+
+.game-switch__game {
+  font-weight: 600;
+}
+
+.game-switch__engine {
+  color: var(--dim);
+}
+
+.game-switch__engine::before {
+  content: "·";
+  margin-right: var(--space-2);
+  color: var(--faint);
+}
+
+.game-switch__caret {
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.titlebar__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  font-size: 16px;
+}
+
+.titlebar__icon:hover,
+.titlebar__icon[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.titlebar__icon .arrival-unread {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  font-size: 10px;
+  line-height: 15px;
+  font-weight: 700;
+}

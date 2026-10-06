@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+import { GAMES } from "../../ui/lib/catalog.js";
 import { INSTALL, browsePayload } from "./fixture.js";
 
 const SHELL = new URL("../../ui/", import.meta.url);
@@ -13,7 +14,6 @@ const OVERVIEW = {
   selection_error: null,
 };
 
-const GAMES = ["allied_assault", "spearhead", "breakthrough"];
 const install = params.has("games")
   ? { ...INSTALL, products: GAMES, playable: GAMES.slice(0, Number(params.get("games"))) }
   : INSTALL;
