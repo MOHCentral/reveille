@@ -19,9 +19,9 @@ use tauri::{
 use crate::{notice, tray};
 
 const LABEL: &str = "alert-popup";
-const CARD_EVENT: &str = "reveille://popup-card";
-const SNOOZE_EVENT: &str = "reveille://popup-snooze";
-const MORE_EVENT: &str = "reveille://popup-more";
+pub const CARD_EVENT: &str = "reveille://popup-card";
+pub const SNOOZE_EVENT: &str = "reveille://popup-snooze";
+pub const MORE_EVENT: &str = "reveille://popup-more";
 const WIDTH: f64 = 360.0;
 const MARGIN: f64 = 16.0;
 

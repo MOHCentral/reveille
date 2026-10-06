@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter as _, Manager as _, Runtime, Window, WindowEvent}
 use crate::popup;
 
 const OPEN_ID: &str = "tray-open";
-const HIDDEN_EVENT: &str = "reveille://hidden-to-tray";
+pub const HIDDEN_EVENT: &str = "reveille://hidden-to-tray";
 const QUIT_ID: &str = "tray-quit";
 
 #[derive(Default)]

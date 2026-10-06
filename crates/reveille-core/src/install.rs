@@ -28,6 +28,9 @@ pub enum Product {
 }
 
 impl Product {
+    /// Every product, in base-to-expansion order.
+    pub const ALL: [Self; 3] = [Self::AlliedAssault, Self::Spearhead, Self::Breakthrough];
+
     /// Asset directory whose presence proves this product is installed.
     #[must_use]
     pub const fn data_directory(self) -> &'static str {
@@ -35,16 +38,6 @@ impl Product {
             Self::AlliedAssault => "main",
             Self::Spearhead => "mainta",
             Self::Breakthrough => "maintt",
-        }
-    }
-
-    /// Product label as a player reads it.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::AlliedAssault => "Allied Assault",
-            Self::Spearhead => "Spearhead",
-            Self::Breakthrough => "Breakthrough",
         }
     }
 }
@@ -144,13 +137,6 @@ pub enum Error {
     },
 }
 
-/// Every product, in base-to-expansion order. Each one's directory is `Product::data_directory`.
-const PRODUCTS: [Product; 3] = [
-    Product::AlliedAssault,
-    Product::Spearhead,
-    Product::Breakthrough,
-];
-
 const CLIENT_BINARIES: [&str; 7] = [
     "mohaa.exe",
     "mohaas.exe",
@@ -196,7 +182,7 @@ pub fn identify(path: impl AsRef<Path>) -> Result<Installation, Error> {
     if root.join(INCOMPLETE_COPY_MARKER).is_file() {
         return Err(Error::IncompleteCopy(root));
     }
-    let products = PRODUCTS
+    let products = Product::ALL
         .iter()
         .filter_map(|product| {
             root.join(product.data_directory())
@@ -224,7 +210,7 @@ pub fn identify(path: impl AsRef<Path>) -> Result<Installation, Error> {
 
     // Derived here rather than in the interface, so the one rule about what an expansion needs
     // lives in one place (H13/H14).
-    let playable = PRODUCTS
+    let playable = Product::ALL
         .iter()
         .filter(|product| {
             **product == Product::AlliedAssault && products.contains(product)
@@ -283,7 +269,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{Error, IdentificationMethod, Product, identify, known_version};
+    use super::{Error, IdentificationMethod, Product, TargetGame, identify, known_version};
 
     #[test]
     fn identifies_products_and_exposes_an_unknown_binary_hash() {
@@ -311,8 +297,6 @@ mod tests {
 
     #[test]
     fn an_expansion_directory_alone_does_not_make_that_expansion_playable() {
-        use super::{TargetGame, identify};
-
         let temporary = TempDir::new().expect("temporary directory");
         fs::create_dir(temporary.path().join("mainta")).expect("mainta directory");
 
@@ -368,6 +352,34 @@ mod tests {
             identify(temporary.path()),
             Err(Error::NoDataDirectories(_))
         ));
+    }
+
+    #[test]
+    fn all_lists_every_product_once_in_base_to_expansion_order() {
+        // Adding a variant breaks this match, which is the prompt to extend `ALL`.
+        const fn ordinal(product: Product) -> usize {
+            match product {
+                Product::AlliedAssault => 0,
+                Product::Spearhead => 1,
+                Product::Breakthrough => 2,
+            }
+        }
+        assert!(
+            Product::ALL
+                .into_iter()
+                .map(ordinal)
+                .eq(0..Product::ALL.len())
+        );
+    }
+
+    #[test]
+    fn every_target_game_maps_to_the_product_in_the_same_position() {
+        assert!(
+            TargetGame::ALL
+                .into_iter()
+                .map(Product::from)
+                .eq(Product::ALL)
+        );
     }
 
     #[test]

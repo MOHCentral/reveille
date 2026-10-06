@@ -2,17 +2,9 @@
 
 // A recording stand-in for the `window.__TAURI__` bridge that `withGlobalTauri` provides.
 //
-// `lib/api.js` destructures `window.__TAURI__` at **module load** (`const tauri = window.__TAURI__`
-// and its three consts), so importing it without a bridge in place throws. Order is therefore
-// load-bearing, and a static `import` would be hoisted above any `beforeEach`. Tests use the
-// explicit form instead:
-//
-//     const bridge = installTauri();
-//     const api = await import("../../ui/lib/api.js");
-//
-// Node caches an ES module per process, so `api.js` is evaluated once for the whole file however
-// many times it is imported. That is why per-test state lives in the bridge — `calls`, `listeners`
-// — and is reset there, rather than by trying to get a fresh copy of the module.
+// `lib/bridge.js` reads `window.__TAURI__` on each call, so a test may install this before or after
+// importing the modules it exercises. Node caches an ES module per process, which is why per-test
+// state lives in the bridge — `calls`, `listeners` — and is reset there.
 
 /**
  * Install a recording bridge on `globalThis.window` and return it.

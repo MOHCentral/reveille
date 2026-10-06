@@ -1,132 +1,121 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Boot, routing and the long-running operations. Views render from `state`;
-// this module is the only place that calls commands and mutates state in
-// response to them.
+// The composition root. Features own their state, commands and views; this module composes them,
+// binds the intents table, and keeps what belongs to no one feature: the titlebar menus, the
+// session changes (game, folder and engine), the global keys and boot.
 
 import { $, el } from "./lib/dom.js";
 import { closeDialog, openDialog } from "./lib/dialog.js";
 import { closeMenu, menuIsOpen, openMenu } from "./lib/menu.js";
 import { icon } from "./lib/icons.js";
-import { closePopover, openPopover, popoverAnchor } from "./lib/popover.js";
+import { intentsTable } from "./lib/intents.js";
+import { openServerWorkflow } from "./lib/open-server.js";
+import { closePopover, popoverAnchor } from "./lib/popover.js";
+import { appVersion, openExternalUrl, trackEvent } from "./lib/shell.js";
+import { openBugReport } from "./features/bug-report/index.js";
+import { joinController } from "./features/join/controller.js";
+import { initial as joinState } from "./features/join/index.js";
+import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
+import { aboutSettingsSection } from "./features/self-update/settings-section.js";
+import { initial as serversState } from "./features/servers/index.js";
+import { browse } from "./features/servers/browse.js";
+import { checks } from "./features/servers/check.js";
+import { serverListSettingsSection } from "./features/servers/settings-section.js";
 import {
-  appLogFiles,
-  browseFailure,
-  browseServers,
-  cancelBrowse,
-  cancelReveilleUpdate,
-  appVersion,
-  checkReveilleUpdate,
-  checkServer,
-  clearPlayerAlertAttention,
-  errorText,
-  focusReveille,
-  gameClientRunning,
-  onHiddenToTray,
-  onPopupMore,
-  onPopupSnooze,
-  popupSupported,
-  showAlertPopup,
-  openNotificationSettings,
-  sendReveilleNotice,
-  setCloseToTray,
   setStartAtLogin,
-  setTrayTooltip,
-  startAtLogin,
-  installAndLaunch,
-  installServerFiles,
-  installReveilleUpdate,
-  onBrowseProgress,
-  onInstallProgress,
-  onPlayerNotificationClick,
-  onPreviewProgress,
-  onSelfUpdateProgress,
-  openExternalUrl,
-  previewJoin,
-  readWatchedServer,
-  requestPlayerAlertAttention,
-  sendPlayerNotification,
   setTelemetryShared,
+  startAtLogin,
   TELEMETRY_DETAILS_URL,
   telemetryStatus,
-  trackEvent,
-} from "./lib/api.js";
+} from "./features/settings/api.js";
+import { openSettings } from "./features/settings/dialog.js";
+import { privacySettingsSection } from "./features/settings/privacy.js";
+import { installSettingsSection } from "./features/setup/settings-section.js";
+import { toggleFavorite } from "./lib/bookmarks.js";
+import { displayPath } from "./lib/format.js";
+import { focusReveille } from "./features/alerts/api.js";
+import { playerAlertsController } from "./features/alerts/controller.js";
+import { alertsSettingsSection } from "./features/alerts/settings-section.js";
+import { ENGINE_LABELS, GAME_LABELS } from "./lib/catalog.js";
+import { composeState, notify, state, subscribe, update } from "./lib/store.js";
+import { SCOPES, loadFilters, saveFilters } from "./features/servers/state.js";
+import { listIsStale, selectedRow } from "./features/servers/selectors.js";
 import {
-  arrivalById,
-  arrivalEvents,
-  clearArrivals,
-  markArrivalsRead,
-  recordArrival,
-  unreadArrivalCount,
-} from "./lib/arrival-events.js";
-import { favorites, recordLaunch, toggleFavorite } from "./lib/bookmarks.js";
-import {
-  addPlayerAlert,
-  alertId,
-  hasPlayerAlert,
-  playerAlerts,
-  removePlayerAlert,
-  startPlayerAlertMonitor,
-} from "./lib/player-alerts.js";
-import { alertDetail, clockTime, displayPath, occupancy, plural, timeAgo } from "./lib/format.js";
-import { catchUpNotice, hiddenNotice, isStale, needsBackgroundWatching, trayTooltip } from "./lib/reach.js";
-import {
-  GAME_LABELS,
-  SCOPES,
-  adoptBackgroundSweep,
-  applyCheckNonResult,
-  applyCheckedRow,
-  canRecheck,
-  countsByAddress,
-  droppedIdentity,
   listIsForCurrentSession,
-  listIsStale,
-  loadFilters,
-  notify,
   playableGames,
   recallInstall,
   rememberGame,
-  rememberReadyJoin,
-  saveFilters,
-  selectedRow,
-  session,
-  state,
-  subscribe,
-  update,
-} from "./lib/store.js";
-import { setupView } from "./views/setup.js";
-import { alertErrorLine, openSettings } from "./views/settings.js";
-import { openAlertsIntro } from "./views/alerts-intro.js";
-import { openShortcuts } from "./views/shortcuts.js";
-import { preferences, setPreference } from "./lib/preferences.js";
-import { nonResultsBreakdown, serversView } from "./views/servers.js";
-import { joinView, shoppingTotals } from "./views/join.js";
+  retireInFlight,
+} from "./lib/session.js";
+import { setupView } from "./features/setup/view.js";
+import { openShortcuts } from "./features/shortcuts/view.js";
+import { preferences } from "./lib/preferences.js";
+import "./features/alerts/preferences.js";
+import { nonResultsBreakdown, serversView } from "./features/servers/view.js";
+import { joinView } from "./features/join/view.js";
+
+composeState([selfUpdateState(), serversState(), joinState()]);
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");
-const ISSUE_TRACKER_URL = "https://github.com/MOHCentral/reveille/issues/new";
 
 loadFilters();
 state.rememberedInstall = recallInstall();
 // A remembered folder means setup finished on an earlier run, so its automatic Continue is not one.
 let firstRun = !state.rememberedInstall;
 
+const { select, activate, getServerFiles, getAndJoin } = joinController({
+  showPane: toggleDetail,
+  focusJoin: (address) => join.focusJoin(address),
+});
+
+const {
+  refresh,
+  refreshBehind,
+  stop: stopBrowse,
+  finished: browseFinished,
+} = browse({ onReselect: select });
+
+const { check, recheck, autoCheckFavorites } = checks({ onReselect: select });
+
+const alerts = playerAlertsController({ onOpenWatching: openWatching, changeStartAtLogin });
+
+const opening = openServerWorkflow({
+  selectGame,
+  browseFinished,
+  check,
+  reveal: (address) => servers.reveal(address),
+  select,
+  activate,
+  focus: focusReveille,
+});
+
+const intents = intentsTable({
+  selectGame,
+  select,
+  activate,
+  refresh,
+  check,
+  openServer: opening.openServer,
+  togglePlayerAlert: alerts.togglePlayerAlert,
+});
+
 const servers = serversView({
-  onRefresh: refresh,
+  onRefresh: intents.refresh,
   onCancel: stopBrowse,
-  onSelect: select,
-  onActivate: activate,
+  onSelect: intents.select,
+  onActivate: intents.activate,
   onShowNonResults: showNonResults,
-  onCheck: check,
-  onGame: selectGame,
-  onToggleWatch: togglePlayerAlert,
+  onCheck: intents.check,
+  onGame: intents.selectGame,
+  onToggleWatch: intents.togglePlayerAlert,
   onToggleDetail: toggleDetail,
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
   onJoin: getAndJoin,
   onRecheck: recheck,
-  onTogglePlayerAlert: togglePlayerAlert,
+  onTogglePlayerAlert: intents.togglePlayerAlert,
 });
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {
@@ -135,8 +124,14 @@ const setup = setupView(setupRoot, $("#setup-dialog"), {
     enterServers();
   },
   onApply: applyInstallChange,
-  onUpdate: openReveilleUpdate,
+  onUpdate: () => updates.open(),
   onReportBug: () => void openBugReport(),
+});
+const updates = selfUpdate({
+  host: document.body,
+  onOffer: () => {
+    if (!state.install) setup.renderUpdateOffer();
+  },
 });
 
 $("#toolbar-slot").replaceWith(servers.toolbar);
@@ -144,283 +139,17 @@ $("#list-slot").replaceWith(servers.listPane);
 $("#status-slot").replaceWith(servers.statusbar);
 document.body.append(servers.live);
 
-$("#arrival-events-btn").prepend(icon("bell"));
 $("#settings-btn").append(icon("gear"));
 $("#more-btn").append(icon("dots"));
 $("#game-switch").addEventListener("click", openGameMenu);
-$("#reveille-update-btn").addEventListener("click", openReveilleUpdate);
-$("#arrival-events-btn").addEventListener("click", toggleArrivals);
+$("#reveille-update-btn").addEventListener("click", () => updates.open());
 $("#settings-btn").addEventListener("click", () => void openAppSettings());
 $("#more-btn").addEventListener("click", openMoreMenu);
 $("#info-dialog-close").addEventListener("click", closeDialog);
-$("#reveille-update-later").addEventListener("click", dismissReveilleUpdate);
-$("#reveille-update-install").addEventListener("click", startReveilleUpdate);
-$("#reveille-update-stop").addEventListener("click", stopReveilleUpdate);
-$("#reveille-update-dialog").addEventListener("cancel", (event) => {
-  if (state.selfUpdate.running) event.preventDefault();
-});
-void onSelfUpdateProgress(receiveReveilleUpdateProgress);
 
+alerts.start(intents);
 subscribe(render);
-
-let pendingArrival = null;
-let shownTooltip = null;
-let heldWhilePlaying = [];
-let gameWatch = null;
-let openingArrival = false;
-let attentionRequested = false;
-window.addEventListener("focus", () => {
-  attentionRequested = false;
-  // Seen under the bell now, so the after-game summary would only repeat it.
-  heldWhilePlaying = [];
-  void clearPlayerAlertAttention().catch(() => {});
-  refreshOnReturn();
-});
-void onPlayerNotificationClick(({ eventId, join }) => {
-  const event = arrivalById(eventId);
-  if (event) requestOpenArrival(event, { join: join === true });
-});
-// Snoozed from a pop-up: arrivals still reach the bell, without a pop-up or notification.
-let snoozedUntil = 0;
-const SNOOZE_MS = 60 * 60_000;
-void onPopupSnooze(() => {
-  snoozedUntil = Date.now() + SNOOZE_MS;
-});
-void onPopupMore(() => {
-  if (popoverAnchor() !== $("#arrival-events-btn")) toggleArrivals();
-});
-const popupAvailable = popupSupported().catch(() => false);
-void onHiddenToTray(() => {
-  if (preferences().trayNoticeShown) return;
-  setPreference("trayNoticeShown", true);
-  void sendReveilleNotice(hiddenNotice(playerAlerts().length), false).catch(() => {});
-});
-const alertMonitor = startPlayerAlertMonitor(
-  readWatchedServer,
-  deliverArrival,
-  (id, reading) => update((next) => next.watchReadings.set(id, reading)),
-  () => preferences().cooldownMinutes * 60_000,
-);
-
-async function deliverArrival(entry, count, reading, { toast = true } = {}) {
-  if (!preferences().alertsEnabled) return;
-  const event = recordArrival(entry, count, Date.now(), alertDetail(reading));
-  renderArrivalBadge();
-  // Inside the cooldown the arrival still reaches the bell; only the interruption waits.
-  if (!toast) return;
-  if (snoozedUntil > Date.now()) return;
-  // Kept under the bell, but no toast and no flashing taskbar over a game in progress.
-  if (preferences().quietWhilePlaying && (await gameClientRunning().catch(() => null)) === true) {
-    if (event) holdUntilGameCloses(event);
-    return;
-  }
-  if (!document.hasFocus() && !attentionRequested) {
-    attentionRequested = true;
-    void requestPlayerAlertAttention().catch(() => { attentionRequested = false; });
-  }
-  try {
-    if (event && !(await showPopup(popupCard(event)))) {
-      await sendPlayerNotification(event, preferences().alertSound);
-    }
-    if (state.alertError) update((next) => (next.alertError = null));
-  } catch {
-    update((next) => (next.alertError = "Reveille could not show a system notification."));
-  }
-}
-
-/**
- * Resolves to whether the alert went out as a Reveille pop-up. False when the player chose system
- * notifications or this desktop cannot draw one, so the caller sends a notification instead.
- */
-async function showPopup(card) {
-  if (preferences().alertStyle !== "popup" || !(await popupAvailable)) return false;
-  return showAlertPopup(card, preferences().alertSound).catch(() => false);
-}
-
-function popupCard(event) {
-  return {
-    eventId: event.id,
-    game: event.game,
-    address: event.address,
-    hostname: event.hostname,
-    count: event.count,
-    title: null,
-    detail: event.detail ?? null,
-  };
-}
-
-const TEST_ALERT = {
-  title: "Test alert from Reveille",
-  body: "This is how an alert looks when players join a server you watch.",
-};
-
-/** Resolves to whether the test went out as a pop-up rather than a system notification. */
-async function sendTestAlert() {
-  const card = {
-    eventId: `test-${Date.now()}`,
-    game: state.game ?? "",
-    address: "",
-    hostname: "",
-    count: 1,
-    title: TEST_ALERT.title,
-    detail: TEST_ALERT.body,
-  };
-  if (await showPopup(card)) return true;
-  await sendReveilleNotice(TEST_ALERT, preferences().alertSound);
-  return false;
-}
-
-/** Arrivals a game kept quiet, summed up in one notice once it closes. */
-function holdUntilGameCloses(event) {
-  heldWhilePlaying.push(event);
-  gameWatch ??= setInterval(async () => {
-    if ((await gameClientRunning().catch(() => null)) !== false) return;
-    clearInterval(gameWatch);
-    gameWatch = null;
-    const notice = catchUpNotice(heldWhilePlaying);
-    heldWhilePlaying = [];
-    if (!notice || document.hasFocus()) return;
-    try {
-      await sendReveilleNotice(notice, preferences().alertSound);
-    } catch {
-      update((next) => (next.alertError = "Reveille could not show a system notification."));
-    }
-  }, 30_000);
-}
-
-function forgetWatch(game, address) {
-  removePlayerAlert(game, address);
-  alertMonitor.forget(game, address);
-  update((next) => next.watchReadings.delete(alertId({ game, address })));
-}
-
-function renderArrivalBadge() {
-  const count = unreadArrivalCount();
-  const badge = $("#arrival-unread");
-  badge.classList.toggle("hidden", count === 0);
-  badge.textContent = count > 0 ? String(count) : "";
-  $("#arrival-events-btn").setAttribute("aria-label",
-    count ? `Player alerts, ${count} unread` : "Player alerts");
-  renderTrayTooltip();
-}
-
-/**
- * The bell's popover: the latest arrivals, newest first, each with Show and Join. Opening it marks
- * them read, but the ones that were unread keep their edge until it closes.
- */
-function toggleArrivals() {
-  const anchor = $("#arrival-events-btn");
-  if (popoverAnchor() === anchor) {
-    closePopover();
-    return;
-  }
-  const events = arrivalEvents().slice(0, 12);
-  markArrivalsRead();
-  renderArrivalBadge();
-  openPopover(anchor, "Player alerts",
-    el("div", { className: "popover__head" },
-      el("h2", { className: "popover__title" }, "Player alerts"),
-      state.alertError && alertErrorLine(openSystemNotificationSettings),
-    ),
-    events.length === 0
-      ? el("p", { className: "popover__empty" },
-          "No alerts yet. Turn on a server's bell and Reveille tells you here when players join it.")
-      : el("div", null, events.map(arrivalEntry)),
-    el("div", { className: "popover__foot" },
-      el("button", {
-        type: "button",
-        className: "btn btn--sm btn--utility",
-        onclick: () => {
-          closePopover();
-          servers.selectScope("watching");
-        },
-      }, "Open Watching"),
-      events.length > 0 && el("button", {
-        type: "button",
-        className: "btn btn--sm btn--utility",
-        onclick: () => {
-          clearArrivals();
-          renderArrivalBadge();
-          update(() => {});
-          closePopover();
-          toggleArrivals();
-        },
-      }, "Clear all"),
-    ),
-  );
-}
-
-function arrivalEntry(event) {
-  const where = playableGames(state.install).length > 1 ? `${GAME_LABELS[event.game]} · ` : "";
-  const classes = ["arrival", !event.read && "arrival--unread", isStale(event) && "arrival--stale"];
-  return el("div", { className: classes.filter(Boolean).join(" ") },
-    el("span", { className: "arrival__title", title: event.hostname },
-      el("strong", null, plural(event.count, "player")), ` on ${event.hostname}`),
-    el("span", { className: "arrival__meta" },
-      [where + (timeAgo(new Date(event.at).toISOString()) ?? ""), event.detail].filter(Boolean).join(" · ")),
-    el("span", { className: "arrival__actions" },
-      el("button", {
-        type: "button",
-        className: "btn btn--sm",
-        onclick: () => requestOpenArrival(event),
-      }, "Show"),
-      el("button", {
-        type: "button",
-        className: "btn btn--sm btn--primary",
-        onclick: () => requestOpenArrival(event, { join: true }),
-      }, "Join"),
-    ),
-  );
-}
-
-function requestOpenArrival(event, { join = false } = {}) {
-  pendingArrival = { event, join };
-  closeDialog();
-  closePopover();
-  void focusReveille().catch(() => {});
-  void openPendingArrival();
-}
-
-async function openPendingArrival() {
-  if (openingArrival || !pendingArrival || state.browse.running || state.joining) return;
-  openingArrival = true;
-  const pending = pendingArrival;
-  const { event } = pending;
-  pendingArrival = null;
-  try {
-    if (!state.install || !playableGames(state.install).includes(event.game)) {
-      openDialog("Server unavailable", el("p", null,
-        `${event.hostname} (${event.address}) requires ${GAME_LABELS[event.game]}.`));
-      return;
-    }
-    if (state.game !== event.game) await selectGame(event.game);
-    if (state.browse.running) await browseFinished();
-    if (state.game !== event.game || state.joining) {
-      pendingArrival = pending;
-      return;
-    }
-    const checked = await check({ address: event.address, queryPort: event.queryPort });
-    if (pendingArrival) return;
-    if (checked?.address === event.address && state.game === event.game) {
-      servers.reveal(event.address);
-      select(event.address);
-      if (pending.join && occupancy(checked.server).clients === 0) {
-        openDialog("No players right now", el("p", null,
-          `${event.hostname} has no players right now. It is selected in the list if you still want to join.`));
-      } else if (pending.join) {
-        // Join goes through the same path as a double-click, so a server that needs downloads
-        // stops on its priced button rather than fetching anything.
-        activate(event.address);
-      }
-    } else {
-      openDialog("Server unavailable", el("p", null,
-        `${event.hostname} (${event.address}) is no longer answering.`));
-    }
-  } finally {
-    openingArrival = false;
-    if (pendingArrival) queueMicrotask(() => void openPendingArrival());
-  }
-}
+window.addEventListener("focus", refreshOnReturn);
 
 /* Titlebar menus ------------------------------------------------------------ */
 
@@ -463,49 +192,6 @@ async function openAbout() {
   );
 }
 
-function browseFinished() {
-  if (!state.browse.running) return Promise.resolve();
-  return new Promise((resolve) => {
-    const unsubscribe = subscribe(() => {
-      if (state.browse.running) return;
-      unsubscribe();
-      resolve();
-    });
-  });
-}
-
-async function togglePlayerAlert(row) {
-  const game = state.game;
-  if (hasPlayerAlert(game, row.address)) {
-    forgetWatch(game, row.address);
-    return;
-  }
-  if (!addPlayerAlert(row, game, preferences().defaultThreshold)) {
-    openDialog("Player alerts", el("p", null,
-      "Reveille could not save this server's alert. Try again after restarting the app."));
-    return;
-  }
-  keepWatchingInBackground();
-  update(() => {});
-  alertMonitor.checkNow();
-  if (!preferences().alertsIntroShown) {
-    setPreference("alertsIntroShown", true);
-    openAlertsIntro({
-      startAtLogin: await startAtLogin().catch(() => null),
-      onTest: sendTestAlert,
-      onCloseToTray: syncCloseToTray,
-      onStartAtLogin: changeStartAtLogin,
-      onNotificationSettings: openSystemNotificationSettings,
-    });
-  }
-}
-
-function keepWatchingInBackground() {
-  if (!needsBackgroundWatching(preferences(), playerAlerts().length)) return;
-  setPreference("closeToTray", true);
-  syncCloseToTray(true);
-}
-
 /** Resolves to whether Reveille now starts at sign-in, whatever happened to the request. */
 async function changeStartAtLogin(enabled) {
   try {
@@ -519,76 +205,55 @@ async function changeStartAtLogin(enabled) {
   return startAtLogin().catch(() => null);
 }
 
-function openSystemNotificationSettings() {
-  openNotificationSettings().catch(() => {
-    openDialog("Notification settings", el("p", null,
-      "Open your system's notification settings and allow notifications for Reveille."));
-  });
-}
-
 async function openAppSettings() {
   const [version, telemetry, login] = await Promise.all([
     appVersion().catch(() => null),
     telemetryStatus().catch(() => null),
     startAtLogin().catch(() => null),
   ]);
-  openSettings({
-    engine: engineLabel(state.engine),
-    version,
-    telemetry,
-    onTelemetry: setTelemetryShared,
-    onTelemetryDetails: openTelemetryDetails,
-    onChangeInstall: () => {
-      if (state.joining) return;
-      closeDialog();
-      setup.change();
-    },
-    onOpenWatching: () => {
-      closeDialog();
-      servers.selectScope("watching");
-    },
-    onUpdate: () => {
-      closeDialog();
-      openReveilleUpdate();
-    },
-    onCheckUpdate: async () => {
-      const offer = await checkReveilleUpdate();
-      if (offer) update((next) => (next.selfUpdate.offer = offer));
-      return offer;
-    },
-    onReportBug: () => void openBugReport(),
-    onCloseToTray: syncCloseToTray,
-    startAtLogin: login,
-    onStartAtLogin: changeStartAtLogin,
-    onNotificationSettings: openSystemNotificationSettings,
-    popupSupported: await popupAvailable,
-    onTestAlert: sendTestAlert,
-  });
-}
-
-function syncCloseToTray(enabled) {
-  // A new icon starts with the default text.
-  shownTooltip = null;
-  setCloseToTray(enabled).then(renderTrayTooltip, () => {
-    openDialog("Keep watching", el("p", null,
-      "Reveille could not add its notification-area icon, so closing the window still quits it."));
-    setPreference("closeToTray", false);
-  });
-}
-
-function renderTrayTooltip() {
-  if (!preferences().closeToTray) return;
-  const text = trayTooltip(playerAlerts().length, unreadArrivalCount());
-  if (text === shownTooltip) return;
-  shownTooltip = text;
-  void setTrayTooltip(text).catch(() => (shownTooltip = null));
+  const engine = engineLabel(state.engine);
+  const popupSupported = await alerts.popupAvailable();
+  openSettings([
+    alertsSettingsSection({
+      popupSupported,
+      startAtLogin: login,
+      onCloseToTray: alerts.syncCloseToTray,
+      onStartAtLogin: changeStartAtLogin,
+      onNotificationSettings: alerts.openSystemNotificationSettings,
+      onTestAlert: alerts.sendTestAlert,
+      onOpenWatching: () => {
+        closeDialog();
+        openWatching();
+      },
+    }),
+    serverListSettingsSection(),
+    installSettingsSection({
+      engine,
+      onChangeInstall: () => {
+        if (state.joining) return;
+        closeDialog();
+        setup.change();
+      },
+    }),
+    privacySettingsSection({
+      telemetry,
+      onTelemetry: setTelemetryShared,
+      onTelemetryDetails: openTelemetryDetails,
+    }),
+    aboutSettingsSection({
+      version,
+      onUpdate: () => {
+        closeDialog();
+        updates.open();
+      },
+      onCheckUpdate: () => updates.check(),
+      onReportBug: () => void openBugReport(),
+    }),
+  ]);
 }
 
 function render() {
-  renderArrivalBadge();
-  if (pendingArrival && !openingArrival && !state.browse.running && !state.joining) {
-    queueMicrotask(() => void openPendingArrival());
-  }
+  opening.resume();
   const ready = Boolean(state.install);
   shell.classList.toggle("hidden", !ready);
   setupRoot.classList.toggle("hidden", ready);
@@ -606,87 +271,13 @@ function render() {
   if (!collapsed) join.render();
 }
 
+function openWatching() {
+  servers.selectScope("watching");
+}
+
 function toggleDetail() {
   update((next) => (next.detailCollapsed = !next.detailCollapsed));
   saveFilters();
-}
-
-/* Bug reports -------------------------------------------------------------- */
-
-async function openBugReport() {
-  const logs = await appLogFiles().catch(() => null);
-  const issueUrl = issueUrlWithContext(logs);
-  try {
-    await openExternalUrl(issueUrl);
-    return;
-  } catch {
-    // The URL remains usable even when Windows has no registered browser or opening it is denied.
-  }
-  openDialog(
-    "Report a bug",
-    el("p", null, "Reveille could not open your browser from this window."),
-    el("p", null, "Use this link to open a new issue:"),
-    el("p", { className: "quiet data" }, issueUrl),
-    el(
-      "button",
-      {
-        type: "button",
-        className: "btn btn--sm btn--primary",
-        onclick: () => navigator.clipboard?.writeText(issueUrl).catch(() => {}),
-      },
-      "Copy link",
-    ),
-  );
-}
-
-function issueUrlWithContext(logs) {
-  const params = new URLSearchParams({
-    title: "bug: ",
-    body: issueTemplate(logs),
-  });
-  return `${ISSUE_TRACKER_URL}?${params.toString()}`;
-}
-
-function issueTemplate(logs) {
-  const installRoot = state.install?.root ?? "(not selected)";
-  const selectedServer = state.selected ?? "(none)";
-  const browseError = state.browse.error
-    ? `${state.browse.error.kind}: ${state.browse.error.detail}`
-    : "(none)";
-  const joinError = state.joinError ?? "(none)";
-  const previewError = state.previewError ?? "(none)";
-  return [
-    "## What happened?",
-    "",
-    "<describe the problem>",
-    "",
-    "## What did you expect?",
-    "",
-    "<describe expected behavior>",
-    "",
-    "## Steps to reproduce",
-    "",
-    "1.",
-    "2.",
-    "3.",
-    "",
-    "## Reveille context",
-    "",
-    `- Game folder: ${installRoot}`,
-    `- Game: ${state.game}`,
-    `- Engine: ${state.engine}`,
-    `- Selected server: ${selectedServer}`,
-    `- Browse error: ${browseError}`,
-    `- Preview error: ${previewError}`,
-    `- Join error: ${joinError}`,
-    "",
-    "## Logs",
-    "",
-    logs
-      ? `Attach \`${logs.current}\`. After a crash and restart, also attach \`${logs.previous}\`.`
-      : "Attach the Reveille log from the app's local log folder.",
-    "Set `RUST_LOG=reveille=debug` before starting Reveille for more detail.",
-  ].join("\n");
 }
 
 /* Anonymous statistics ------------------------------------------------------ */
@@ -695,109 +286,7 @@ function openTelemetryDetails() {
   void openExternalUrl(TELEMETRY_DETAILS_URL).catch(() => {});
 }
 
-/* Reveille updates --------------------------------------------------------- */
-
-/** A failed background check is unrelated to the player's current task and stays non-blocking. */
-async function findReveilleUpdate() {
-  try {
-    const offer = await checkReveilleUpdate();
-    if (!offer) return;
-    update((next) => (next.selfUpdate.offer = offer));
-    if (!state.install) setup.renderUpdateOffer();
-  } catch {
-    // The next launch asks again. Setup and server browsing continue with no invented diagnosis.
-  }
-}
-
-function openReveilleUpdate() {
-  if (!state.selfUpdate.offer || state.joining) return;
-  renderReveilleUpdate();
-  $("#reveille-update-dialog").showModal();
-}
-
-function dismissReveilleUpdate() {
-  if (!state.selfUpdate.running) $("#reveille-update-dialog").close();
-}
-
-async function startReveilleUpdate() {
-  if (state.selfUpdate.running || !state.selfUpdate.offer) return;
-  state.selfUpdate.running = true;
-  state.selfUpdate.stopping = false;
-  state.selfUpdate.progress = { phase: "downloading", received: 0, total: null };
-  state.selfUpdate.error = null;
-  renderReveilleUpdate();
-  try {
-    await installReveilleUpdate();
-  } catch (error) {
-    const stopped = state.selfUpdate.stopping;
-    state.selfUpdate.running = false;
-    state.selfUpdate.stopping = false;
-    if (stopped) state.selfUpdate.progress = { phase: "cancelled" };
-    else if (state.selfUpdate.progress?.phase !== "cancelled") state.selfUpdate.error = errorText(error);
-    renderReveilleUpdate();
-  }
-}
-
-async function stopReveilleUpdate() {
-  const progress = state.selfUpdate.progress;
-  if (!state.selfUpdate.running || progress?.phase !== "downloading") return;
-  state.selfUpdate.stopping = true;
-  renderReveilleUpdate();
-  try {
-    await cancelReveilleUpdate();
-  } catch (error) {
-    state.selfUpdate.stopping = false;
-    state.selfUpdate.error = errorText(error);
-    renderReveilleUpdate();
-  }
-}
-
-function receiveReveilleUpdateProgress(progress) {
-  state.selfUpdate.progress = progress;
-  if (progress.phase === "cancelled") {
-    state.selfUpdate.running = false;
-    state.selfUpdate.stopping = false;
-  }
-  renderReveilleUpdate();
-}
-
-function renderReveilleUpdate() {
-  const offer = state.selfUpdate.offer;
-  if (!offer) return;
-  const progress = state.selfUpdate.progress;
-  const running = state.selfUpdate.running;
-  $("#reveille-update-copy").textContent =
-    `Version ${offer.version} is available. You have ${offer.current_version}.`;
-  $("#reveille-update-install").disabled = running;
-  $("#reveille-update-later").disabled = running;
-  const canStop = running && progress?.phase === "downloading";
-  $("#reveille-update-stop").classList.toggle("hidden", !canStop);
-  $("#reveille-update-stop").disabled = state.selfUpdate.stopping;
-  $("#reveille-update-stop").textContent = state.selfUpdate.stopping ? "Stopping…" : "Stop download";
-
-  const progressBox = $("#reveille-update-progress");
-  progressBox.classList.toggle("hidden", !progress);
-  const total = progress?.total ?? null;
-  const received = progress?.received ?? 0;
-  const determinate = progress?.phase === "downloading" && total;
-  $("#reveille-update-meter").classList.toggle("meter--indeterminate", !determinate);
-  $("#reveille-update-meter-fill").style.width = determinate
-    ? `${Math.min(100, (received / total) * 100)}%`
-    : "";
-  $("#reveille-update-status").textContent = reveilleUpdateStatus(progress, received, total);
-  $("#reveille-update-error").textContent = state.selfUpdate.error ?? "";
-  $("#reveille-update-error").classList.toggle("hidden", !state.selfUpdate.error);
-}
-
-function reveilleUpdateStatus(progress, received, total) {
-  if (!progress) return "";
-  if (progress.phase === "verifying") return "Checking the downloaded update";
-  if (progress.phase === "installing") return "Closing Reveille and installing the update";
-  if (progress.phase === "cancelled") return "Download stopped";
-  return total ? `${Math.round((received / total) * 100)}% downloaded` : "Downloading update";
-}
-
-/* First run ---------------------------------------------------------------- */
+/* Session changes ----------------------------------------------------------- */
 
 /**
  * Show the server list, sweeping when what is on screen is not an answer to this session.
@@ -820,8 +309,8 @@ function enterServers() {
 /**
  * Adopt the folder, program and game the setup dialog confirmed, without leaving the list.
  *
- * Every result still in flight was asked of the session being left, so the same three tokens
- * `selectGame` bumps are bumped here, and a running sweep is stopped rather than left to fill the
+ * Every result still in flight was asked of the session being left, so the generations
+ * `selectGame` retires are retired here, and a running sweep is stopped rather than left to fill the
  * table with the old session's rows. The list is searched again only when the session changed.
  */
 async function applyInstallChange({ install, engine, game }) {
@@ -829,9 +318,7 @@ async function applyInstallChange({ install, engine, game }) {
     stopBrowse();
     await browseFinished();
   }
-  previewToken += 1;
-  checkGeneration += 1;
-  joinToken += 1;
+  retireInFlight();
   update((next) => {
     next.install = install;
     next.engine = engine;
@@ -858,7 +345,7 @@ async function applyInstallChange({ install, engine, game }) {
  * Every operation already in flight was started for the game being left. Each one captured its own
  * session and will still finish against it, so their *results* are stale the moment this returns —
  * an install started for Allied Assault would otherwise render its outcome into a Spearhead
- * session. Bumping all three tokens is what discards them. A join cannot be abandoned half-written,
+ * session. Retiring every generation is what discards them. A join cannot be abandoned half-written,
  * so the control is refused outright while one is running rather than raced — `joining`, not
  * `installRun`, because a compatible server has nothing to download and still has a game to start.
  *
@@ -878,9 +365,7 @@ async function selectGame(game) {
     if (wantedGame !== game || state.joining || game === state.game) return;
     wantedGame = null;
   }
-  previewToken += 1;
-  checkGeneration += 1;
-  joinToken += 1;
+  retireInFlight();
   update((next) => {
     next.game = game;
     next.checks = new Map();
@@ -906,478 +391,6 @@ function refreshOnReturn() {
   if (!state.servers.length || !listIsForCurrentSession() || !listIsStale()) return;
   if (document.querySelector("dialog[open]")) return;
   void refreshBehind();
-}
-
-async function refreshBehind() {
-  checkGeneration += 1;
-  const swept = session();
-  update((next) => {
-    next.browse = {
-      ...next.browse,
-      running: true,
-      stopping: false,
-      background: true,
-      registered: 0,
-      inspected: 0,
-      probed: 0,
-      answered: 0,
-      nonResults: 0,
-      cancelled: false,
-      error: null,
-    };
-  });
-
-  try {
-    const payload = await browseServers(swept);
-    let reselect = false;
-    update((next) => {
-      reselect = adoptBackgroundSweep(next, payload, clockTime(), new Date().toISOString());
-      next.browse.background = false;
-    });
-    if (reselect && state.selected) select(state.selected);
-  } catch (error) {
-    update((next) => {
-      next.browse.running = false;
-      next.browse.background = false;
-      next.browse.error = browseFailure(error);
-      next.staleAt = next.browse.completedAt;
-    });
-  }
-}
-
-async function refresh() {
-  if (state.browse.running) return;
-  // Any check still in flight is about the list this sweep is replacing.
-  checkGeneration += 1;
-  const swept = session();
-  // What is on screen now, kept only so a sweep that fails outright has something honest to fall
-  // back to. Blanking the table on a failed sweep left the centre of the window reading "Nothing
-  // has been checked yet" under an error about the check that had just run. Only a list swept for
-  // *this* session qualifies: rows from another game or another folder are not a stale answer to
-  // this question, they are an answer to a different one.
-  const previous = listIsForCurrentSession() ? state.servers : [];
-  // A server that was in the last list but not in this one keeps no count to compare against.
-  const previousCounts = countsByAddress(previous);
-  const previousAt = state.browse.completedAt;
-  const previousFinishedAt = state.browse.finishedAt;
-  update((next) => {
-    // Recorded before the first row arrives, because the streamed rows belong to this session
-    // too, and a sweep that ends in an error still has to leave behind what it was asking.
-    next.listSession = swept;
-    next.browse = {
-      running: true,
-      stopping: false,
-      background: false,
-      registered: 0,
-      inspected: 0,
-      probed: 0,
-      answered: 0,
-      nonResults: 0,
-      cancelled: false,
-      error: null,
-      completedAt: null,
-      finishedAt: null,
-    };
-    next.servers = [];
-    next.previousCounts = previousCounts;
-    next.summary = null;
-    next.nonResults = [];
-    next.selected = null;
-    next.preview = null;
-    next.joinResult = null;
-    // What a previous check found described a moment that has just been superseded.
-    next.checks = new Map();
-    next.checkedAt = new Map();
-    next.autoCheckedAt = null;
-    next.staleAt = null;
-  });
-
-  try {
-    const payload = await browseServers(swept);
-    update((next) => {
-      next.servers = payload.servers;
-      next.summary = payload.summary;
-      next.nonResults = payload.non_results;
-      next.browse.running = false;
-      next.browse.cancelled = payload.cancelled;
-      next.browse.completedAt = clockTime();
-      next.browse.finishedAt = new Date().toISOString();
-    });
-  } catch (error) {
-    update((next) => {
-      next.browse.running = false;
-      next.browse.error = browseFailure(error);
-      // Rows that streamed in before the failure are this sweep's own and stand on their own.
-      // Only a sweep that produced nothing falls back, and what it falls back to is marked.
-      if (!next.servers.length && previous.length) {
-        next.servers = previous;
-        next.staleAt = previousAt;
-        next.browse.completedAt = previousAt;
-        next.browse.finishedAt = previousFinishedAt;
-      }
-    });
-  }
-}
-
-function stopBrowse() {
-  update((next) => (next.browse.stopping = true));
-  cancelBrowse().catch(() => {
-    // The sweep ends on its own if the message does not land.
-  });
-}
-
-onBrowseProgress((progress) => {
-  if (!state.browse.running) return;
-  update((next) => {
-    next.browse.registered = progress.registered;
-    next.browse.inspected = progress.inspected;
-    next.browse.probed = progress.probed;
-    next.browse.answered = progress.answered;
-    next.browse.nonResults = progress.non_results;
-    // Streamed rows are pre-deduplication; the payload that arrives when the
-    // sweep ends replaces this list with the authoritative one.
-    if (progress.row && !next.browse.background) next.servers = [...next.servers, progress.row];
-  });
-});
-
-/* Selecting and previewing -------------------------------------------------- */
-
-let previewToken = 0;
-let previewTimer = null;
-
-/**
- * How long a selection has to hold still before its catalogue lookup is sent.
- *
- * Selection follows focus in the grid, which is what makes the arrow keys useful — but it also
- * means holding Down through twenty rows used to fire twenty `preview_join` calls at moh-db, one
- * per row passed over. The pane still updates on every step; only the
- * third-party request waits. Long enough that scrolling costs nothing, short enough that a
- * deliberate selection does not feel delayed.
- */
-const PREVIEW_SETTLE_MS = 220;
-
-function select(address) {
-  const token = ++previewToken;
-  if (previewTimer !== null) {
-    clearTimeout(previewTimer);
-    previewTimer = null;
-  }
-  update((next) => {
-    next.selected = address;
-    next.preview = null;
-    next.previewProgress = null;
-    next.previewError = null;
-    next.choices = new Map();
-    next.installRun = null;
-    next.joinResult = null;
-    next.joinError = null;
-  });
-
-  const row = selectedRow();
-  if (row) trackEvent({ event: "server_selected", ready: row.compatibility.state.state === "compatible" });
-  // Nothing to resolve: the map list is already satisfied, or there is none.
-  if (!row || row.compatibility.state.state === "compatible") return;
-
-  // The meter goes up immediately even though the request has not been sent. It is honest about
-  // what it says — this server's sources are being worked out — and a control that looked idle for
-  // a fifth of a second and then started would read as a stutter.
-  update((next) => (next.previewProgress = { index: -1, of: 0, map: "" }));
-  previewTimer = setTimeout(() => {
-    previewTimer = null;
-    void resolvePreview(address, token);
-  }, PREVIEW_SETTLE_MS);
-}
-
-/**
- * A double-click or Enter on a row. A server with nothing to fetch joins at once; anything else
- * stops on the priced Join button, so no download starts without its size on screen and a second
- * Enter is the consent.
- */
-function activate(address) {
-  if (state.selected !== address) select(address);
-  const row = selectedRow();
-  if (!row) return;
-  const ready = row.compatibility.state.state === "compatible";
-  const idle = !state.joining && state.checks.get(address)?.status !== "checking";
-  if (ready && idle) {
-    void getAndJoin(row, false);
-    return;
-  }
-  // The price and the consent live in the pane, so a hidden pane opens for them.
-  if (state.detailCollapsed) toggleDetail();
-  join.focusJoin(address);
-}
-
-async function resolvePreview(address, token) {
-  if (token !== previewToken) return;
-  try {
-    const preview = await previewJoin(session(), address);
-    if (token !== previewToken) return;
-    update((next) => {
-      next.preview = preview;
-      next.previewProgress = null;
-    });
-  } catch (error) {
-    if (token !== previewToken) return;
-    update((next) => {
-      next.previewProgress = null;
-      next.previewError = errorText(error);
-    });
-  }
-}
-
-onPreviewProgress((progress) => {
-  if (progress.address !== state.selected) return;
-  update((next) => (next.previewProgress = progress));
-});
-
-/* Getting files and joining in stages ---------------------------------------- */
-
-let joinToken = 0;
-
-async function getServerFiles(row) {
-  const token = ++joinToken;
-  update((next) => {
-    next.joinError = null;
-    next.joinResult = null;
-    next.joining = true;
-    next.installRun = { items: new Map(), done: false };
-  });
-
-  try {
-    const result = await installServerFiles(session(), row.address);
-    if (token !== joinToken) return;
-    update((next) => {
-      next.joining = false;
-      next.installRun = null;
-      next.preview = result.preview;
-      next.previewProgress = null;
-      next.choices = new Map();
-      next.joinError = result.failures.length
-        ? result.failures.map((failure) => `${failure.map}: ${failure.reason}`).join(" ")
-        : null;
-    });
-  } catch (error) {
-    if (token !== joinToken) return;
-    update((next) => {
-      next.joining = false;
-      next.installRun = null;
-      next.joinError = errorText(error);
-    });
-  }
-}
-
-async function getAndJoin(row, acceptIncomplete) {
-  const token = ++joinToken;
-  const preview = state.preview?.address === row.address ? state.preview : null;
-  const totals = preview
-    ? shoppingTotals(preview)
-    : { count: 0 };
-  const selectedCandidateIds = [...state.choices.values()];
-
-  update((next) => {
-    next.joinError = null;
-    next.joinResult = null;
-    // `installRun` covers the downloads; `joining` covers the command. A compatible server has
-    // nothing to fetch, so without this the pane would look idle while the game was being started,
-    // and a check finishing in that window could drop the row the outcome renders against.
-    next.joining = true;
-    next.installRun = totals.count > 0 ? { items: new Map(), done: false } : null;
-  });
-
-  try {
-    const result = await installAndLaunch(
-      session(),
-      row.address,
-      selectedCandidateIds,
-      acceptIncomplete,
-    );
-    // Only a launched outcome is remembered. A refusal means Reveille did not start the game,
-    // so there is nothing that happened to record. The launch is recorded even
-    // if the session moved on — it really did happen — but its result is not rendered into a
-    // session it is no longer about.
-    if (result.outcome?.launch === "launched") recordLaunch(row);
-    if (token !== joinToken) return;
-    update((next) => {
-      next.joining = false;
-      next.installRun = null;
-      next.joinResult = { ...result, address: row.address };
-      rememberReadyJoin(next, row, result);
-    });
-  } catch (error) {
-    if (token !== joinToken) return;
-    update((next) => {
-      next.joining = false;
-      next.installRun = null;
-      next.joinError = errorText(error);
-    });
-  }
-}
-
-onInstallProgress((progress) => {
-  if (!state.installRun) return;
-  update((next) => {
-    const items = next.installRun.items;
-    const key = progress.filename;
-    const existing = items.get(key) ?? {
-      map: progress.map,
-      filename: progress.filename,
-      received: 0,
-      total: null,
-    };
-    items.set(key, {
-      ...existing,
-      filename: progress.filename,
-      phase: progress.phase,
-      received: progress.received ?? existing.received,
-      total: progress.total ?? existing.total,
-      reason: progress.reason ?? existing.reason,
-    });
-  });
-});
-
-/* Checking one server on its own --------------------------------------------- */
-
-/**
- * Results from before the list was replaced are discarded, and that is all this counts.
- *
- * It is a generation, not a cancellation: a sweep and a game switch both make every answer still in
- * flight an answer about a list that no longer exists. Two checks running at once do **not** cancel
- * each other — an earlier design bumped this on every call, so re-checking one server abandoned the
- * favorites batch mid-way and left the row it was probing reading "Checking…" for a request nobody
- * was waiting on.
- */
-let checkGeneration = 0;
-
-/**
- * Ask one server directly, without a master list.
- *
- * Two players want this, for opposite reasons. A favorite is often not in the sweep — the master
- * never registered it, or it did not answer in time — and until it is in the list it cannot be
- * selected or joined, so this is what makes a bookmark useful in the case that matters most. And
- * a server that *is* in the list was measured once, when the sweep ran: its map, its client count
- * and its round trip all age from that moment, and this is how one row is brought up to date
- * without spending a couple of hundred probes on the other two hundred.
- *
- * Takes one entry or a list of them, and probes sequentially: these are third-party servers and
- * there is no reason to burst at them.
- */
-async function check(subject) {
-  const entries = Array.isArray(subject) ? subject : [subject];
-  const generation = checkGeneration;
-  let checked = null;
-
-  for (const entry of entries) {
-    if (generation !== checkGeneration) return;
-    // The row this check is about to replace, kept so `resettle` below can compare, and the
-    // identity to fall back on if the check replaces it with nothing (`droppedIdentity`, in
-    // store.js where it can be tested).
-    const before = state.servers.find((row) => row.address === entry.address) ?? null;
-    const dropped = droppedIdentity(entry);
-    update((next) => next.checks.set(entry.address, { status: "checking", dropped }));
-
-    let result;
-    try {
-      result = await checkServer(session(), entry.address, entry.queryPort);
-    } catch (error) {
-      if (generation !== checkGeneration) return;
-      update((next) =>
-        next.checks.set(entry.address, { status: "failed", error: errorText(error), dropped }),
-      );
-      continue;
-    }
-    if (generation !== checkGeneration) return;
-    update((next) => {
-      if (result.row) applyCheckedRow(next, entry, result, dropped, new Date().toISOString());
-      else applyCheckNonResult(next, entry, result, dropped);
-    });
-    checked = result.row;
-    if (entry.address === state.selected) resettle(before, result.row);
-  }
-  return checked;
-}
-
-/**
- * The selected server, asked again on its own.
- *
- * Not offered while a sweep is running: that is already re-asking every server in the list, and
- * this row is about to be replaced by it. Nor while a join is running, where the pane belongs to
- * that command and a check coming back empty would take the row out from under it.
- */
-function recheck(row) {
-  if (!canRecheck(row.address)) return;
-  check({ address: row.address, queryPort: Number(row.server.endpoint.query_port) });
-}
-
-/**
- * Keep the detail pane honest after a check has replaced the row beneath it.
- *
- * The catalogue lookup behind the pane is an answer about one running map, one rotation and one
- * reading of what is on disk. When the check found all of that unchanged it is still that answer,
- * and the player's source choices stand — discarding them because a client count moved would cost
- * them work for nothing. When any of it moved, or the server stopped answering, it is an answer to
- * a question no longer being asked, and it goes.
- *
- * A server that moved is **not** followed. The selection stays where the player put it and the pane
- * says where the answer came from, for the same reason a bookmark is not repointed: the two
- * addresses share a query port, which is not proof they are the same server. Following would also
- * select a row that, in Favorites or History, is not in the table at all.
- */
-function resettle(before, after) {
-  if (!after || after.address !== before?.address) {
-    previewToken += 1;
-    update((next) => {
-      next.preview = null;
-      next.previewProgress = null;
-      next.previewError = null;
-      next.choices = new Map();
-    });
-    return;
-  }
-  if (!sameJoinQuestion(before, after)) select(after.address);
-}
-
-/**
- * Whether two readings of one server pose the same join question.
- *
- * Not only the same map and rotation: `check_server` re-reads the installed maps, so a map put on
- * disk by other means between the two readings changes the answer without changing anything the
- * server published. The row's own verdict and the published checksum are what carry that, and a
- * preview kept across a change in either would price an old shopping list against a new row.
- */
-function sameJoinQuestion(before, after) {
-  if (!before) return false;
-  return (
-    before.server.current_map === after.server.current_map &&
-    before.server.map_checksum === after.server.map_checksum &&
-    before.server.pr_downloads === after.server.pr_downloads &&
-    before.compatibility.state.state === after.compatibility.state.state &&
-    before.compatibility.current_map?.readiness === after.compatibility.current_map?.readiness &&
-    before.server.rotation.length === after.server.rotation.length &&
-    before.server.rotation.every((map, index) => map === after.server.rotation[index])
-  );
-}
-
-/**
- * Check the favorites this sweep did not return, once per sweep, while they are on screen.
- *
- * Without it, opening the absent block after a refresh shows a list of servers with no data and a
- * row of buttons to press. Once per sweep, and only for the ones actually missing, keeps it to a
- * handful of requests against a sweep that just sent a couple of hundred.
- *
- * It waits for the block to be open. Collapsed, these probes would answer a question nobody asked
- * and write their answers where nobody can read them — and on a multi-game folder most of them go
- * to servers that were saved under another game and can only ever say the same thing. Opening the
- * block notifies, so the check runs then instead.
- */
-function autoCheckFavorites() {
-  if (state.scope !== "favorites" || !state.showAbsent) return;
-  if (state.browse.running || !state.browse.completedAt) return;
-  if (state.autoCheckedAt === state.browse.completedAt) return;
-  const present = new Set(state.servers.map((row) => row.address));
-  const absent = favorites().filter((entry) => !present.has(entry.address));
-  state.autoCheckedAt = state.browse.completedAt;
-  if (absent.length) check(absent);
 }
 
 subscribe(autoCheckFavorites);
@@ -1483,7 +496,7 @@ document.addEventListener("keydown", (event) => {
     servers.focusFirstRow();
   } else if (event.key === "F5" || (findOrRefreshModifier && event.key.toLowerCase() === "r")) {
     event.preventDefault();
-    if (!state.browse.running) refresh();
+    if (!state.browse.running) intents.refresh();
   } else if ((event.key === "f" || event.key === "F") && !typing && plain) {
     const row = selectedRow();
     if (!row) return;
@@ -1494,7 +507,7 @@ document.addEventListener("keydown", (event) => {
     const row = selectedRow();
     if (!row) return;
     event.preventDefault();
-    void togglePlayerAlert(row);
+    void intents.togglePlayerAlert(row);
   } else if ((event.key === "r" || event.key === "R") && !typing && plain) {
     // Plain R re-asks the selected server; Ctrl+R or Command+R, handled above, re-asks the whole
     // list. The modifier is the difference between one probe and a couple of hundred.
@@ -1508,13 +521,11 @@ document.addEventListener("keydown", (event) => {
 /* Boot ---------------------------------------------------------------------- */
 
 notify();
-if (preferences().closeToTray) syncCloseToTray(true);
-keepWatchingInBackground();
+if (preferences().closeToTray) alerts.syncCloseToTray(true);
+alerts.keepWatchingInBackground();
 setup.detect();
-void findReveilleUpdate();
+void updates.find();
 
 function engineLabel(engine) {
-  if (engine === "openmohaa") return "OpenMoHAA";
-  if (engine === "reborn") return "Reborn";
-  return "Original game";
+  return ENGINE_LABELS[engine] ?? ENGINE_LABELS.original;
 }

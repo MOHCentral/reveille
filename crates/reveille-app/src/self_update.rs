@@ -196,3 +196,18 @@ pub fn cancel_reveille_update(state: tauri::State<'_, SelfUpdateState>) {
 pub fn register(app: &mut tauri::App) {
     app.manage(SelfUpdateState::default());
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_self_update_offer_is_explicit_and_keeps_the_checked_release() {
+        // The Rust side retains Tauri's checked Update object so the frontend cannot swap its URL
+        // or signature between the offer and the player's labelled install action. The shell half
+        // is in `ui-tests/source/release.test.js`.
+        let updater = include_str!("self_update.rs");
+
+        assert!(updater.contains("pending: Mutex<Option<Update>>"));
+        assert!(updater.contains("let update = state"));
+        assert!(updater.contains("update.install(bytes)?;"));
+    }
+}

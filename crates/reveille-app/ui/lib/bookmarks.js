@@ -21,6 +21,8 @@
 // Storage is localStorage, matching the install and filter preferences in store.js.
 // Every access is guarded: a launcher that cannot persist a preference still works.
 
+import { registerSavedScope } from "./store.js";
+
 const KEY = "reveille.bookmarks";
 const VERSION = 1;
 
@@ -143,10 +145,13 @@ export function history() {
   return read().history;
 }
 
-/** Address -> entry, for the list's launched-at line and its sort. */
+/** Address -> entry, for the list's launched-at line. */
 export function historyByAddress() {
   return new Map(read().history.map((saved) => [saved.address, saved]));
 }
+
+registerSavedScope("favorites", favorites);
+registerSavedScope("history", history);
 
 /**
  * Record that the game was launched against this server.
