@@ -7,7 +7,7 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use crate::telemetry::{Event, InstallSearch, Telemetry};
+use crate::telemetry::{Event, Telemetry};
 
 #[tauri::command]
 #[expect(
@@ -18,21 +18,19 @@ pub fn detect_install(
     selected_path: Option<String>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<Option<Installation>, String> {
-    let search = if selected_path
+    let automatic = selected_path
         .as_deref()
-        .is_some_and(|path| !path.trim().is_empty())
-    {
-        InstallSearch::ChosenFolder
-    } else {
-        InstallSearch::Automatic
-    };
+        .is_none_or(|path| path.trim().is_empty());
     let found = find_install(selected_path);
-    telemetry.track(&match &found {
-        Ok(Some(installation)) => Event::GameInstallDetected {
+    match &found {
+        Ok(Some(installation)) => telemetry.track(&Event::GameInstallDetected {
             games: installation.playable.clone(),
-        },
-        Ok(None) | Err(_) => Event::GameInstallNotFound { search },
-    });
+        }),
+        // Only the store search: a missing remembered folder is followed by one, and a rejected
+        // pick is the player's own try, so counting either would double or mislabel a run.
+        Ok(None) | Err(_) if automatic => telemetry.track(&Event::GameInstallNotFound),
+        Ok(None) | Err(_) => {}
+    }
     found
 }
 
