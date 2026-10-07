@@ -78,6 +78,49 @@ pub enum DownloadSource {
     Browse,
 }
 
+/// Where the first map in a failed download batch stopped. The map name and error text stay on
+/// the machine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapFailureStage {
+    /// The catalogue could not be asked, or had no copy of the map.
+    Lookup,
+    /// The server's own download list could not be read.
+    Manifest,
+    /// The archive could not be fetched.
+    Download,
+    /// The archive could not be opened.
+    Archive,
+    /// The archive does not hold the map the server runs.
+    Mismatch,
+    /// The files could not be written into the game folder.
+    Install,
+    /// The batch could not start: no HTTP client or staging folder.
+    Setup,
+}
+
+/// How long a launched game ran, in buckets coarse enough to identify nobody.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayTime {
+    /// Usually a failed connection or an immediate kick rather than a game played.
+    UnderAMinute,
+    UpToTenMinutes,
+    OverTenMinutes,
+}
+
+impl From<Duration> for PlayTime {
+    fn from(played: Duration) -> Self {
+        if played < Duration::from_mins(1) {
+            Self::UnderAMinute
+        } else if played <= Duration::from_mins(10) {
+            Self::UpToTenMinutes
+        } else {
+            Self::OverTenMinutes
+        }
+    }
+}
+
 /// Why a join did not end with the game starting. Low-cardinality on purpose: the player still
 /// sees the full message, and only this code is sent.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -255,6 +298,7 @@ pub enum Event {
     MapDownloadFailed {
         source: DownloadSource,
         failed: usize,
+        stage: MapFailureStage,
     },
     JoinClicked {
         game: TargetGame,
@@ -269,6 +313,12 @@ pub enum Event {
         game: TargetGame,
         engine: EngineChoice,
         reason: JoinFailureReason,
+    },
+    /// The game program Reveille started has closed. Lost when Reveille quits first.
+    GameExited {
+        game: TargetGame,
+        engine: EngineChoice,
+        played: PlayTime,
     },
 }
 
@@ -328,6 +378,7 @@ pub struct Telemetry {
     /// Read by the panic hook, which cannot take the lock.
     sharing: Arc<AtomicBool>,
     server_selected_sent: AtomicBool,
+    install_detected_sent: AtomicBool,
     client: reqwest::Client,
     /// False when there is no config directory to write the choice, crash marker or ID into.
     persist: bool,
@@ -378,6 +429,7 @@ impl Telemetry {
             choice: Mutex::new(choice),
             sharing,
             server_selected_sent: AtomicBool::new(false),
+            install_detected_sent: AtomicBool::new(false),
             client,
             persist,
         }
@@ -449,6 +501,14 @@ impl Telemetry {
                     self.track(&Event::ServerSelected { ready });
                 }
             }
+        }
+    }
+
+    /// Once per run: the setup screen detects again after an engine install, and the funnel only
+    /// needs to know that a game was found.
+    pub fn track_install_detected(&self, games: Vec<reveille_core::install::Product>) {
+        if !self.install_detected_sent.swap(true, Ordering::SeqCst) {
+            self.track(&Event::GameInstallDetected { games });
         }
     }
 
@@ -712,8 +772,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, PanicReport, Session, Sink,
-        Telemetry, UiEvent, payload, rfc3339, source_relative,
+        CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, JoinFailureReason, MapFailureStage,
+        PanicReport, PlayTime, Session, Sink, Telemetry, UiEvent, payload, rfc3339,
+        source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -818,6 +879,43 @@ mod tests {
         .expect("write marker");
         loaded(&directory, None).set_shared(false).expect("decline");
         assert!(!marker.exists());
+    }
+
+    #[test]
+    fn play_time_buckets_split_at_one_and_ten_minutes() {
+        assert_eq!(
+            PlayTime::from(Duration::from_secs(59)),
+            PlayTime::UnderAMinute
+        );
+        assert_eq!(
+            PlayTime::from(Duration::from_mins(1)),
+            PlayTime::UpToTenMinutes
+        );
+        assert_eq!(
+            PlayTime::from(Duration::from_mins(10)),
+            PlayTime::UpToTenMinutes
+        );
+        assert_eq!(
+            PlayTime::from(Duration::from_secs(601)),
+            PlayTime::OverTenMinutes
+        );
+    }
+
+    #[test]
+    fn a_failed_download_names_its_stage() {
+        let body = payload(
+            &sink(),
+            &Event::MapDownloadFailed {
+                source: DownloadSource::Catalogue,
+                failed: 1,
+                stage: MapFailureStage::Lookup,
+            },
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "0.4.0",
+            UNIX_EPOCH,
+        );
+        assert_eq!(body["properties"]["stage"], "lookup");
     }
 
     #[test]

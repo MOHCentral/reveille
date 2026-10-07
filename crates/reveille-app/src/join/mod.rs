@@ -6,6 +6,7 @@ pub mod preview;
 use std::collections::HashSet;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use reveille_core::content::{CatalogueResolutionPass, WantedMap};
 use reveille_core::discovery::TargetGame;
@@ -22,7 +23,7 @@ use tauri::ipc::Channel;
 use tracing::info;
 
 use crate::session::{Session, installed_maps, session_search_path};
-use crate::telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry};
+use crate::telemetry::{DownloadSource, Event, JoinFailureReason, MapFailureStage, Telemetry};
 use crate::{catalogue, servers};
 use content::{
     ContentHost, InstallFailure, InstallPhase, InstallProgress, emit_install, install_destination,
@@ -293,7 +294,7 @@ async fn join_and_launch(
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
         LaunchOutcome::Refused { reason }
     } else {
-        launch(&session, preview.address)?
+        launch(&session, preview.address, app)?
     };
     let install_directories = unique_parent_directories(&installed);
     info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
@@ -325,6 +326,7 @@ pub fn track_download(
         Ok((_, failures)) if !failures.is_empty() => Event::MapDownloadFailed {
             source,
             failed: failures.len(),
+            stage: failures[0].stage,
         },
         Ok((installed, _)) => Event::MapDownloadCompleted {
             source,
@@ -333,12 +335,17 @@ pub fn track_download(
         Err(_) => Event::MapDownloadFailed {
             source,
             failed: attempted,
+            stage: MapFailureStage::Setup,
         },
     });
 }
 
 /// Start the client the detected install actually provides, connected to `address`.
-fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, JoinFailure> {
+fn launch(
+    session: &Session,
+    address: SocketAddrV4,
+    app: &tauri::AppHandle,
+) -> Result<LaunchOutcome, JoinFailure> {
     use JoinFailureReason as Reason;
 
     info!(%address, game = ?session.game, engine = ?session.engine, "launching client");
@@ -362,11 +369,30 @@ fn launch(session: &Session, address: SocketAddrV4) -> Result<LaunchOutcome, Joi
         address,
     )
     .map_err(failed(Reason::LaunchFailed))?;
-    Ok(LaunchOutcome::Launched {
-        process_id: platform::launch_client(&command, kind)
-            .map_err(failed(Reason::LaunchFailed))?
-            .id(),
-    })
+    let child = platform::launch_client(&command, kind).map_err(failed(Reason::LaunchFailed))?;
+    let process_id = child.id();
+    watch_game_exit(child, session.game, session.engine, app.clone());
+    Ok(LaunchOutcome::Launched { process_id })
+}
+
+/// Report how long the game ran once it closes. A thread rather than a task: `wait` blocks for the
+/// whole match.
+fn watch_game_exit(
+    mut child: std::process::Child,
+    game: TargetGame,
+    engine: EngineChoice,
+    app: tauri::AppHandle,
+) {
+    let started = Instant::now();
+    std::thread::spawn(move || {
+        if child.wait().is_ok() {
+            app.state::<Telemetry>().track(&Event::GameExited {
+                game,
+                engine,
+                played: started.elapsed().into(),
+            });
+        }
+    });
 }
 
 /// Decide whether the launch may proceed, and say why when it may not.

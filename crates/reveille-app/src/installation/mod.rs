@@ -23,9 +23,7 @@ pub fn detect_install(
         .is_none_or(|path| path.trim().is_empty());
     let found = find_install(selected_path);
     match &found {
-        Ok(Some(installation)) => telemetry.track(&Event::GameInstallDetected {
-            games: installation.playable.clone(),
-        }),
+        Ok(Some(installation)) => telemetry.track_install_detected(installation.playable.clone()),
         // Only the store search: a missing remembered folder is followed by one, and a rejected
         // pick is the player's own try, so counting either would double or mislabel a run.
         Ok(None) | Err(_) if automatic => telemetry.track(&Event::GameInstallNotFound),
