@@ -78,6 +78,16 @@ pub enum DownloadSource {
     Browse,
 }
 
+/// How a game folder was looked for.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallSearch {
+    /// The known store install locations, with no folder chosen.
+    Automatic,
+    /// A folder the player picked or saved earlier.
+    ChosenFolder,
+}
+
 /// Why a join did not end with the game starting. Low-cardinality on purpose: the player still
 /// sees the full message, and only this code is sent.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -223,6 +233,10 @@ pub enum Event {
     },
     GameInstallDetected {
         games: Vec<reveille_core::install::Product>,
+    },
+    /// Separates players with no game found from players who never reached detection.
+    GameInstallNotFound {
+        search: InstallSearch,
     },
     FirstRunCompleted {
         game: TargetGame,
@@ -710,8 +724,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, PanicReport, Session, Sink,
-        Telemetry, UiEvent, payload, rfc3339, source_relative,
+        CHOICE_FILENAME, CRASH_FILENAME, Event, InstallSearch, JoinFailureReason, PanicReport,
+        Session, Sink, Telemetry, UiEvent, payload, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -816,6 +830,22 @@ mod tests {
         .expect("write marker");
         loaded(&directory, None).set_shared(false).expect("decline");
         assert!(!marker.exists());
+    }
+
+    #[test]
+    fn a_missing_install_reports_only_how_it_was_searched() {
+        let body = payload(
+            &sink(),
+            &Event::GameInstallNotFound {
+                search: InstallSearch::ChosenFolder,
+            },
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "0.4.0",
+            UNIX_EPOCH,
+        );
+        assert_eq!(body["event"], "game_install_not_found");
+        assert_eq!(body["properties"]["search"], "chosen_folder");
     }
 
     #[test]

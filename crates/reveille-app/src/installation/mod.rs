@@ -7,7 +7,7 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use crate::telemetry::{Event, Telemetry};
+use crate::telemetry::{Event, InstallSearch, Telemetry};
 
 #[tauri::command]
 #[expect(
@@ -18,13 +18,22 @@ pub fn detect_install(
     selected_path: Option<String>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<Option<Installation>, String> {
-    let found = find_install(selected_path)?;
-    if let Some(installation) = &found {
-        telemetry.track(&Event::GameInstallDetected {
+    let search = if selected_path
+        .as_deref()
+        .is_some_and(|path| !path.trim().is_empty())
+    {
+        InstallSearch::ChosenFolder
+    } else {
+        InstallSearch::Automatic
+    };
+    let found = find_install(selected_path);
+    telemetry.track(&match &found {
+        Ok(Some(installation)) => Event::GameInstallDetected {
             games: installation.playable.clone(),
-        });
-    }
-    Ok(found)
+        },
+        Ok(None) | Err(_) => Event::GameInstallNotFound { search },
+    });
+    found
 }
 
 /// Re-read a folder the player already chose. Unlike `detect_install` it sends no event: reopening
