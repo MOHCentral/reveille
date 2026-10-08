@@ -2,7 +2,7 @@
 
 // Commands: crates/reveille-app/src/join/. Each takes the `Session` from `lib/session.js`.
 
-import { invoke, listen } from "../../lib/bridge.js";
+import { invoke, invokeWithChannel, listen } from "../../lib/bridge.js";
 
 /** @typedef {import("../../lib/session.js").Session} Session */
 /** @typedef {import("../../lib/catalog.js").GameId} GameId */
@@ -53,7 +53,11 @@ import { invoke, listen } from "../../lib/bridge.js";
  * @property {{ launch: "launched", process_id: number } | { launch: "refused", reason: string }} outcome
  */
 
-/** @typedef {{ address: string, index: number, of: number, map: string }} PreviewProgress */
+/**
+ * One moh-db lookup, streamed over the channel of the call pricing the join.
+ *
+ * @typedef {{ address: string, index: number, of: number, map: string }} PreviewProgress
+ */
 
 /**
  * One map's step in an install, flattened with its phase.
@@ -64,19 +68,26 @@ import { invoke, listen } from "../../lib/bridge.js";
  */
 
 /**
+ * `onProgress` hears this preview only, and nothing after it settles.
+ *
  * @param {Session} session
  * @param {string} address
+ * @param {(progress: PreviewProgress) => void} onProgress
  * @returns {Promise<JoinPreview>}
  */
-export const previewJoin = (session, address) => invoke("preview_join", { session, address });
+export const previewJoin = (session, address, onProgress) =>
+  invokeWithChannel("preview_join", { session, address }, "onProgress", onProgress);
 
 /**
+ * `onPreviewProgress` hears the preview this call builds once the server files are in place.
+ *
  * @param {Session} session
  * @param {string} address
+ * @param {(progress: PreviewProgress) => void} onPreviewProgress
  * @returns {Promise<ServerFilesResult>}
  */
-export const installServerFiles = (session, address) =>
-  invoke("install_server_files", { session, address });
+export const installServerFiles = (session, address, onPreviewProgress) =>
+  invokeWithChannel("install_server_files", { session, address }, "onPreviewProgress", onPreviewProgress);
 
 /**
  * @param {Session} session
@@ -88,7 +99,5 @@ export const installServerFiles = (session, address) =>
 export const installAndLaunch = (session, address, selectedCandidateIds, acceptIncomplete) =>
   invoke("install_and_launch", { session, address, selectedCandidateIds, acceptIncomplete });
 
-/** @param {(progress: PreviewProgress) => void} handler */
-export const onPreviewProgress = (handler) => listen("reveille://preview", handler);
 /** @param {(progress: InstallProgress) => void} handler */
 export const onInstallProgress = (handler) => listen("reveille://install", handler);

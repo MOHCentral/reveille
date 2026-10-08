@@ -151,11 +151,10 @@ mod tests {
 
     /// Every event the shell emits. The frontend subscribes by name, so two slices sharing one
     /// would each receive the other's payloads.
-    const EVENTS: [&str; 11] = [
+    const EVENTS: [&str; 10] = [
         crate::installation::copy::EVENT,
         crate::engines::reborn::EVENT,
         crate::engines::openmohaa::EVENT,
-        crate::join::preview::EVENT,
         crate::join::content::EVENT,
         crate::notice::PLAYER_ALERT_OPEN_EVENT,
         crate::popup::CARD_EVENT,

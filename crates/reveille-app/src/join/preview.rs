@@ -12,12 +12,10 @@ use reveille_core::engine::EngineChoice;
 use reveille_core::join::CompatibilityAssessment;
 use reveille_core::mapindex::MapIndex;
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::ipc::Channel;
 use tracing::info;
 
 use crate::session::Session;
-
-pub const EVENT: &str = "reveille://preview";
 
 /// The most recent join preview, reused so a launch does not repeat the catalogue pass.
 #[derive(Default)]
@@ -31,7 +29,7 @@ struct CachedPreview {
 }
 
 #[derive(Clone, Serialize)]
-struct PreviewProgress {
+pub struct PreviewProgress {
     address: SocketAddrV4,
     index: usize,
     of: usize,
@@ -157,9 +155,11 @@ pub async fn build_preview(host: &impl PreviewHost, server: Server) -> Result<Jo
     })
 }
 
-/// Price the wanted maps on moh-db, reporting each lookup to the window as it lands.
+/// Price the wanted maps on moh-db, reporting each lookup over `on_progress` as it lands.
+///
+/// A lookup that cannot be reported is not an error: the returned pass carries every result.
 pub async fn price_on_mohdb(
-    app: &tauri::AppHandle,
+    on_progress: Option<&Channel<PreviewProgress>>,
     address: SocketAddrV4,
     wanted: &[WantedMap],
 ) -> Result<CatalogueResolutionPass, String> {
@@ -171,15 +171,14 @@ pub async fn price_on_mohdb(
                 Ok(resolution) => resolution.wanted.name.clone(),
                 Err(non_result) => non_result.wanted.name.clone(),
             };
-            drop(app.emit(
-                EVENT,
-                PreviewProgress {
+            if let Some(channel) = on_progress {
+                drop(channel.send(PreviewProgress {
                     address,
                     index: progress.index,
                     of: progress.of,
                     map,
-                },
-            ));
+                }));
+            }
         })
         .await)
 }

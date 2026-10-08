@@ -24,8 +24,8 @@ test("the bridge is read when a command runs, not when the module loads", async 
 test("a listener receives the payload, never the Tauri envelope", async () => {
   const bridge = installTauri();
   const seen = [];
-  await listen("reveille://preview", (payload) => seen.push(payload));
-  bridge.emit("reveille://preview", { index: 1, of: 3 });
+  await listen("reveille://install", (payload) => seen.push(payload));
+  bridge.emit("reveille://install", { index: 1, of: 3 });
   assert.deepEqual(seen, [{ index: 1, of: 3 }]);
   delete globalThis.window;
 });
