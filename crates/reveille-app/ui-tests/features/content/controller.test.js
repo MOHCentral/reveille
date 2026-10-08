@@ -2,7 +2,8 @@
 
 // `features/content/controller.js`: pages load and append, an answer to a search since replaced is
 // dropped, and an install moves an entry to Installed, records why it failed, or ends quietly when
-// the player cancelled it.
+// the player cancelled it. Tabs, mode and Played now ask the right question; Remove takes an entry
+// off Installed or keeps why it was refused; Install and join joins only once the map is there.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -40,14 +41,29 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function reset() {
   bridge.reset();
-  bridge.results = {};
+  bridge.results = { installed_content: () => ({ items: [], total_size: 0 }) };
   held = [];
   Object.assign(state, contentState(), {
     install: { root: "C:\\MOHAA" },
     engine: "original",
     game: "allied_assault",
+    servers: [],
+    browse: { running: false },
   });
 }
+
+const calls = (command) => bridge.calls.filter((call) => call.command === command);
+const installedEntry = (id, extra = {}) => ({
+  id,
+  kind: "map",
+  title: `Map ${id}`,
+  filename: `map${id}.pk3`,
+  page_url: null,
+  size: 100,
+  installed_at: id,
+  changed: false,
+  ...extra,
+});
 
 test("cards are the default layout", () => {
   assert.equal(preferences().contentLayout, "cards");
@@ -59,7 +75,8 @@ test("the first page loads once per question, selects its first entry, and Show 
   controller.ensureLoaded();
   controller.ensureLoaded();
   await settle();
-  assert.equal(bridge.calls.filter((call) => call.command === "browse_catalogue").length, 1);
+  assert.equal(calls("browse_catalogue").length, 1);
+  assert.equal(calls("installed_content").length, 1, "the status bar's installed count is read too");
   assert.deepEqual(state.content.items.map((entry) => entry.id), [1, 2]);
   assert.equal(state.content.selected, 1);
   assert.equal(state.content.hasMore, true);
@@ -68,7 +85,7 @@ test("the first page loads once per question, selects its first entry, and Show 
   await settle();
   assert.deepEqual(state.content.items.map((entry) => entry.id), [1, 2, 3], "a repeated entry is kept once");
   assert.equal(state.content.hasMore, false);
-  assert.deepEqual(bridge.calls.at(-1).args.session, { path: "C:\\MOHAA", engine: "original", game: "allied_assault" });
+  assert.deepEqual(calls("browse_catalogue").at(-1).args.session, { path: "C:\\MOHAA", engine: "original", game: "allied_assault" });
 });
 
 test("a search typed while the last one was loading wins, whichever answer arrives first", async () => {
@@ -81,7 +98,7 @@ test("a search typed while the last one was loading wins, whichever answer arriv
   held[0].resolve(page([1, 2, 3]));
   await settle();
   assert.deepEqual(state.content.items.map((entry) => entry.id), [7]);
-  assert.equal(bridge.calls.at(-1).args.search, "sniper");
+  assert.equal(calls("browse_catalogue").at(-1).args.search, "sniper");
 });
 
 test("a page that fails says why, and keeps nothing from the question before", async () => {
@@ -154,4 +171,88 @@ test("links out open moh-db in the default browser", () => {
   reset();
   controller.openLink("https://www.moh-db.com/maps/4301-snipertown");
   assert.deepEqual(bridge.opened, ["https://www.moh-db.com/maps/4301-snipertown"]);
+});
+
+test("Mods browse moh-db's mods, without the maps' mode", async () => {
+  reset();
+  bridge.results.browse_catalogue = () => page([9]);
+  controller.setMode("objective");
+  await settle();
+  assert.deepEqual(calls("browse_catalogue").at(-1).args.mode, "objective");
+  controller.setTab("mods");
+  controller.ensureLoaded();
+  await settle();
+  const asked = calls("browse_catalogue").at(-1).args;
+  assert.equal(asked.kind, "mod");
+  assert.equal(asked.mode, null);
+  assert.equal(state.content.totals.mods, 40);
+  assert.equal(state.content.totals.maps, null, "a filtered browse is not the listing's size");
+});
+
+test("Played now asks for the maps servers run, then searches and orders them here", async () => {
+  reset();
+  state.servers = [
+    { address: "a:1", server: { current_map: "dm/snipertown", occupancy: { clients_reported: 3 } } },
+    { address: "b:1", server: { current_map: "obj/obj_remagen", occupancy: { clients_reported: 9 } } },
+  ];
+  bridge.results.catalogue_played_now = () => [item(1, { map_key: "dm/snipertown" }), item(2, { map_key: "obj/obj_remagen" })];
+  controller.togglePlayedNow();
+  await settle();
+  assert.deepEqual(calls("catalogue_played_now")[0].args.maps, ["obj/obj_remagen", "dm/snipertown"]);
+  assert.equal(calls("catalogue_played_now")[0].args.fresh, false);
+  assert.equal(state.content.sort, "played");
+  controller.search("snip");
+  controller.setMode("deathmatch");
+  controller.setSort("name");
+  controller.ensureLoaded();
+  await settle();
+  assert.equal(calls("browse_catalogue").length, 0, "nothing more is asked of moh-db");
+  assert.equal(calls("catalogue_played_now").length, 1);
+  controller.refresh();
+  await settle();
+  assert.equal(calls("catalogue_played_now").at(-1).args.fresh, true);
+  controller.togglePlayedNow();
+  assert.equal(state.content.sort, "popular");
+});
+
+test("Remove takes an entry off Installed and makes it installable again", async () => {
+  reset();
+  bridge.results.installed_content = () => ({ items: [installedEntry(1), installedEntry(2)], total_size: 200 });
+  controller.setTab("installed");
+  await settle();
+  assert.equal(state.content.installed.selected, 1);
+  state.content.items = [item(1, { state: "installed" })];
+  bridge.results.remove_installed_item = ({ id }) => ({ id, state: "available" });
+  await controller.remove(state.content.installed.items[0]);
+  assert.deepEqual(state.content.installed.items.map((entry) => entry.id), [2]);
+  assert.equal(state.content.installed.totalSize, 100);
+  assert.equal(state.content.installed.selected, 2);
+  assert.equal(state.content.items[0].state, "available");
+});
+
+test("a refused removal keeps the entry and says why", async () => {
+  reset();
+  state.content.installed.items = [installedEntry(1)];
+  bridge.fail("remove_installed_item", "This file changed since Reveille installed it, so Reveille left it in place.");
+  await controller.remove(state.content.installed.items[0]);
+  assert.equal(state.content.installed.items.length, 1);
+  assert.match(state.content.installed.failures.get(1), /left it in place/);
+  assert.equal(state.content.installed.removing.size, 0);
+});
+
+test("Install and join joins once the map is installed, and not when the install fails", async () => {
+  reset();
+  const joined = [];
+  const row = { address: "a:1" };
+  bridge.results.install_catalogue_item = ({ id }) => ({ id, path: "map.pk3", state: "installed" });
+  await controller.installAndJoin(item(1), row, (target) => joined.push(target.address));
+  assert.deepEqual(joined, ["a:1"]);
+
+  await controller.installAndJoin(item(2, { state: "present" }), row, (target) => joined.push(target.address));
+  assert.equal(calls("install_catalogue_item").length, 1, "a map the game has joins without installing");
+  assert.deepEqual(joined, ["a:1", "a:1"]);
+
+  bridge.fail("install_catalogue_item", "download size 3 differs from published size 1000");
+  await controller.installAndJoin(item(3), row, (target) => joined.push(target.address));
+  assert.equal(joined.length, 2);
 });

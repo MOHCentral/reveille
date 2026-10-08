@@ -126,7 +126,12 @@ const join = joinView($("#detail-slot"), {
   onTogglePlayerAlert: intents.togglePlayerAlert,
 });
 const catalogue = contentController();
-const content = contentView({ controller: catalogue, onShowServer: showServer, onToggleDetail: toggleDetail });
+const content = contentView({
+  controller: catalogue,
+  onShowServer: showServer,
+  onJoinServer: joinServer,
+  onToggleDetail: toggleDetail,
+});
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {
     if (firstRun) trackEvent({ event: "first_run_completed", game: state.game, engine: state.engine });
@@ -334,6 +339,20 @@ function showServer(address) {
   showSection("servers");
   servers.selectScope("all");
   intents.select(address);
+}
+
+/**
+ * From a map's Running now list, once the map is installed: the server is asked again, so its join
+ * is judged against the folder the map just went into, and then joined as a double-click would.
+ */
+function joinServer(row) {
+  intents.openServer({
+    game: state.game,
+    address: row.address,
+    queryPort: Number(row.server.endpoint.query_port),
+    hostname: row.server.hostname,
+    join: true,
+  });
 }
 
 function toggleDetail() {

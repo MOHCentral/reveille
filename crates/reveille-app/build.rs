@@ -35,6 +35,9 @@ const COMMANDS: &[&str] = &[
     "catalogue_image",
     "install_catalogue_item",
     "cancel_catalogue_install",
+    "catalogue_played_now",
+    "installed_content",
+    "remove_installed_item",
     // alerts, notifications and the main window's side of the pop-up
     "read_watched_server",
     "game_client_running",

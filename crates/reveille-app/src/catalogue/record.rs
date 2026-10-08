@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use reveille_core::content::CatalogueKind;
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
@@ -16,6 +17,15 @@ pub const FILENAME: &str = "installed-content.json";
 pub struct InstalledItem {
     /// moh-db node identifier.
     pub id: u64,
+    /// Map or mod. Records written before mods could be installed hold maps only.
+    #[serde(default)]
+    pub kind: CatalogueKind,
+    /// The title moh-db gave it, so Installed can name it without asking moh-db again.
+    #[serde(default)]
+    pub title: String,
+    /// Its page on moh-db.
+    #[serde(default)]
+    pub page_url: Option<String>,
     /// The package's file name, as installed.
     pub filename: String,
     /// Where it was written.
@@ -65,6 +75,13 @@ impl InstallRecord {
         self.write(&RecordFile { v: 1, items })
     }
 
+    /// Forget the install written to `path`.
+    pub fn remove(&self, path: &Path) -> io::Result<()> {
+        let mut items = self.items();
+        items.retain(|known| known.path != path);
+        self.write(&RecordFile { v: 1, items })
+    }
+
     /// The recorded install of `id` whose file is still where it was written, if any.
     pub fn installed(items: &[InstalledItem], id: u64) -> Option<&InstalledItem> {
         items
@@ -100,6 +117,9 @@ mod tests {
     fn item(id: u64, path: std::path::PathBuf) -> InstalledItem {
         InstalledItem {
             id,
+            kind: reveille_core::content::CatalogueKind::Map,
+            title: "Snipertown".to_owned(),
+            page_url: None,
             filename: path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
@@ -142,6 +162,44 @@ mod tests {
         record.add(item(7, package)).expect("recorded");
 
         assert!(InstallRecord::installed(&record.items(), 7).is_none());
+    }
+
+    #[test]
+    fn a_removed_install_is_forgotten_and_the_others_kept() {
+        let data = TempDir::new().expect("data directory");
+        let game = TempDir::new().expect("game directory");
+        let record = InstallRecord::new(data.path());
+        record
+            .add(item(1, game.path().join("one.pk3")))
+            .expect("recorded");
+        record
+            .add(item(2, game.path().join("two.pk3")))
+            .expect("recorded");
+
+        record
+            .remove(&game.path().join("one.pk3"))
+            .expect("removed");
+
+        let ids = record
+            .items()
+            .iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        assert_eq!(ids, [2]);
+    }
+
+    #[test]
+    fn a_record_from_before_mods_reads_as_maps_with_no_title() {
+        let data = TempDir::new().expect("data directory");
+        fs::write(
+            data.path().join(FILENAME),
+            br#"{"v":1,"items":[{"id":7,"filename":"a.pk3","path":"a.pk3","sha256":"00","size":3,"installed_at":1}]}"#,
+        )
+        .expect("old record");
+
+        let items = InstallRecord::new(data.path()).items();
+        assert_eq!(items[0].kind, reveille_core::content::CatalogueKind::Map);
+        assert_eq!(items[0].title, "");
     }
 
     #[test]

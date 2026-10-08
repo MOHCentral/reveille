@@ -1,0 +1,74 @@
+{
+  "content": [
+    {
+      "vid": 43007,
+      "nid": 39755,
+      "title": "Allies American Flag Waving Avatar",
+      "modName": "Allies American Flag Waving Avatar",
+      "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/zzzzzz-AlliesFlagWaving_v1.pk3",
+      "file": {
+        "id": 33564,
+        "filename": "zzzzzz-AlliesFlagWaving_v1.pk3",
+        "filesize": 2789,
+        "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/zzzzzz-AlliesFlagWaving_v1.pk3"
+      },
+      "pk3File": null,
+      "pk3DownloadLink": null,
+      "typeOfMod": "Avatar",
+      "shortDescription": null,
+      "modDescription": "This avatar replaces the stock Allies avatar.\r\n\r\nInstallation: Place .pk3 file into your MOHAA Main folder.",
+      "modInstall": null,
+      "modCreator": "Dizzle813",
+      "modRequires": null,
+      "modVersion": "v1.0",
+      "gameType": "MOHAA",
+      "images": ["https://storage.moh-db.com/MOHAA-MODS/allies4SS3.png"],
+      "downloads": 16,
+      "added": 1787154205,
+      "rating": 0.0
+    },
+    {
+      "vid": 40001,
+      "nid": 38000,
+      "title": "MOHAA for Windows 8 Patch",
+      "modName": "MOHAA for Windows 8 Patch",
+      "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/mohaa_win8_patch.zip",
+      "file": {
+        "filename": "mohaa_win8_patch.zip",
+        "filesize": 51200,
+        "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/mohaa_win8_patch.zip"
+      },
+      "typeOfMod": "Patches and Cracks",
+      "shortDescription": "<p>Runs MOHAA on Windows 8.</p>",
+      "modDescription": "A long description.",
+      "modInstall": "Copy opengl32.dll next to MOHAA.exe.<br>Not into <b>main</b>.",
+      "modCreator": "Doughboy",
+      "gameType": "MOHAA",
+      "images": [],
+      "downloads": 9000,
+      "added": 1300000000
+    },
+    {
+      "vid": 40002,
+      "nid": 38001,
+      "title": "Skin Pack",
+      "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/skins.zip",
+      "file": {
+        "filename": "skins.zip",
+        "filesize": 900000,
+        "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/skins.zip"
+      },
+      "pk3File": {
+        "filename": "skins.pk3",
+        "filesize": 880000,
+        "downloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/skins.pk3"
+      },
+      "pk3DownloadLink": "https://storage.moh-db.com/MOHAA-MOD-FILE/skins.pk3",
+      "typeOfMod": "Player Skins",
+      "gameType": "MOHAA",
+      "downloads": 120
+    }
+  ],
+  "totalElements": 1676,
+  "last": false
+}

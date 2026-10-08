@@ -4,7 +4,8 @@
 
 use std::time::Duration;
 
-use reveille_core::content::{CatalogueQuery, CatalogueSort, MohDbClient};
+use reveille_core::content::{CatalogueKind, CatalogueQuery, CatalogueSort, MapMode, MohDbClient};
+use reveille_core::discovery::TargetGame;
 
 #[tokio::test]
 #[ignore = "requires the live third-party moh-db catalogue"]
@@ -45,19 +46,57 @@ async fn live_browse_accepts_every_sort_order() {
     let Ok(client) = MohDbClient::new(Duration::from_secs(15)) else {
         return;
     };
-    for sort in [
-        CatalogueSort::Popular,
-        CatalogueSort::Newest,
-        CatalogueSort::Name,
-    ] {
-        let query = CatalogueQuery {
-            sort,
-            ..CatalogueQuery::default()
-        };
-        let page = client
-            .browse(&query)
-            .await
-            .unwrap_or_else(|error| panic!("moh-db sorts by {sort:?}: {error}"));
-        assert!(!page.entries.is_empty(), "{sort:?} returned no maps");
+    for kind in [CatalogueKind::Map, CatalogueKind::Mod] {
+        for sort in [
+            CatalogueSort::Popular,
+            CatalogueSort::Newest,
+            CatalogueSort::Name,
+        ] {
+            let query = CatalogueQuery {
+                kind,
+                sort,
+                ..CatalogueQuery::default()
+            };
+            let page = client
+                .browse(&query)
+                .await
+                .unwrap_or_else(|error| panic!("moh-db sorts {kind:?} by {sort:?}: {error}"));
+            assert!(
+                !page.entries.is_empty(),
+                "{kind:?} by {sort:?} returned nothing"
+            );
+        }
     }
+}
+
+#[tokio::test]
+#[ignore = "requires the live third-party moh-db catalogue"]
+async fn live_browse_filters_maps_by_mode_and_mods_by_game() {
+    let Ok(client) = MohDbClient::new(Duration::from_secs(15)) else {
+        return;
+    };
+    let objective = client
+        .browse(&CatalogueQuery {
+            mode: Some(MapMode::Objective),
+            ..CatalogueQuery::default()
+        })
+        .await
+        .expect("moh-db filters maps by mode");
+    assert!(
+        objective
+            .entries
+            .iter()
+            .filter_map(|entry| entry.map_name.as_deref())
+            .all(|name| name.to_ascii_lowercase().contains("obj/")),
+        "a map outside obj/ came back"
+    );
+    let mods = client
+        .browse(&CatalogueQuery {
+            kind: CatalogueKind::Mod,
+            game: Some(TargetGame::Spearhead),
+            ..CatalogueQuery::default()
+        })
+        .await
+        .expect("moh-db lists Spearhead mods");
+    assert!(!mods.entries.is_empty(), "no Spearhead mods listed");
 }

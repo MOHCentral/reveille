@@ -2,7 +2,7 @@
 
 import { GAMES } from "../../ui/lib/catalog.js";
 import { INSTALL, browsePayload } from "./fixture.js";
-import { cataloguePage, catalogueScreenshot } from "./catalogue.js";
+import { cataloguePage, catalogueScreenshot, installedPayload, playedNow } from "./catalogue.js";
 
 const SHELL = new URL("../../ui/", import.meta.url);
 const params = new URLSearchParams(location.search);
@@ -53,11 +53,14 @@ const RESULTS = {
     non_result: { stage: "status", reason: "timeout" },
   }),
   // ?downloading=4301 leaves that map's install running at 62%, so its progress shows.
-  browse_catalogue: () => cataloguePage(),
+  browse_catalogue: ({ kind }) => cataloguePage(kind),
+  catalogue_played_now: ({ maps }) => playedNow(maps),
+  installed_content: () => installedPayload(),
+  remove_installed_item: ({ id }) => ({ id, state: "available" }),
   catalogue_image: ({ id, index }) => catalogueScreenshot(id, index),
   install_catalogue_item: ({ id, onProgress }) =>
     new Promise((resolve) => {
-      const total = cataloguePage().entries.find((item) => item.id === id)?.file?.size ?? 1;
+      const total = [...cataloguePage("map").entries, ...cataloguePage("mod").entries].find((item) => item.id === id)?.file?.size ?? 1;
       if (Number(params.get("downloading")) === id) {
         onProgress.onmessage({ phase: "downloading", received: Math.round(total * 0.62), total });
         return;
@@ -190,4 +193,12 @@ if (params.get("section")) {
   const rail = () => document.querySelector(`.rail__item[data-section="${params.get("section")}"]`);
   while (!rail()) await new Promise((resolve) => setTimeout(resolve, 50));
   rail().click();
+  // ?tab=mods or ?tab=installed picks that tab; ?played=1 turns Played now on.
+  const tab = params.get("tab");
+  if (tab) document.querySelector(`.content-tabs [data-tab="${tab}"]`)?.click();
+  if (params.get("played")) {
+    // Played now is about the servers listed, so wait for the sweep to fill the list.
+    while (!document.querySelector("tr[data-address]")) await new Promise((resolve) => setTimeout(resolve, 50));
+    document.querySelector('[data-focus-key="content-played"]')?.click();
+  }
 }
