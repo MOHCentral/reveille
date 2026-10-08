@@ -2,6 +2,7 @@
 
 import { GAMES } from "../../ui/lib/catalog.js";
 import { INSTALL, browsePayload } from "./fixture.js";
+import { adminCommands } from "./admin.js";
 import { cataloguePage, catalogueScreenshot, installedPayload, playedNow } from "./catalogue.js";
 
 const SHELL = new URL("../../ui/", import.meta.url);
@@ -75,6 +76,8 @@ const RESULTS = {
         }
       }, 250);
     }),
+  // ?admin=2 adds two servers to Admin; ?adminfail=needs_password fails the first one's status.
+  ...adminCommands({ count: Number(params.get("admin") ?? 0), failure: params.get("adminfail") }),
   // The monitor sees what the list saw, so Watching can be compared with it.
   read_watched_server: ({ address }) => {
     const server = browsePayload().servers.find((row) => row.address === address)?.server;

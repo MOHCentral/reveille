@@ -30,6 +30,7 @@
     "servers",
     "join",
     "catalogue",
+    "admin",
     "alerts",
     "shell",
     "self-update",

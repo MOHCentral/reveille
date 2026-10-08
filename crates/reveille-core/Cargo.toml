@@ -19,11 +19,13 @@ tempfile.workspace = true
 tokio.workspace = true
 walkdir.workspace = true
 zip.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winreg.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 

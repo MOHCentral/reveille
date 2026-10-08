@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "admin"
+description = "Add servers the player runs, read their status and send them remote console commands."
+permissions = [
+  "allow-admin-servers",
+  "allow-add-admin-server",
+  "allow-remove-admin-server",
+  "allow-admin-status",
+  "allow-admin-action",
+]

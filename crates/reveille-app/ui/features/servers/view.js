@@ -165,6 +165,8 @@ export function serversView({
   onGame,
   onToggleWatch,
   onToggleDetail,
+  onRunServer,
+  runsServer,
 }) {
   const search = el("input", {
     id: "server-search",
@@ -310,7 +312,7 @@ export function serversView({
     el("span", { className: "toolbar__spacer" }),
     actionSlot,
   );
-  const menuActions = { onSelect, onActivate, onCheck, onToggleWatch };
+  const menuActions = { onSelect, onActivate, onCheck, onToggleWatch, onRunServer, runsServer };
   const tbody = el("tbody", {
     onkeydown: (event) => {
       // Shift+F10 and the Menu key are how a keyboard opens a context menu on Windows. Without
@@ -1725,7 +1727,7 @@ function onRowKey(event, onSelect, onActivate) {
  * Every entry here duplicates something already reachable another way. A context menu that is the
  * only route to an action is a trap for anyone who does not think to right-click.
  */
-function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch }) {
+function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch, onRunServer, runsServer }) {
   const tr = event.target.closest("tr[data-address], tr[data-remembered]");
   if (!tr) return;
   const address = tr.dataset.address ?? tr.dataset.remembered;
@@ -1768,6 +1770,10 @@ function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch 
         label: watched ? "Stop watching" : "Watch for players",
         hint: "W",
         onSelect: () => void onToggleWatch(live),
+      },
+      subject && {
+        label: runsServer(address) ? "Open in Admin" : "I run this server…",
+        onSelect: () => onRunServer(address, subject.server?.hostname ?? subject.hostname ?? null),
       },
       {
         label: "Copy address",

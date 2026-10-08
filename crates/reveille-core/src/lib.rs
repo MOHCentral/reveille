@@ -30,3 +30,4 @@ pub mod join;
 pub mod mapindex;
 pub mod platform;
 pub mod preflight;
+pub mod rcon;

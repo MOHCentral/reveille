@@ -36,6 +36,11 @@ export function sections() {
   return registry.filter((section) => section.visible?.() ?? true);
 }
 
+/** Every registered section, shown or not, so a section hidden while on screen is put away too. */
+export function registeredSections() {
+  return [...registry];
+}
+
 /** The section on screen, falling back to the first when the remembered one is hidden. */
 export function activeSection() {
   const shown = sections();

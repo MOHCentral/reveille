@@ -38,6 +38,12 @@ const COMMANDS: &[&str] = &[
     "catalogue_played_now",
     "installed_content",
     "remove_installed_item",
+    // admin
+    "admin_servers",
+    "add_admin_server",
+    "remove_admin_server",
+    "admin_status",
+    "admin_action",
     // alerts, notifications and the main window's side of the pop-up
     "read_watched_server",
     "game_client_running",

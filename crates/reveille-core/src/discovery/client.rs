@@ -499,7 +499,7 @@ fn merge_players(roster: Vec<Player>, mut scored: Vec<Player>) -> Vec<Player> {
         .collect()
 }
 
-fn is_openmohaa_version(version: &str) -> bool {
+pub(crate) fn is_openmohaa_version(version: &str) -> bool {
     let version = version.to_ascii_lowercase();
     // OpenMoHAA builds use either the project name or the OPM marker in serverinfo.
     version.contains("openmohaa") || version.contains("(opm)")
