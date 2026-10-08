@@ -20,7 +20,6 @@ composeState([initial()]);
 const reselected = [];
 const sweep = browse({ onReselect: (address) => reselected.push(address) });
 
-const EVENT = "reveille://browse";
 const INSTALL = { root: "C:/Games/MOHAA" };
 
 function row(address, extra = {}) {
@@ -76,7 +75,8 @@ test("a sweep records the session its rows were swept for before any row arrives
   const held = holdSweep();
   const done = sweep.refresh();
   assert.deepEqual(state.listSession, thisSession());
-  assert.deepEqual(bridge.calls.at(-1), { command: "browse_servers", args: { session: thisSession() } });
+  assert.equal(bridge.calls.at(-1).command, "browse_servers");
+  assert.deepEqual(bridge.calls.at(-1).args.session, thisSession());
   held.reject({ kind: "offline", detail: "no route" });
   await done;
   assert.deepEqual(state.listSession, thisSession(), "a failed sweep still says what it asked");
@@ -119,7 +119,7 @@ test("rows that streamed in before a failure stand as the sweep's own", async ()
   reset({ servers: [row("10.0.0.1:12203")], sweptFor: thisSession() });
   const held = holdSweep();
   const done = sweep.refresh();
-  bridge.emit(EVENT, { registered: 3, inspected: 1, probed: 1, answered: 1, non_results: 0, row: row("10.0.0.2:12203") });
+  bridge.send("browse_servers", { registered: 3, inspected: 1, probed: 1, answered: 1, non_results: 0, row: row("10.0.0.2:12203") });
   held.reject({ kind: "offline", detail: "no route" });
   await done;
   assert.deepEqual(state.servers.map((entry) => entry.address), ["10.0.0.2:12203"]);
@@ -132,13 +132,24 @@ test("a sweep behind the list keeps its rows on screen until it finishes", async
   state.selected = "10.0.0.1:12203";
   const held = holdSweep();
   const done = sweep.refreshBehind();
-  bridge.emit(EVENT, { registered: 3, inspected: 1, probed: 1, answered: 1, non_results: 0, row: row("10.0.0.2:12203") });
+  bridge.send("browse_servers", { registered: 3, inspected: 1, probed: 1, answered: 1, non_results: 0, row: row("10.0.0.2:12203") });
   assert.equal(state.servers, before, "streamed rows do not replace what the player is reading");
   assert.equal(state.browse.probed, 1);
   held.resolve(payload([row("10.0.0.1:12203", { map: "obj/obj_team1" })]));
   await done;
   assert.equal(state.servers[0].server.current_map, "obj/obj_team1");
   assert.deepEqual(reselected, ["10.0.0.1:12203"], "the pane re-asks when the selected map changed");
+});
+
+test("progress that arrives after its sweep settled changes nothing", async () => {
+  reset();
+  const held = holdSweep();
+  const done = sweep.refresh();
+  held.resolve(payload([row("10.0.0.1:12203")]));
+  await done;
+  bridge.send("browse_servers", { registered: 9, inspected: 9, probed: 9, answered: 9, non_results: 0, row: row("10.0.0.9:12203") });
+  assert.deepEqual(state.servers.map((entry) => entry.address), ["10.0.0.1:12203"]);
+  assert.equal(state.browse.probed, 0);
 });
 
 test("stopping asks the sweep to cancel, and finished() resolves once it has", async () => {

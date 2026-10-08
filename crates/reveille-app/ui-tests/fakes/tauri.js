@@ -6,6 +6,13 @@
 // importing the modules it exercises. Node caches an ES module per process, which is why per-test
 // state lives in the bridge — `calls`, `listeners` — and is reset there.
 
+/** Stands in for `window.__TAURI__.core.Channel`: Rust's side is played by `bridge.send`. */
+class Channel {
+  constructor(onmessage) {
+    this.onmessage = onmessage ?? (() => {});
+  }
+}
+
 /**
  * Install a recording bridge on `globalThis.window` and return it.
  *
@@ -26,6 +33,14 @@ export function installTauri(results = {}) {
 
     /** What the next `invoke` of each command resolves to. Mutable between tests. */
     results: { ...results },
+
+    /** Send `message` down the channel the latest `invoke` of `command` was given, as Rust would. */
+    send(command, message) {
+      const call = bridge.calls.findLast((entry) => entry.command === command);
+      const channel = Object.values(call?.args ?? {}).find((value) => value instanceof Channel);
+      if (!channel) throw new Error(`${command} was not given a channel`);
+      channel.onmessage(message);
+    },
 
     /** Deliver an event as Tauri would, wrapped in its envelope. */
     emit(channel, payload) {
@@ -49,6 +64,7 @@ export function installTauri(results = {}) {
   globalThis.window = {
     __TAURI__: {
       core: {
+        Channel,
         invoke(command, args) {
           bridge.calls.push({ command, args });
           const result = bridge.results[command];

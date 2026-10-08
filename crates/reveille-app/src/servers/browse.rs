@@ -7,7 +7,7 @@ use reveille_core::discovery::{
 };
 use reveille_core::mapindex::MapIndex;
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::ipc::Channel;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -15,8 +15,6 @@ use super::failure::BrowseFailure;
 use super::{BrowserServer, ListTicket, Listing, PROBE_TIMEOUT, classified};
 use crate::session::{Session, installed_maps};
 use crate::telemetry::{Event, Telemetry};
-
-pub const EVENT: &str = "reveille://browse";
 
 #[derive(Serialize)]
 pub struct BrowserPayload {
@@ -57,15 +55,21 @@ pub fn cancel_browse(state: tauri::State<'_, Listing>) {
     state.cancel.notify_one();
 }
 
+/// Sweep the master list for `session`'s game, streaming progress over `on_progress`.
+///
+/// The channel belongs to this call alone. A message that cannot be delivered is dropped rather
+/// than ending the sweep, which still rebuilds the list joins are prepared against. Stopping stays
+/// with `cancel_browse`, because a channel only flows towards the frontend. The stream ends when
+/// the command returns, and the returned payload supersedes everything it carried.
 #[tauri::command]
 pub async fn browse_servers(
     session: Session,
-    app: tauri::AppHandle,
+    on_progress: Channel<BrowseProgress>,
     state: tauri::State<'_, Listing>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<BrowserPayload, BrowseFailure> {
     let (game, engine) = (session.game, session.engine);
-    let result = sweep_servers(session, app, state).await;
+    let result = sweep_servers(session, &on_progress, state).await;
     telemetry.track(&match &result {
         Ok(payload) => Event::ServerListLoaded {
             game,
@@ -84,7 +88,7 @@ pub async fn browse_servers(
 
 async fn sweep_servers(
     session: Session,
-    app: tauri::AppHandle,
+    on_progress: &Channel<BrowseProgress>,
     state: tauri::State<'_, Listing>,
 ) -> Result<BrowserPayload, BrowseFailure> {
     info!(game = ?session.game, "starting server browse");
@@ -110,7 +114,7 @@ async fn sweep_servers(
         sink,
     ));
 
-    let cancelled = stream_sweep(&app, &state, ticket, &index, &mut events).await?;
+    let cancelled = stream_sweep(on_progress, &state, ticket, &index, &mut events).await?;
     // Dropping the receiver is what stops the sweep. It returns what it already inspected.
     drop(events);
 
@@ -167,7 +171,7 @@ async fn sweep_servers(
 ///
 /// Returns whether the sweep was stopped early.
 async fn stream_sweep(
-    app: &tauri::AppHandle,
+    on_progress: &Channel<BrowseProgress>,
     state: &tauri::State<'_, Listing>,
     ticket: ListTicket,
     index: &MapIndex,
@@ -216,8 +220,7 @@ async fn stream_sweep(
                 }
             }
         }
-        // A frontend that stopped listening is not an error; the sweep result is still worth having.
-        drop(app.emit(EVENT, progress.clone()));
+        drop(on_progress.send(progress.clone()));
     }
 }
 

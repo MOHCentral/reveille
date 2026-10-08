@@ -2,7 +2,7 @@
 
 // Commands: crates/reveille-app/src/servers/. Each takes the `Session` from `lib/session.js`.
 
-import { errorText, invoke, listen } from "../../lib/bridge.js";
+import { errorText, invoke, invokeWithChannel } from "../../lib/bridge.js";
 
 /** @typedef {import("../../lib/session.js").Session} Session */
 /** @typedef {import("../../lib/catalog.js").GameId} GameId */
@@ -83,7 +83,8 @@ import { errorText, invoke, listen } from "../../lib/bridge.js";
  */
 
 /**
- * Running counts for the `reveille://browse` event. `row` is the server that just answered.
+ * Running counts streamed over `browse_servers`'s `onProgress` channel. `row` is the server that
+ * just answered.
  *
  * @typedef {object} BrowseProgress
  * @property {number} registered
@@ -102,10 +103,14 @@ import { errorText, invoke, listen } from "../../lib/bridge.js";
 /** @typedef {{ kind: BrowseFailureKind, detail: string }} BrowseFailure */
 
 /**
+ * `onProgress` hears this sweep only, and nothing after it settles.
+ *
  * @param {Session} session
+ * @param {(progress: BrowseProgress) => void} onProgress
  * @returns {Promise<BrowserPayload>} Rejects with a `BrowseFailure`; read it with `browseFailure`.
  */
-export const browseServers = (session) => invoke("browse_servers", { session });
+export const browseServers = (session, onProgress) =>
+  invokeWithChannel("browse_servers", { session }, "onProgress", onProgress);
 
 /** @returns {Promise<void>} */
 export const cancelBrowse = () => invoke("cancel_browse");
@@ -122,9 +127,6 @@ export const cancelBrowse = () => invoke("cancel_browse");
  */
 export const checkServer = (session, address, queryPort) =>
   invoke("check_server", { session, address, queryPort });
-
-/** @param {(progress: BrowseProgress) => void} handler */
-export const onBrowseProgress = (handler) => listen("reveille://browse", handler);
 
 /**
  * `browse_servers` is the one command that rejects with a classified failure rather than a string.

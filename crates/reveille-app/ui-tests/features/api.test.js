@@ -127,15 +127,14 @@ test("detect_install sends null rather than omitting the argument", async () => 
 
 test("event handlers receive the payload, never the Tauri envelope", async () => {
   const seen = [];
-  await api.onBrowseProgress((payload) => seen.push(payload));
-  bridge.emit("reveille://browse", { registered: 190, probed: 12 });
+  await api.onPreviewProgress((payload) => seen.push(payload));
+  bridge.emit("reveille://preview", { address: "10.0.0.1:12203", index: 1, of: 3 });
   // No view should ever have to know an event arrives wrapped.
-  assert.deepEqual(seen, [{ registered: 190, probed: 12 }]);
+  assert.deepEqual(seen, [{ address: "10.0.0.1:12203", index: 1, of: 3 }]);
 });
 
 test("each subscriber listens on the channel Rust emits", async () => {
   const channels = [
-    [api.onBrowseProgress, "reveille://browse"],
     [api.onPreviewProgress, "reveille://preview"],
     [api.onInstallProgress, "reveille://install"],
     [api.onOpenMohaaInstallProgress, "reveille://openmohaa-install"],
@@ -147,6 +146,17 @@ test("each subscriber listens on the channel Rust emits", async () => {
     await subscribe(() => {});
     assert.ok(bridge.listeners.has(channel), `${channel} is subscribed`);
   }
+});
+
+test("browse progress arrives over a channel handed to browse_servers itself", async () => {
+  const seen = [];
+  bridge.results.browse_servers = () => {
+    bridge.send("browse_servers", { registered: 190, probed: 12 });
+    return "swept";
+  };
+  assert.equal(await api.browseServers(SESSION, (progress) => seen.push(progress)), "swept");
+  assert.deepEqual(bridge.calls[0].args.session, SESSION);
+  assert.deepEqual(seen, [{ registered: 190, probed: 12 }]);
 });
 
 /* The scoped opener ---------------------------------------------------------*/
