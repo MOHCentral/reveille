@@ -116,9 +116,10 @@ if (section === "maps") {
       <td class="c-action">${action(kind)}</td></tr>`)
     .join("")}</tbody></table></div>`;
   detail.innerHTML = `<div class="detail-pane__scroll">
-    <div class="pane-block"><div class="preview">Screenshot from moh-db</div>
+    <div class="pane-block"><div class="preview"><span>1 of 6 screenshots</span></div>
       <h2 class="display pane-title">Snipertown</h2>
-      <div class="pane-sub">Custom map by Dr. Fragg · dm/snipertown</div></div>
+      <div class="pane-sub">Custom map by <a class="ext-link" href="#">Dr. Fragg</a> · dm/snipertown</div>
+      <a class="ext-link moh-db-more" href="#" title="Opens moh-db.com in your browser">More screenshots, versions and comments on moh-db ↗</a></div>
     <dl class="facts" style="padding:var(--space-4) var(--space-5)">
       <div class="fact"><dt>Size</dt><dd>14.2 MB</dd></div>
       <div class="fact"><dt>Files</dt><dd>2 .pk3</dd></div>
@@ -129,7 +130,7 @@ if (section === "maps") {
       <div class="mini-list"><div class="mini-row"><span class="truncate">&lt;[TFC]&gt; The Fallen Company</span><span class="data">6/20 · 38 ms</span><button class="btn btn--sm">Install and join</button></div></div></div>
     <div class="pane-block"><p class="pane-text">A sniper town in the hills: rooftops, a bell tower and one long main street. Built for 8 to 20 players.</p></div>
   </div>`;
-  status.innerHTML = `<span><strong>1,326</strong> on moh-db</span><span><strong>37</strong> installed</span><span><strong>1</strong> downloading</span><span class="statusbar__spacer"></span><span>412 MB used by custom maps</span>`;
+  status.innerHTML = `<a class="ext-link statusbar__source" href="#" title="Opens moh-db.com in your browser">Maps and mods from moh-db.com ↗</a><span><strong>1,326</strong> available</span><span><strong>37</strong> installed</span><span><strong>1</strong> downloading</span><span class="statusbar__spacer"></span><span>412 MB used by custom maps</span>`;
 }
 
 if (section === "admin") {

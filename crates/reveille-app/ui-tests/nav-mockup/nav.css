@@ -156,3 +156,12 @@
 .card__live { margin-top: 6px; font-size: var(--text-sm); }
 .card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: 10px; min-height: 28px; }
 .card__foot .row-progress { width: 110px; }
+
+/* moh-db credit and links out --------------------------------------------- */
+.ext-link {
+  color: var(--brass); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--brass) 45%, transparent);
+  text-underline-offset: 3px; cursor: pointer;
+}
+.ext-link:hover { text-decoration-color: var(--brass); }
+.moh-db-more { display: inline-block; margin-top: var(--space-2); font-size: var(--text-sm); }
+.statusbar .statusbar__source { font-family: var(--face-ui); font-size: var(--text-sm); }
