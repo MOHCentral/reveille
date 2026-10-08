@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="features/servers/servers.css" />
     <link rel="stylesheet" href="features/join/join.css" />
     <link rel="stylesheet" href="features/setup/setup.css" />
+    <link rel="stylesheet" href="features/content/content.css" />
     <link rel="stylesheet" href="styles/responsive.css" />
   </head>
   <body>
@@ -39,7 +40,6 @@
         >
           <span id="arrival-unread" class="arrival-unread hidden"></span>
         </button>
-        <button type="button" id="settings-btn" class="titlebar__icon" aria-label="Settings" title="Settings"></button>
         <button
           type="button"
           id="more-btn"
@@ -49,6 +49,9 @@
           title="More"
         ></button>
       </header>
+
+      <!-- Filled by lib/rail.js: one button per registered section, Settings at the foot. -->
+      <nav class="rail" id="rail" aria-label="Sections"></nav>
 
       <div id="toolbar-slot"></div>
 

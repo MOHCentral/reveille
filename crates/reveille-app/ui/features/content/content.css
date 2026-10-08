@@ -1,0 +1,389 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+
+/* Maps & mods: cards, list rows, the map's pane and the links out to moh-db. */
+
+.layout-switch .scope__option {
+  padding: 5px 8px;
+}
+
+.toolbar--content .toolbar__action {
+  gap: var(--space-2);
+}
+
+.catalogue:focus-visible,
+.card:focus-visible,
+.catalogue-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* A plain tile carrying the map name stands in until a screenshot arrives, or when moh-db has none. */
+.thumb {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2a3330 0 45%, #1d2421 46%);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb__name {
+  position: absolute;
+  inset: auto 8px 6px;
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-name {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-name);
+}
+
+.item-sub {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.live {
+  color: var(--ink);
+}
+
+.live .ping-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.state-note {
+  color: var(--dim);
+  font-size: var(--text-sm);
+}
+
+.state-note--installed {
+  color: var(--ok-text);
+}
+
+.row-progress {
+  display: grid;
+  gap: 4px;
+  width: 130px;
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  color: var(--dim);
+}
+
+.row-progress__head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.row-progress__cancel {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+}
+
+.row-progress__cancel:hover {
+  color: var(--ink);
+}
+
+.btn--retry {
+  border-color: var(--bad);
+}
+
+/* Cards -------------------------------------------------------------------- */
+
+.catalogue--cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  overflow: hidden;
+  cursor: default;
+}
+
+.card:hover {
+  border-color: var(--line-strong);
+}
+
+.card[aria-selected="true"] {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 1px var(--brass);
+}
+
+.card__thumb {
+  aspect-ratio: 16 / 9;
+}
+
+.card__body {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 10px 12px 12px;
+  min-width: 0;
+}
+
+.card__body .item-name,
+.card__body .item-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card__live {
+  margin-top: 6px;
+  font-size: var(--text-sm);
+}
+
+.card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: 10px;
+  min-height: 28px;
+}
+
+.card__foot .row-progress {
+  width: 120px;
+}
+
+.item-action--pane {
+  flex: 1;
+}
+
+.item-action--pane .row-progress {
+  width: 100%;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.item-action--pane .row-progress__head {
+  align-items: center;
+}
+
+/* List --------------------------------------------------------------------- */
+
+.catalogue-head,
+.catalogue-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 80px minmax(0, 0.8fr) 140px;
+  align-items: center;
+  gap: var(--space-3);
+  height: 46px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  cursor: default;
+}
+
+.catalogue-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  align-items: center;
+  gap: var(--space-3);
+  height: 32px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--face-display);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.catalogue-head__num {
+  text-align: right;
+}
+
+.catalogue-row:hover {
+  background: var(--panel);
+}
+
+.catalogue-row[aria-selected="true"] {
+  background: var(--rise);
+  box-shadow: inset 3px 0 0 var(--brass);
+}
+
+.catalogue-row__thumb {
+  width: 56px;
+  height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+}
+
+.catalogue-row__thumb .thumb__name {
+  display: none;
+}
+
+.catalogue-row__name,
+.catalogue-row__live {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalogue-row__name .item-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catalogue-row__size {
+  text-align: right;
+}
+
+.catalogue-row__live {
+  font-size: var(--text-sm);
+}
+
+.catalogue__after {
+  display: grid;
+  justify-items: center;
+  padding: 0 var(--space-4) var(--space-5);
+}
+
+.catalogue--list + .catalogue__after {
+  padding-top: var(--space-4);
+}
+
+.catalogue__loading {
+  padding: var(--space-4);
+}
+
+/* Detail pane -------------------------------------------------------------- */
+
+.preview {
+  height: 170px;
+  background: linear-gradient(170deg, #3a4542 0 40%, #232b28 41%);
+}
+
+.preview .thumb__name {
+  inset: auto var(--space-4) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.preview__nav {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: linear-gradient(180deg, rgb(0 0 0 / 0%), rgb(0 0 0 / 60%));
+  color: rgb(255 255 255 / 80%);
+  font-size: var(--text-xs);
+}
+
+.preview__step {
+  width: 26px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgb(9 11 14 / 55%);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.preview__step:hover {
+  background: rgb(9 11 14 / 85%);
+}
+
+.pane-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  color: var(--ink);
+}
+
+.pane-sub {
+  color: var(--dim);
+  font-size: var(--text-sm);
+}
+
+.pane-text {
+  margin: 0;
+  color: var(--dim);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.mini-list {
+  display: grid;
+  gap: 2px;
+}
+
+.mini-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 4px 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.mini-row .data {
+  color: var(--dim);
+  font-size: var(--text-xs);
+}
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Links out of the app: brass and underlined, with the hand cursor only links get. */
+.ext-link {
+  color: var(--brass);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brass) 45%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ext-link:hover {
+  text-decoration-color: var(--brass);
+}
+
+.content-head .ext-link {
+  justify-self: start;
+  font-size: var(--text-sm);
+}
+
+.statusbar .statusbar__source {
+  font-family: var(--face-ui);
+  font-size: var(--text-sm);
+}

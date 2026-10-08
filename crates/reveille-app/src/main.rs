@@ -28,6 +28,7 @@ mod app_icon;
 mod autostart;
 #[cfg(test)]
 mod catalog_contract;
+mod catalogue;
 #[cfg(test)]
 mod command_acl;
 mod engines;
@@ -89,6 +90,7 @@ fn main() {
             engines::register(app);
             servers::register(app);
             join::register(app);
+            catalogue::register(app);
             self_update::register(app);
             Ok(())
         })
@@ -118,6 +120,11 @@ fn main() {
             join::preview_join,
             join::content::install_server_files,
             join::install_and_launch,
+            // catalogue
+            catalogue::browse_catalogue,
+            catalogue::catalogue_image,
+            catalogue::install_catalogue_item,
+            catalogue::cancel_catalogue_install,
             // alerts
             alerts::read_watched_server,
             alerts::game_client_running,

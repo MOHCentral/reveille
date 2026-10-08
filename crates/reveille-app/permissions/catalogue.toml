@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "catalogue"
+description = "Browse moh-db's maps, show their screenshots and install one at a time."
+permissions = [
+  "allow-browse-catalogue",
+  "allow-catalogue-image",
+  "allow-install-catalogue-item",
+  "allow-cancel-catalogue-install",
+]

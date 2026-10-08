@@ -99,3 +99,103 @@
   line-height: 15px;
   font-weight: 700;
 }
+
+/* Section rail -------------------------------------------------------------- */
+
+/* The rail takes the first column under the titlebar; every other region keeps the second. */
+.shell {
+  grid-template-columns: 68px minmax(0, 1fr);
+}
+
+.shell > .titlebar {
+  grid-column: 1 / -1;
+}
+
+.shell > :not(.titlebar):not(.rail) {
+  grid-column: 2;
+}
+
+.rail {
+  grid-column: 1;
+  grid-row: 2 / 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) 6px;
+  background: var(--void);
+  border-right: 1px solid var(--line);
+}
+
+.rail__spacer {
+  flex: 1;
+}
+
+.rail__item {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 9px 0 7px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.rail__item .icon {
+  width: 19px;
+  height: 19px;
+  color: var(--faint);
+}
+
+.rail__item:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.rail__item[aria-current="page"] {
+  color: var(--ink);
+  background: var(--rise);
+}
+
+.rail__item[aria-current="page"] .icon {
+  color: var(--brass);
+}
+
+.rail__item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--brass);
+}
+
+.rail__label {
+  max-width: 56px;
+  white-space: pre-line;
+}
+
+/* A download in a section the player is not looking at stays visible as a thin brass line. */
+.rail__progress {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.rail__progress > span {
+  display: block;
+  height: 100%;
+  background: var(--brass);
+}

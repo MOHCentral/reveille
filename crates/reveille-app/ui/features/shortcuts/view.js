@@ -30,6 +30,7 @@ export const SHORTCUTS = [
   {
     heading: "Window",
     keys: [
+      [["Ctrl", "Shift", "1…2"], "Switch section: Servers, Maps & mods"],
       [["Ctrl", "1…4"], "Switch view"],
       [["Ctrl", "D"], "Show or hide server details"],
       [["F6"], "Jump between list, toolbar and details"],

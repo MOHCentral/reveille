@@ -74,6 +74,8 @@ pub enum DownloadSource {
     ServerFiles,
     /// Maps matched in the third-party catalogue.
     Catalogue,
+    /// A map installed from Maps & mods, outside any join.
+    Browse,
 }
 
 /// Why a join did not end with the game starting. Low-cardinality on purpose: the player still

@@ -19,6 +19,9 @@
         },
         {
           "url": "https://github.com/MOHCentral/reveille/blob/main/README.md#telemetry"
+        },
+        {
+          "url": "https://www.moh-db.com/*"
         }
       ]
     },
@@ -26,6 +29,7 @@
     "engines",
     "servers",
     "join",
+    "catalogue",
     "alerts",
     "shell",
     "self-update",
