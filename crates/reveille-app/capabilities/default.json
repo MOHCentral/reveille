@@ -27,7 +27,6 @@
     "servers",
     "join",
     "alerts",
-    "alert-popup",
     "shell",
     "self-update",
     "telemetry"

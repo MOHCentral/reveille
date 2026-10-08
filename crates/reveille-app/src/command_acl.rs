@@ -9,54 +9,55 @@ const POPUP: &str = crate::popup::LABEL;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Granted {
-    Both,
+    Main,
+    Popup,
 }
 
-use Granted::Both;
+use Granted::{Main, Popup};
 
 /// Every command in `main.rs`'s `generate_handler!` and who may call it.
 const MATRIX: &[(&str, Granted)] = &[
-    ("detect_install", Both),
-    ("identify_install", Both),
-    ("pick_install_folder", Both),
-    ("installation_storage", Both),
-    ("pick_copy_destination", Both),
-    ("copy_game_installation", Both),
-    ("cancel_game_installation_copy", Both),
-    ("engine_overview", Both),
-    ("select_engine", Both),
-    ("install_reborn", Both),
-    ("cancel_reborn_install", Both),
-    ("openmohaa_status", Both),
-    ("install_openmohaa", Both),
-    ("cancel_openmohaa_install", Both),
-    ("browse_servers", Both),
-    ("cancel_browse", Both),
-    ("check_server", Both),
-    ("preview_join", Both),
-    ("install_server_files", Both),
-    ("install_and_launch", Both),
-    ("read_watched_server", Both),
-    ("game_client_running", Both),
-    ("send_player_notification", Both),
-    ("send_reveille_notice", Both),
-    ("open_notification_settings", Both),
-    ("popup_supported", Both),
-    ("show_alert_popup", Both),
-    ("alert_popup_ready", Both),
-    ("fit_alert_popup", Both),
-    ("alert_popup_action", Both),
-    ("start_at_login", Both),
-    ("set_start_at_login", Both),
-    ("set_close_to_tray", Both),
-    ("set_tray_tooltip", Both),
-    ("app_log_files", Both),
-    ("check_reveille_update", Both),
-    ("install_reveille_update", Both),
-    ("cancel_reveille_update", Both),
-    ("telemetry_status", Both),
-    ("set_telemetry_shared", Both),
-    ("track_event", Both),
+    ("detect_install", Main),
+    ("identify_install", Main),
+    ("pick_install_folder", Main),
+    ("installation_storage", Main),
+    ("pick_copy_destination", Main),
+    ("copy_game_installation", Main),
+    ("cancel_game_installation_copy", Main),
+    ("engine_overview", Main),
+    ("select_engine", Main),
+    ("install_reborn", Main),
+    ("cancel_reborn_install", Main),
+    ("openmohaa_status", Main),
+    ("install_openmohaa", Main),
+    ("cancel_openmohaa_install", Main),
+    ("browse_servers", Main),
+    ("cancel_browse", Main),
+    ("check_server", Main),
+    ("preview_join", Main),
+    ("install_server_files", Main),
+    ("install_and_launch", Main),
+    ("read_watched_server", Main),
+    ("game_client_running", Main),
+    ("send_player_notification", Main),
+    ("send_reveille_notice", Main),
+    ("open_notification_settings", Main),
+    ("popup_supported", Main),
+    ("show_alert_popup", Main),
+    ("alert_popup_ready", Popup),
+    ("fit_alert_popup", Popup),
+    ("alert_popup_action", Popup),
+    ("start_at_login", Main),
+    ("set_start_at_login", Main),
+    ("set_close_to_tray", Main),
+    ("set_tray_tooltip", Main),
+    ("app_log_files", Main),
+    ("check_reveille_update", Main),
+    ("install_reveille_update", Main),
+    ("cancel_reveille_update", Main),
+    ("telemetry_status", Main),
+    ("set_telemetry_shared", Main),
+    ("track_event", Main),
 ];
 
 #[test]
@@ -71,12 +72,12 @@ fn each_window_reaches_exactly_the_commands_granted_to_it() {
     for &(command, granted) in MATRIX {
         assert_eq!(
             allowed(command, MAIN),
-            granted == Both,
+            granted == Main,
             "{MAIN} × {command}"
         );
         assert_eq!(
             allowed(command, POPUP),
-            granted == Both,
+            granted == Popup,
             "{POPUP} × {command}"
         );
     }
