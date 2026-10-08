@@ -726,10 +726,8 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
         ),
       );
     } else if (item.state === "installed") {
-      action.append(
-        el("span", { className: `state-note state-note--${item.state}` }, stateNote(item.state)),
-        removeButton(installedFile(item), item.id, false),
-      );
+      // The sentence under it says it is installed; a note beside the button would repeat it.
+      action.append(removeButton(installedFile(item), item.id, false));
     } else {
       action.append(el("span", { className: `state-note state-note--${item.state}` }, stateNote(item.state)));
     }
