@@ -19,6 +19,9 @@ export const CATALOG = Object.freeze({
 const ids = (entries) => Object.freeze(entries.map((entry) => entry.id));
 const labels = (entries) => Object.freeze(Object.fromEntries(entries.map((entry) => [entry.id, entry.label])));
 
+/** @typedef {"allied_assault" | "spearhead" | "breakthrough"} GameId */
+/** @typedef {"original" | "openmohaa" | "reborn"} EngineId */
+
 /** The three games, base game first. Also how `Installation.products` spells them. */
 export const GAMES = ids(CATALOG.games);
 export const GAME_LABELS = labels(CATALOG.games);

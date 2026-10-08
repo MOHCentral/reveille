@@ -118,7 +118,33 @@ export function defaultGame(install) {
   return games[0] ?? DEFAULT_GAME;
 }
 
-/** The three facts every server-facing command needs. */
+/**
+ * `Installation` from `reveille-core/src/install.rs`. `products` is what is on disk; `playable` is
+ * what can be run, since an expansion needs the base game underneath it.
+ *
+ * @typedef {object} Installation
+ * @property {string} root
+ * @property {import("./catalog.js").GameId[]} products
+ * @property {import("./catalog.js").GameId[]} playable
+ * @property {{ path: string, sha256: string, known_version: string | null }[]} binaries
+ * @property {{ method: "known_binary_hashes" | "recognized_binary_unknown_hashes" | "data_directories_only" }} identification
+ */
+
+/**
+ * `Session` from `src/session.rs`. Every server-facing command takes all three together, because a
+ * folder and an engine without a game names no search path.
+ *
+ * @typedef {object} Session
+ * @property {string} path
+ * @property {import("./catalog.js").EngineId} engine
+ * @property {import("./catalog.js").GameId} game
+ */
+
+/**
+ * The three facts every server-facing command needs.
+ *
+ * @returns {Session}
+ */
 export function session() {
   return { path: state.install.root, engine: state.engine, game: state.game };
 }
