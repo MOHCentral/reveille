@@ -22,9 +22,11 @@ composeState([serversState(), joinState()]);
 
 const shown = [];
 const focused = [];
+let filesChanged = 0;
 const pane = joinController({
   showPane: () => shown.push(true),
   focusJoin: (address) => focused.push(address),
+  onFilesChanged: () => filesChanged++,
 });
 
 const INSTALL = "reveille://install";
@@ -212,6 +214,17 @@ test("a launch is remembered even when its result arrives after a game switch", 
   await done;
   assert.deepEqual(history().map((entry) => entry.address), ["a:1"]);
   assert.equal(state.joinResult, null, "the result is not rendered into the new session");
+});
+
+test("a join that installed maps says the game folder changed, and one that installed none does not", async () => {
+  reset();
+  filesChanged = 0;
+  bridge.results.install_and_launch = launched({ installed: [] });
+  await pane.getAndJoin(row("a:1"), false);
+  assert.equal(filesChanged, 0);
+  bridge.results.install_and_launch = launched({ installed: ["C:\\MOHAA\\main\\map.pk3"] });
+  await pane.getAndJoin(row("a:1"), false);
+  assert.equal(filesChanged, 1);
 });
 
 test("a refused join is not remembered", async () => {

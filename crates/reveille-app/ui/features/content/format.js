@@ -48,12 +48,12 @@ export function stateNote(state) {
 /** The pane's sentence under the action, for each state. */
 export function stateExplanation(state, kind = "map") {
   const it = kind === "mod" ? "mod" : "map";
-  if (state === "installed") return `Reveille installed this ${it} in your game folder. Remove it any time from Installed.`;
+  if (state === "installed") return `Reveille installed this ${it} in your game folder and can remove it again.`;
   if (state === "present") return `Your game already has this ${it}, so Reveille leaves it alone.`;
   if (state === "unavailable") {
     return kind === "mod"
       ? "This mod does not come as a single .pk3, so Reveille cannot tell where its files go. Follow its notes on moh-db."
       : "moh-db has no file Reveille can install for this map. Its page may explain how to get it.";
   }
-  return "Goes into your game folder. Nothing already there is replaced. Remove it any time from Installed.";
+  return "Goes into your game folder. Nothing already there is replaced, and Reveille can remove it again.";
 }

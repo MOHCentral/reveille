@@ -254,7 +254,7 @@ fn item_state(
         .as_deref()
         .zip(maps)
         .is_some_and(|(name, maps)| maps.get(name).is_some());
-    if InstallRecord::installed(installed, entry.id).is_some() {
+    if is_recorded(installed, entry.id, &file.filename) {
         ItemState::Installed
     } else if has_map || present.contains(&file.filename.to_ascii_lowercase()) {
         ItemState::Present
@@ -264,6 +264,13 @@ fn item_state(
 }
 
 /// Whether the engine loads `map` from the game's own `pakN.pk3` archives.
+/// Whether Reveille installed this entry: from Maps & mods under its id, or by a join, which
+/// records server files under no id, under its file name.
+fn is_recorded(installed: &[InstalledItem], id: u64, filename: &str) -> bool {
+    InstallRecord::installed(installed, id).is_some()
+        || InstallRecord::installed_file(installed, filename).is_some()
+}
+
 fn is_stock(map: &Map) -> bool {
     matches!(map.effective_provider(), Some(Provider::Pk3 { archive, .. }) if is_stock_archive(archive))
 }
@@ -729,39 +736,87 @@ fn in_search_path(path: &Path, search_path: &[PathBuf]) -> bool {
         .is_some_and(|parent| search_path.iter().any(|directory| directory == parent))
 }
 
-/// The state an entry is in once its file is gone.
+/// The state a file's entries are in once it is gone.
 #[derive(Serialize)]
 pub struct RemovalOutcome {
-    id: u64,
+    filename: String,
     state: ItemState,
 }
 
-/// Delete the package Reveille installed for `id`, but only if it is still the file Reveille wrote.
+/// Delete the package Reveille installed as `filename`, but only if it is still the file Reveille
+/// wrote.
+///
+/// Keyed by file name rather than moh-db id, since a join's server files have no id.
 #[tauri::command]
 pub async fn remove_installed_item(
     session: Session,
-    id: u64,
+    filename: String,
     app: tauri::AppHandle,
 ) -> Result<RemovalOutcome, String> {
     let record = install_record(&app)
         .ok_or_else(|| "Reveille cannot read its list of installs.".to_owned())?;
     let items = record.items();
     let search_path = session_search_path(&session)?;
-    let item = items
-        .iter()
-        .rev()
-        .find(|item| {
-            item.id == id && in_search_path(&item.path, &search_path) && item.path.is_file()
-        })
+    let item = removable(&items, &filename, &search_path)
         .ok_or_else(|| "Reveille did not install this in your game folder.".to_owned())?;
     remove_package(item)?;
     if let Err(error) = record.remove(&item.path) {
         warn!(%error, "could not update the install record after a removal");
     }
-    info!(id, path = %item.path.display(), "removed installed content");
+    info!(%filename, path = %item.path.display(), "removed installed content");
     Ok(RemovalOutcome {
-        id,
+        filename: item.filename.clone(),
         state: ItemState::Available,
+    })
+}
+
+fn removable<'a>(
+    items: &'a [InstalledItem],
+    filename: &str,
+    search_path: &[PathBuf],
+) -> Option<&'a InstalledItem> {
+    items.iter().rev().find(|item| {
+        item.filename.eq_ignore_ascii_case(filename)
+            && in_search_path(&item.path, search_path)
+            && item.path.is_file()
+    })
+}
+
+/// Record a package a join installed, so Maps & mods counts it as Reveille's and can remove it.
+///
+/// Server files carry no moh-db id; they are recorded under 0 and found again by file name.
+pub fn record_join_install(app: &tauri::AppHandle, id: u64, title: &str, path: &Path) {
+    let Some(record) = install_record(app) else {
+        return;
+    };
+    let result = written_item(id, title, path)
+        .and_then(|item| record.add(item).map_err(|error| error.to_string()));
+    if let Err(error) = result {
+        warn!(%error, path = %path.display(), "could not record the join install");
+    }
+}
+
+fn written_item(id: u64, title: &str, path: &Path) -> Result<InstalledItem, String> {
+    let filename = path
+        .file_name()
+        .ok_or_else(|| "the installed package has no file name".to_owned())?
+        .to_string_lossy()
+        .into_owned();
+    let size = std::fs::metadata(path)
+        .map_err(|error| error.to_string())?
+        .len();
+    Ok(InstalledItem {
+        id,
+        kind: CatalogueKind::Map,
+        title: title.to_owned(),
+        page_url: None,
+        filename,
+        path: path.to_path_buf(),
+        sha256: sha256_file(path)?,
+        size,
+        installed_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs()),
     })
 }
 
@@ -831,8 +886,8 @@ mod tests {
 
     use super::record::InstalledItem;
     use super::{
-        CANCELLED, InstallStep, Installable, base64, install_entry, installed_payload,
-        is_stock_archive, package_names, remove_package, sha256_file,
+        CANCELLED, InstallStep, Installable, base64, install_entry, installed_payload, is_recorded,
+        is_stock_archive, package_names, removable, remove_package, sha256_file, written_item,
     };
 
     fn package(map: &str) -> Vec<u8> {
@@ -1049,6 +1104,36 @@ mod tests {
         fs::write(&changed.path, b"edited by hand").expect("edit");
         assert!(remove_package(&changed).is_err());
         assert!(changed.path.exists(), "a changed file is left alone");
+    }
+
+    #[test]
+    fn a_package_a_join_wrote_counts_as_installed_and_can_be_removed_by_its_name() {
+        let main = TempDir::new().expect("main");
+        let path = main.path().join("zz_CustomPack.pk3");
+        fs::write(&path, b"server files").expect("package");
+
+        let item = written_item(0, "Custom pack", &path).expect("recorded");
+        assert_eq!(item.sha256, sha256_file(&path).expect("hash"));
+        assert_eq!(item.size, 12);
+        let items = [item];
+        assert!(is_recorded(&items, 4306, "ZZ_custompack.PK3"));
+        assert!(!is_recorded(&items, 4306, "other.pk3"));
+        assert!(
+            removable(
+                &items,
+                "zz_custompack.pk3",
+                &[main.path().join("elsewhere")]
+            )
+            .is_none()
+        );
+        let found = removable(&items, "zz_custompack.pk3", &[main.path().to_path_buf()])
+            .expect("found by name");
+        remove_package(found).expect("removed");
+        assert!(!path.exists());
+        assert!(
+            !is_recorded(&items, 0, "zz_custompack.pk3"),
+            "a deleted file no longer counts"
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ pub mod preview;
 
 use std::collections::HashSet;
 use std::net::SocketAddrV4;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use reveille_core::content::{CatalogueResolutionPass, WantedMap};
 use reveille_core::discovery::TargetGame;
@@ -21,9 +21,9 @@ use tauri::Manager;
 use tauri::ipc::Channel;
 use tracing::info;
 
-use crate::servers;
 use crate::session::{Session, installed_maps, session_search_path};
 use crate::telemetry::{DownloadSource, Event, JoinFailureReason, Telemetry};
+use crate::{catalogue, servers};
 use content::{
     ContentHost, InstallFailure, InstallPhase, InstallProgress, emit_install, install_destination,
     install_shopping_list, shopping_list_will_write,
@@ -91,6 +91,10 @@ impl ContentHost for Shell<'_> {
 
     fn report_install(&self, progress: &InstallProgress, phase: InstallPhase) {
         emit_install(self.app, progress, phase);
+    }
+
+    fn record_install(&self, title: &str, path: &Path) {
+        catalogue::record_join_install(self.app, 0, title, path);
     }
 }
 

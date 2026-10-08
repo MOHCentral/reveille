@@ -40,5 +40,5 @@ test("a mod's byline names its kind where a map names its map", () => {
 test("a mod Reveille cannot install points to its notes on moh-db", () => {
   assert.match(stateExplanation("unavailable", "mod"), /single \.pk3.*notes on moh-db/);
   assert.match(stateExplanation("unavailable", "map"), /no file Reveille can install for this map/);
-  assert.match(stateExplanation("available"), /Remove it any time from Installed/);
+  assert.match(stateExplanation("available"), /Reveille can remove it again/);
 });

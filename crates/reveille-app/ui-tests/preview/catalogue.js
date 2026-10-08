@@ -115,9 +115,14 @@ export function playedNow(maps) {
 export function installedPayload() {
   const items = [
     { id: 4306, kind: "map", title: "Bridge Assault", filename: "bridge_assault.pk3", size: 10_171_000, installed_at: 1_791_400_000, changed: false },
+    // Server files a join fetched carry no moh-db id or page.
+    { id: 0, kind: "map", title: "Custom pack", filename: "zz_custompack.pk3", size: 6_420_000, installed_at: 1_791_350_000, changed: false },
     { id: 39701, kind: "mod", title: "Freeze Tag", filename: "zzz_freezetag.pk3", size: 3_250_000, installed_at: 1_791_300_000, changed: false },
     { id: 4290, kind: "map", title: "Remagen Bridge Beta", filename: "remagen_beta.pk3", size: 18_874_000, installed_at: 1_789_000_000, changed: true },
-  ].map((item) => ({ ...item, page_url: item.kind === "mod" ? `https://www.moh-db.com/mods/${item.id}` : `https://www.moh-db.com/maps/${item.id}` }));
+  ].map((item) => ({
+    ...item,
+    page_url: item.id === 0 ? null : item.kind === "mod" ? `https://www.moh-db.com/mods/${item.id}` : `https://www.moh-db.com/maps/${item.id}`,
+  }));
   return { items, total_size: items.reduce((sum, item) => sum + item.size, 0) };
 }
 

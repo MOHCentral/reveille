@@ -81,7 +81,7 @@ import { invoke, invokeWithChannel } from "../../lib/bridge.js";
 
 /** @typedef {{ items: InstalledEntry[], total_size: number }} InstalledPayload */
 
-/** @typedef {{ id: number, state: ItemState }} RemovalOutcome */
+/** @typedef {{ filename: string, state: ItemState }} RemovalOutcome */
 
 /** The reason a cancelled install rejects with; `CANCELLED` in `src/catalogue/mod.rs`. */
 export const CANCELLED = "cancelled";
@@ -146,7 +146,7 @@ export const installedContent = (session) => invoke("installed_content", { sessi
  * Rejects, and deletes nothing, when the file is no longer the one Reveille wrote.
  *
  * @param {Session} session
- * @param {number} id
+ * @param {string} filename
  * @returns {Promise<RemovalOutcome>}
  */
-export const removeInstalledItem = (session, id) => invoke("remove_installed_item", { session, id });
+export const removeInstalledItem = (session, filename) => invoke("remove_installed_item", { session, filename });

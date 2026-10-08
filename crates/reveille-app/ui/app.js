@@ -72,6 +72,7 @@ let firstRun = !state.rememberedInstall;
 const { select, activate, getServerFiles, getAndJoin } = joinController({
   showPane: toggleDetail,
   focusJoin: (address) => join.focusJoin(address),
+  onFilesChanged: () => catalogue.forget(),
 });
 
 const {

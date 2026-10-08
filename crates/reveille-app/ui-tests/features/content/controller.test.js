@@ -220,13 +220,24 @@ test("Remove takes an entry off Installed and makes it installable again", async
   bridge.results.installed_content = () => ({ items: [installedEntry(1), installedEntry(2)], total_size: 200 });
   controller.setTab("installed");
   await settle();
-  assert.equal(state.content.installed.selected, 1);
+  assert.equal(state.content.installed.selected, "map1.pk3");
   state.content.items = [item(1, { state: "installed" })];
-  bridge.results.remove_installed_item = ({ id }) => ({ id, state: "available" });
+  bridge.results.remove_installed_item = ({ filename }) => ({ filename, state: "available" });
   await controller.remove(state.content.installed.items[0]);
+  assert.deepEqual(calls("remove_installed_item")[0].args.filename, "map1.pk3");
   assert.deepEqual(state.content.installed.items.map((entry) => entry.id), [2]);
   assert.equal(state.content.installed.totalSize, 100);
-  assert.equal(state.content.installed.selected, 2);
+  assert.equal(state.content.installed.selected, "map2.pk3");
+  assert.equal(state.content.items[0].state, "available");
+});
+
+test("a map is removed from Maps by its file, whatever its case, even when a join installed it", async () => {
+  reset();
+  state.content.installed.items = [installedEntry(0, { filename: "MAP7.pk3" }), installedEntry(0, { filename: "other.pk3" })];
+  state.content.items = [item(7, { state: "installed" })];
+  bridge.results.remove_installed_item = () => ({ filename: "MAP7.pk3", state: "available" });
+  await controller.remove({ filename: "map7.pk3", title: "Map 7" });
+  assert.deepEqual(state.content.installed.items.map((entry) => entry.filename), ["other.pk3"]);
   assert.equal(state.content.items[0].state, "available");
 });
 
@@ -236,8 +247,21 @@ test("a refused removal keeps the entry and says why", async () => {
   bridge.fail("remove_installed_item", "This file changed since Reveille installed it, so Reveille left it in place.");
   await controller.remove(state.content.installed.items[0]);
   assert.equal(state.content.installed.items.length, 1);
-  assert.match(state.content.installed.failures.get(1), /left it in place/);
+  assert.match(state.content.installed.failures.get("map1.pk3"), /left it in place/);
   assert.equal(state.content.installed.removing.size, 0);
+});
+
+test("files written by a join are asked about again, on the tab and in Installed", async () => {
+  reset();
+  bridge.results.browse_catalogue = () => page([1]);
+  controller.ensureLoaded();
+  await settle();
+  assert.equal(calls("browse_catalogue").length, 1);
+  controller.forget();
+  controller.ensureLoaded();
+  await settle();
+  assert.equal(calls("browse_catalogue").length, 2);
+  assert.equal(calls("installed_content").length, 2);
 });
 
 test("Install and join joins once the map is installed, and not when the install fails", async () => {

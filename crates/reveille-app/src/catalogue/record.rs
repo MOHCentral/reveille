@@ -90,6 +90,18 @@ impl InstallRecord {
             .find(|item| item.id == id && item.path.is_file())
     }
 
+    /// The recorded install named `filename`, whatever its case, whose file is still where it was
+    /// written. A join records server files under no moh-db id, so this is how they are found.
+    pub fn installed_file<'a>(
+        items: &'a [InstalledItem],
+        filename: &str,
+    ) -> Option<&'a InstalledItem> {
+        items
+            .iter()
+            .rev()
+            .find(|item| item.filename.eq_ignore_ascii_case(filename) && item.path.is_file())
+    }
+
     fn write(&self, file: &RecordFile) -> io::Result<()> {
         let directory = self
             .path
@@ -200,6 +212,18 @@ mod tests {
         let items = InstallRecord::new(data.path()).items();
         assert_eq!(items[0].kind, reveille_core::content::CatalogueKind::Map);
         assert_eq!(items[0].title, "");
+    }
+
+    #[test]
+    fn an_install_is_found_by_its_file_name_whatever_its_case() {
+        let game = TempDir::new().expect("game folder");
+        let path = game.path().join("SniperTown.pk3");
+        fs::write(&path, b"pk3").expect("package");
+        let mut recorded = item(0, path);
+        recorded.filename = "SniperTown.pk3".to_owned();
+        let items = [recorded];
+        assert!(InstallRecord::installed_file(&items, "snipertown.PK3").is_some());
+        assert!(InstallRecord::installed_file(&items, "rockbound.pk3").is_none());
     }
 
     #[test]

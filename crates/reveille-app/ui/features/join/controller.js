@@ -30,9 +30,10 @@ export const PREVIEW_SETTLE_MS = 220;
  * Listen for install progress and return the join pane's controls.
  *
  * `showPane()` opens a collapsed detail pane, and `focusJoin(address)` moves focus to its Join
- * button once it can take it: an activation that needs consent stops there.
+ * button once it can take it: an activation that needs consent stops there. `onFilesChanged()` is
+ * told once a fetch or join may have written to the game folder.
  */
-export function joinController({ showPane, focusJoin }) {
+export function joinController({ showPane, focusJoin, onFilesChanged = () => {} }) {
   let previewTimer = null;
 
   /** Preview progress for as long as `token` is the current selection. */
@@ -145,6 +146,7 @@ export function joinController({ showPane, focusJoin }) {
 
     try {
       const result = await installServerFiles(session(), row.address, showPreviewProgress(selection));
+      onFilesChanged();
       if (!generations.join.isCurrent(token)) return;
       update((next) => {
         next.joining = false;
@@ -196,6 +198,7 @@ export function joinController({ showPane, focusJoin }) {
       // if the session moved on — it really did happen — but its result is not rendered into a
       // session it is no longer about.
       if (result.outcome?.launch === "launched") recordLaunch(row);
+      if (result.installed?.length) onFilesChanged();
       if (!generations.join.isCurrent(token)) return;
       update((next) => {
         next.joining = false;

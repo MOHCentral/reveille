@@ -186,6 +186,26 @@
   align-items: center;
 }
 
+.item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.btn--remove.btn--icon {
+  width: 24px;
+  padding: 4px;
+}
+
+.btn--remove .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.btn--remove:hover:not(:disabled) {
+  color: var(--bad-text);
+}
+
 /* List --------------------------------------------------------------------- */
 
 .catalogue-head,

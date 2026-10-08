@@ -16,7 +16,7 @@ import {
   installedContent,
   removeInstalledItem,
 } from "./api.js";
-import { installedKey, playedMaps, queryKey } from "./selectors.js";
+import { fileKey, installedKey, playedMaps, queryKey } from "./selectors.js";
 import { MODES, PLAYED_SORTS, SORTS, TABS } from "./state.js";
 
 /** Screenshots fetched at once. Each is a request to moh-db, so a page of cards trickles in. */
@@ -97,8 +97,8 @@ export function contentController() {
         installed.items = result.items;
         installed.totalSize = result.total_size;
         installed.loading = false;
-        if (!installed.items.some((item) => item.id === installed.selected)) {
-          installed.selected = installed.items[0]?.id ?? null;
+        if (!installed.items.some((item) => fileKey(item.filename) === installed.selected)) {
+          installed.selected = installed.items[0] ? fileKey(installed.items[0].filename) : null;
         }
       });
     } catch (error) {
@@ -177,6 +177,14 @@ export function contentController() {
     void load(false, true);
   }
 
+  /** Something outside this section wrote to the game folder: ask again what is installed. */
+  function forget() {
+    update((next) => {
+      next.content.loadedFor = null;
+      next.content.installed.loadedFor = null;
+    });
+  }
+
   function select(id) {
     const installed = state.content.tab === "installed";
     const current = installed ? state.content.installed.selected : state.content.selected;
@@ -235,27 +243,32 @@ export function contentController() {
     void cancelCatalogueInstall(item.id).catch(() => {});
   }
 
-  /** Delete what Reveille installed for `entry`. Rust refuses a file that changed since. */
+  /**
+   * Delete the package Reveille installed as `entry.filename`, from Installed or from a Maps or
+   * Mods entry. Rust refuses a file that changed since.
+   */
   async function remove(entry) {
-    const installed = state.content.installed;
-    if (!entry || installed.removing.has(entry.id)) return;
+    const key = entry && fileKey(entry.filename);
+    if (!entry || state.content.installed.removing.has(key)) return;
     update((next) => {
-      next.content.installed.removing.add(entry.id);
-      next.content.installed.failures.delete(entry.id);
+      next.content.installed.removing.add(key);
+      next.content.installed.failures.delete(key);
     });
     try {
-      const outcome = await removeInstalledItem(session(), entry.id);
+      const outcome = await removeInstalledItem(session(), entry.filename);
       update((next) => {
         const list = next.content.installed;
-        list.items = list.items.filter((known) => known.id !== entry.id);
+        list.items = list.items.filter((known) => fileKey(known.filename) !== key);
         list.totalSize = list.items.reduce((sum, known) => sum + known.size, 0);
-        if (list.selected === entry.id) list.selected = list.items[0]?.id ?? null;
-        for (const known of next.content.items) if (known.id === outcome.id) known.state = outcome.state;
+        if (list.selected === key) list.selected = list.items[0] ? fileKey(list.items[0].filename) : null;
+        for (const known of next.content.items) {
+          if (known.file && fileKey(known.file.filename) === fileKey(outcome.filename)) known.state = outcome.state;
+        }
       });
     } catch (error) {
-      update((next) => next.content.installed.failures.set(entry.id, errorText(error)));
+      update((next) => next.content.installed.failures.set(key, errorText(error)));
     } finally {
-      update((next) => next.content.installed.removing.delete(entry.id));
+      update((next) => next.content.installed.removing.delete(key));
     }
   }
 
@@ -307,6 +320,7 @@ export function contentController() {
     togglePlayedNow,
     loadMore,
     refresh,
+    forget,
     select,
     install,
     installAndJoin,

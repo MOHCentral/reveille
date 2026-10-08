@@ -28,7 +28,7 @@ import {
   stateExplanation,
   stateNote,
 } from "./format.js";
-import { liveSummary, runningOn, selectedInstalled, selectedItem, visibleItems } from "./selectors.js";
+import { fileKey, liveSummary, runningOn, selectedInstalled, selectedItem, visibleItems } from "./selectors.js";
 import { MODES, PLAYED_SORTS, SORTS, TABS } from "./state.js";
 
 const MOH_DB = { maps: "https://www.moh-db.com/maps", mods: "https://www.moh-db.com/mods" };
@@ -203,14 +203,15 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
   const sortChoices = () => (playedNow() ? PLAYED_SORTS : SORTS);
 
   function itemNode(item, drawing) {
-    const key = `${drawing}:${item.id}`;
+    const id = drawing === "installed" ? fileKey(item.filename) : item.id;
+    const key = `${drawing}:${id}`;
     let node = nodes.get(key);
     if (!node) {
       node = drawing === "cards" ? cardNode(item) : drawing === "installed" ? installedNode(item) : rowNode(item);
-      node.dataset.id = String(item.id);
+      node.dataset.id = String(id);
       node.addEventListener("click", (event) => {
         if (event.target.closest("button")) return;
-        controller.select(item.id);
+        controller.select(id);
       });
       nodes.set(key, node);
     }
@@ -305,36 +306,54 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
 
   function paintInstalled(node, entry) {
     const { selected, removing, failures } = state.content.installed;
-    node.setAttribute("aria-selected", selected === entry.id ? "true" : "false");
+    const key = fileKey(entry.filename);
+    node.setAttribute("aria-selected", selected === key ? "true" : "false");
     const slot = node.querySelector(".item-action");
-    const signature = `${removing.has(entry.id)}:${entry.changed}:${failures.get(entry.id) ?? ""}`;
+    const signature = `${removing.has(key)}:${entry.changed}:${failures.get(key) ?? ""}`;
     if (slot.dataset.signature === signature) return;
     slot.dataset.signature = signature;
     if (entry.changed) {
       fill(slot, el("span", { className: "state-note", title: "This file changed since Reveille installed it, so Reveille will not delete it." }, "Changed"));
       return;
     }
-    fill(slot, removeButton(entry, true));
+    fill(slot, removeButton(entry, fileKey(entry.filename), true));
   }
 
-  function removeButton(entry, compact) {
-    const busy = state.content.installed.removing.has(entry.id);
+  /**
+   * The bin that removes `entry`, a package Reveille installed. `select` is the id the list knows
+   * it by; compact draws the icon alone, for a card or row.
+   */
+  function removeButton(entry, select, compact) {
+    const key = fileKey(entry.filename);
+    const busy = state.content.installed.removing.has(key);
+    const failure = state.content.installed.failures.get(key);
     return el(
       "button",
       {
         type: "button",
-        className: compact ? "btn btn--sm" : "btn",
+        className: compact ? "btn btn--sm btn--icon btn--remove" : "btn btn--remove",
         tabIndex: compact ? -1 : 0,
         disabled: busy,
         dataset: compact ? null : { focusKey: "content-remove" },
-        title: `Delete ${entry.filename} from your game folder`,
+        title: failure ? `The last try failed: ${failure}` : `Delete ${entry.filename} from your game folder`,
+        "aria-label": compact ? `Remove ${entry.title}` : null,
         onclick: () => {
-          controller.select(entry.id);
+          controller.select(select);
           confirmRemove(entry);
         },
       },
-      busy ? "Removing…" : "Remove",
+      icon("trash"),
+      !compact && (busy ? "Removing…" : "Remove"),
     );
+  }
+
+  /** What a Maps or Mods entry Reveille installed is removed as. */
+  const installedFile = (item) => ({ filename: item.file.filename, title: item.title });
+
+  function removalSignature(filename) {
+    const key = fileKey(filename);
+    const { removing, failures } = state.content.installed;
+    return `${removing.has(key)}:${failures.get(key) ?? ""}`;
   }
 
   function confirmRemove(entry) {
@@ -381,9 +400,10 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
   function paintAction(slot, item, compact) {
     const install = state.content.installs.get(item.id);
     const failure = state.content.failures.get(item.id);
+    const removal = item.state === "installed" ? removalSignature(item.file.filename) : "";
     const signature = install
       ? `run:${install.confirming}:${Math.round((install.received / Math.max(1, install.total)) * 200)}`
-      : `${item.state}:${failure ?? ""}`;
+      : `${item.state}:${failure ?? ""}:${removal}`;
     if (slot.dataset.signature === signature) return;
     slot.dataset.signature = signature;
     if (install) {
@@ -450,6 +470,14 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
       return;
     }
     const note = stateNote(item.state);
+    if (item.state === "installed") {
+      fill(
+        slot,
+        el("span", { className: `state-note state-note--${item.state}` }, note),
+        removeButton(installedFile(item), item.id, true),
+      );
+      return;
+    }
     if (note) {
       fill(slot, el("span", { className: `state-note state-note--${item.state}` }, note));
       return;
@@ -603,6 +631,7 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
       state.content.images.get(`${item.id}:${index}`)?.length ?? 0,
       install ? [install.confirming, Math.round((install.received / Math.max(1, install.total)) * 200)] : null,
       state.content.failures.get(item.id) ?? null,
+      item.state === "installed" ? removalSignature(item.file.filename) : null,
       running.map((row) => [row.address, row.server.occupancy?.clients_reported, row.server.status_round_trip]),
       state.joining,
     ]);
@@ -664,6 +693,7 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
     ].filter(Boolean);
     const failure = state.content.failures.get(item.id);
     const install = state.content.installs.get(item.id);
+    const removal = item.state === "installed" ? state.content.installed.failures.get(fileKey(item.file.filename)) : null;
     const action = el("div", { className: "actions__row" });
     if (install) {
       const slot = el("span", { className: "item-action item-action--pane" });
@@ -695,6 +725,11 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
           "Download from moh-db ↗",
         ),
       );
+    } else if (item.state === "installed") {
+      action.append(
+        el("span", { className: `state-note state-note--${item.state}` }, stateNote(item.state)),
+        removeButton(installedFile(item), item.id, false),
+      );
     } else {
       action.append(el("span", { className: `state-note state-note--${item.state}` }, stateNote(item.state)));
     }
@@ -718,6 +753,7 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
         { className: "actions" },
         action,
         failure && !install && el("p", { className: "note note--bad" }, `The last try failed: ${failure}`),
+        removal && el("p", { className: "note note--bad" }, removal),
         el("p", { className: "quiet" }, stateExplanation(item.state, item.kind)),
         mod && item.state === "unavailable" && item.archive_name && el("p", { className: "quiet data" }, `Download: ${item.archive_name}`),
       ),
@@ -802,11 +838,11 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
       paintEmptyDetail(state.content.installed.items.length ? "Select an install to see its details." : "Nothing installed yet.");
       return;
     }
-    const { removing, failures } = state.content.installed;
-    const signature = JSON.stringify(["installed", entry, removing.has(entry.id), failures.get(entry.id) ?? null]);
+    const key = fileKey(entry.filename);
+    const signature = JSON.stringify(["installed", entry, removalSignature(entry.filename)]);
     if (signature === paintedDetail) return;
     paintedDetail = signature;
-    const failure = failures.get(entry.id);
+    const failure = state.content.installed.failures.get(key);
     const facts = [
       ["Size", bytes(entry.size)],
       ["Installed", addedText(entry.installed_at) ?? "—"],
@@ -833,7 +869,7 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
           el(
             "div",
             { className: "actions" },
-            el("div", { className: "actions__row" }, entry.changed ? el("span", { className: "state-note" }, "Changed since Reveille installed it") : removeButton(entry, false)),
+            el("div", { className: "actions__row" }, entry.changed ? el("span", { className: "state-note" }, "Changed since Reveille installed it") : removeButton(entry, key, false)),
             failure && el("p", { className: "note note--bad" }, failure),
             el(
               "p",
@@ -945,15 +981,17 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
       const item = selectedItem();
       if (item) void controller.install(item);
       return;
-    } else if (event.key === "Delete" && at !== -1 && installed) {
+    } else if (event.key === "Delete" && at !== -1) {
       event.preventDefault();
-      const entry = selectedInstalled();
-      if (entry && !entry.changed) confirmRemove(entry);
+      const entry = installed ? selectedInstalled() : selectedItem();
+      if (installed && entry && !entry.changed) confirmRemove(entry);
+      else if (!installed && entry?.state === "installed") confirmRemove(installedFile(entry));
       return;
     }
     if (target === null) return;
     event.preventDefault();
-    controller.select(Number(children[target].dataset.id));
+    const id = children[target].dataset.id;
+    controller.select(installed ? id : Number(id));
     children[target].focus();
     children[target].scrollIntoView({ block: "nearest" });
   }

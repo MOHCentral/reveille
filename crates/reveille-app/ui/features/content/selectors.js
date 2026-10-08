@@ -76,9 +76,15 @@ export function selectedItem() {
   return items.find((item) => item.id === selected) ?? null;
 }
 
+/**
+ * What Installed knows a package by. A join's server files have no moh-db id, so the file name,
+ * which the game itself compares without case, is the key.
+ */
+export const fileKey = (filename) => filename.toLowerCase();
+
 export function selectedInstalled() {
   const { items, selected } = state.content.installed;
-  return items.find((item) => item.id === selected) ?? null;
+  return items.find((item) => fileKey(item.filename) === selected) ?? null;
 }
 
 /** Bytes received over bytes expected across every install in flight, or null when none is. */
