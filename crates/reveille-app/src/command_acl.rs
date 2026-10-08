@@ -62,7 +62,7 @@ const MATRIX: &[(&str, Granted)] = &[
 
 #[test]
 fn each_window_reaches_exactly_the_commands_granted_to_it() {
-    let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    let mut context = crate::context();
     let authority = context.runtime_authority_mut();
     let allowed = |command: &str, window: &str| {
         authority
