@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "installation"
+description = "Find, identify and copy the game installation."
+permissions = [
+  "allow-detect-install",
+  "allow-identify-install",
+  "allow-pick-install-folder",
+  "allow-installation-storage",
+  "allow-pick-copy-destination",
+  "allow-copy-game-installation",
+  "allow-cancel-game-installation-copy",
+]

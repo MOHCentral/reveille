@@ -6,6 +6,7 @@
     "alert-popup"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "alert-popup"
   ]
 }

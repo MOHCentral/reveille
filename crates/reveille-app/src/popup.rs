@@ -18,7 +18,7 @@ use tauri::{
 
 use crate::{notice, tray};
 
-const LABEL: &str = "alert-popup";
+pub(crate) const LABEL: &str = "alert-popup";
 pub const CARD_EVENT: &str = "reveille://popup-card";
 pub const SNOOZE_EVENT: &str = "reveille://popup-snooze";
 pub const MORE_EVENT: &str = "reveille://popup-more";

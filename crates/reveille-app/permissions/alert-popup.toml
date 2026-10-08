@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "alert-popup"
+description = "The pop-up window's side: collect queued cards, report its height, relay a card's action."
+permissions = [
+  "allow-alert-popup-ready",
+  "allow-fit-alert-popup",
+  "allow-alert-popup-action",
+]

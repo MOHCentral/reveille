@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "join"
+description = "Preview a server's needs, install its files and launch the game."
+permissions = [
+  "allow-preview-join",
+  "allow-install-server-files",
+  "allow-install-and-launch",
+]

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "shell"
+description = "Start at sign-in, the tray and the log files."
+permissions = [
+  "allow-start-at-login",
+  "allow-set-start-at-login",
+  "allow-set-close-to-tray",
+  "allow-set-tray-tooltip",
+  "allow-app-log-files",
+]

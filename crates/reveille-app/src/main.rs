@@ -28,6 +28,8 @@ mod app_icon;
 mod autostart;
 #[cfg(test)]
 mod catalog_contract;
+#[cfg(test)]
+mod command_acl;
 mod engines;
 mod installation;
 mod join;
@@ -141,8 +143,14 @@ fn main() {
             telemetry::commands::set_telemetry_shared,
             telemetry::commands::track_event
         ])
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running Reveille");
+}
+
+/// The one expansion of `generate_context!`: on macOS each one defines the same Info.plist
+/// symbol, so the ACL tests read their context from here too.
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
 }
 
 #[cfg(test)]

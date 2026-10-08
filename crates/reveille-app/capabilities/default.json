@@ -21,6 +21,14 @@
           "url": "https://github.com/MOHCentral/reveille/blob/main/README.md#telemetry"
         }
       ]
-    }
+    },
+    "installation",
+    "engines",
+    "servers",
+    "join",
+    "alerts",
+    "shell",
+    "self-update",
+    "telemetry"
   ]
 }
