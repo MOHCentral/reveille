@@ -127,15 +127,14 @@ test("detect_install sends null rather than omitting the argument", async () => 
 
 test("event handlers receive the payload, never the Tauri envelope", async () => {
   const seen = [];
-  await api.onPreviewProgress((payload) => seen.push(payload));
-  bridge.emit("reveille://preview", { address: "10.0.0.1:12203", index: 1, of: 3 });
+  await api.onInstallProgress((payload) => seen.push(payload));
+  bridge.emit("reveille://install", { filename: "a.pk3", index: 1, of: 3 });
   // No view should ever have to know an event arrives wrapped.
-  assert.deepEqual(seen, [{ address: "10.0.0.1:12203", index: 1, of: 3 }]);
+  assert.deepEqual(seen, [{ filename: "a.pk3", index: 1, of: 3 }]);
 });
 
 test("each subscriber listens on the channel Rust emits", async () => {
   const channels = [
-    [api.onPreviewProgress, "reveille://preview"],
     [api.onInstallProgress, "reveille://install"],
     [api.onOpenMohaaInstallProgress, "reveille://openmohaa-install"],
     [api.onRebornInstallProgress, "reveille://reborn-install"],
@@ -157,6 +156,21 @@ test("browse progress arrives over a channel handed to browse_servers itself", a
   assert.equal(await api.browseServers(SESSION, (progress) => seen.push(progress)), "swept");
   assert.deepEqual(bridge.calls[0].args.session, SESSION);
   assert.deepEqual(seen, [{ registered: 190, probed: 12 }]);
+});
+
+test("preview progress arrives over a channel handed to the command that prices the join", async () => {
+  const seen = [];
+  bridge.results.preview_join = () => {
+    bridge.send("preview_join", { index: 0, of: 2 });
+    return "priced";
+  };
+  bridge.results.install_server_files = () => {
+    bridge.send("install_server_files", { index: 1, of: 2 });
+    return "installed";
+  };
+  assert.equal(await api.previewJoin(SESSION, "10.0.0.1:12203", (progress) => seen.push(progress)), "priced");
+  assert.equal(await api.installServerFiles(SESSION, "10.0.0.1:12203", (progress) => seen.push(progress)), "installed");
+  assert.deepEqual(seen, [{ index: 0, of: 2 }, { index: 1, of: 2 }]);
 });
 
 /* The scoped opener ---------------------------------------------------------*/

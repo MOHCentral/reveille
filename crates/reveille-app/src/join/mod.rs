@@ -18,6 +18,7 @@ use reveille_core::join::{
 use reveille_platform as platform;
 use serde::Serialize;
 use tauri::Manager;
+use tauri::ipc::Channel;
 use tracing::info;
 
 use crate::servers;
@@ -28,23 +29,30 @@ use content::{
     install_shopping_list, shopping_list_will_write,
 };
 use preview::{
-    JoinPreview, PreviewCache, PreviewHost, build_pakradar_preview, build_preview, cache_preview,
-    price_on_mohdb, take_cached_preview,
+    JoinPreview, PreviewCache, PreviewHost, PreviewProgress, build_pakradar_preview, build_preview,
+    cache_preview, price_on_mohdb, take_cached_preview,
 };
 
-/// The join as the running app sees it: the player's session, the window that shows progress, and
-/// the telemetry it reports to.
+/// The join as the running app sees it: the player's session, the window that shows progress, the
+/// channel of the call waiting on a preview if there is one, and the telemetry it reports to.
 struct Shell<'a> {
     session: &'a Session,
     app: &'a tauri::AppHandle,
+    preview_progress: Option<&'a Channel<PreviewProgress>>,
     telemetry: &'a Telemetry,
 }
 
 impl<'a> Shell<'a> {
-    fn new(session: &'a Session, app: &'a tauri::AppHandle, telemetry: &'a Telemetry) -> Self {
+    fn new(
+        session: &'a Session,
+        app: &'a tauri::AppHandle,
+        preview_progress: Option<&'a Channel<PreviewProgress>>,
+        telemetry: &'a Telemetry,
+    ) -> Self {
         Self {
             session,
             app,
+            preview_progress,
             telemetry,
         }
     }
@@ -68,7 +76,7 @@ impl PreviewHost for Shell<'_> {
         address: SocketAddrV4,
         wanted: &[WantedMap],
     ) -> Result<CatalogueResolutionPass, String> {
-        price_on_mohdb(self.app, address, wanted).await
+        price_on_mohdb(self.preview_progress, address, wanted).await
     }
 }
 
@@ -107,10 +115,12 @@ pub struct JoinResult {
     outcome: LaunchOutcome,
 }
 
+/// Price a join, streaming each moh-db lookup over `on_progress`, which belongs to this call alone.
 #[tauri::command]
 pub async fn preview_join(
     session: Session,
     address: String,
+    on_progress: Channel<PreviewProgress>,
     app: tauri::AppHandle,
     cache: tauri::State<'_, PreviewCache>,
     listing: tauri::State<'_, servers::Listing>,
@@ -118,7 +128,11 @@ pub async fn preview_join(
 ) -> Result<JoinPreview, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "building join preview");
     let server = listing.find(&address, session.game)?;
-    let preview = build_preview(&Shell::new(&session, &app, &telemetry), server).await?;
+    let preview = build_preview(
+        &Shell::new(&session, &app, Some(&on_progress), &telemetry),
+        server,
+    )
+    .await?;
     cache_preview(&cache, &session, preview.clone());
     Ok(preview)
 }
@@ -221,7 +235,7 @@ async fn join_and_launch(
         .map_err(failed(JoinFailureReason::ServerGone))?;
     let preview = match take_cached_preview(cache, &session, &address) {
         Some(preview) => preview,
-        None => build_preview(&Shell::new(&session, app, telemetry), server.clone())
+        None => build_preview(&Shell::new(&session, app, None, telemetry), server.clone())
             .await
             .map_err(failed(JoinFailureReason::Unknown))?,
     };

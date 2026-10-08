@@ -14,11 +14,12 @@ use reveille_core::mapindex::MapKey;
 use reveille_platform as platform;
 use serde::Serialize;
 use tauri::Emitter;
+use tauri::ipc::Channel;
 use tracing::{info, warn};
 
 use super::preview::{
-    JoinPreview, PakRadarPreview, PreviewCache, PreviewHost, build_pakradar_preview, build_preview,
-    cache_preview,
+    JoinPreview, PakRadarPreview, PreviewCache, PreviewHost, PreviewProgress,
+    build_pakradar_preview, build_preview, cache_preview,
 };
 use super::{Shell, track_download};
 use crate::servers;
@@ -86,10 +87,14 @@ pub trait ContentHost: PreviewHost {
     fn report_install(&self, progress: &InstallProgress, phase: InstallPhase);
 }
 
+/// Install the server's own files, then price the join again against the search path they changed.
+///
+/// That second preview streams over `on_preview_progress`; the downloads stay on [`EVENT`].
 #[tauri::command]
 pub async fn install_server_files(
     session: Session,
     address: String,
+    on_preview_progress: Channel<PreviewProgress>,
     app: tauri::AppHandle,
     cache: tauri::State<'_, PreviewCache>,
     listing: tauri::State<'_, servers::Listing>,
@@ -97,7 +102,11 @@ pub async fn install_server_files(
 ) -> Result<ServerFilesResult, String> {
     info!(%address, game = ?session.game, engine = ?session.engine, "installing server files");
     let server = listing.find(&address, session.game)?;
-    let result = apply_server_files(&Shell::new(&session, &app, &telemetry), server).await?;
+    let result = apply_server_files(
+        &Shell::new(&session, &app, Some(&on_preview_progress), &telemetry),
+        server,
+    )
+    .await?;
     cache_preview(&cache, &session, result.preview.clone());
     Ok(result)
 }

@@ -11,7 +11,6 @@ import {
   installAndLaunch,
   installServerFiles,
   onInstallProgress,
-  onPreviewProgress,
   previewJoin,
 } from "./api.js";
 import { shoppingTotals } from "./view.js";
@@ -28,7 +27,7 @@ import { shoppingTotals } from "./view.js";
 export const PREVIEW_SETTLE_MS = 220;
 
 /**
- * Listen for preview and install progress and return the join pane's controls.
+ * Listen for install progress and return the join pane's controls.
  *
  * `showPane()` opens a collapsed detail pane, and `focusJoin(address)` moves focus to its Join
  * button once it can take it: an activation that needs consent stops there.
@@ -36,10 +35,11 @@ export const PREVIEW_SETTLE_MS = 220;
 export function joinController({ showPane, focusJoin }) {
   let previewTimer = null;
 
-  onPreviewProgress((progress) => {
-    if (progress.address !== state.selected) return;
+  /** Preview progress for as long as `token` is the current selection. */
+  const showPreviewProgress = (token) => (progress) => {
+    if (!generations.preview.isCurrent(token)) return;
     update((next) => (next.previewProgress = progress));
-  });
+  };
 
   onInstallProgress((progress) => {
     if (!state.installRun) return;
@@ -118,7 +118,7 @@ export function joinController({ showPane, focusJoin }) {
   async function resolvePreview(address, token) {
     if (!generations.preview.isCurrent(token)) return;
     try {
-      const preview = await previewJoin(session(), address);
+      const preview = await previewJoin(session(), address, showPreviewProgress(token));
       if (!generations.preview.isCurrent(token)) return;
       update((next) => {
         next.preview = preview;
@@ -135,6 +135,7 @@ export function joinController({ showPane, focusJoin }) {
 
   async function getServerFiles(row) {
     const token = generations.join.next();
+    const selection = generations.preview.current();
     update((next) => {
       next.joinError = null;
       next.joinResult = null;
@@ -143,7 +144,7 @@ export function joinController({ showPane, focusJoin }) {
     });
 
     try {
-      const result = await installServerFiles(session(), row.address);
+      const result = await installServerFiles(session(), row.address, showPreviewProgress(selection));
       if (!generations.join.isCurrent(token)) return;
       update((next) => {
         next.joining = false;

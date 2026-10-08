@@ -2,23 +2,28 @@
 
 // Commands (crates/reveille-app/src/main.rs), each taking the `session` described in
 // `features/servers/api.js`:
-//   preview_join(session, address)             -> JoinPreview
-//   install_server_files(session, address)     -> ServerFilesResult
+//   preview_join(session, address, onProgress)                  -> JoinPreview
+//   install_server_files(session, address, onPreviewProgress)   -> ServerFilesResult
 //   install_and_launch(session, address, selectedCandidateIds, acceptIncomplete) -> JoinResult
 //
+// Channels:
+//   preview_join.onProgress                 PreviewProgress  { address, index, of, map }
+//   install_server_files.onPreviewProgress  PreviewProgress  (the preview it builds once the files land)
+//
 // Events:
-//   reveille://preview  PreviewProgress  { address, index, of, map }
 //   reveille://install  InstallProgress  { map, filename, index, of, phase, ... }
 
-import { invoke, listen } from "../../lib/bridge.js";
+import { invoke, invokeWithChannel, listen } from "../../lib/bridge.js";
 
-export const previewJoin = (session, address) => invoke("preview_join", { session, address });
+/** `onProgress` hears this preview only, and nothing after it settles. */
+export const previewJoin = (session, address, onProgress) =>
+  invokeWithChannel("preview_join", { session, address }, "onProgress", onProgress);
 
-export const installServerFiles = (session, address) =>
-  invoke("install_server_files", { session, address });
+/** `onPreviewProgress` hears the preview this call builds once the server files are in place. */
+export const installServerFiles = (session, address, onPreviewProgress) =>
+  invokeWithChannel("install_server_files", { session, address }, "onPreviewProgress", onPreviewProgress);
 
 export const installAndLaunch = (session, address, selectedCandidateIds, acceptIncomplete) =>
   invoke("install_and_launch", { session, address, selectedCandidateIds, acceptIncomplete });
 
-export const onPreviewProgress = (handler) => listen("reveille://preview", handler);
 export const onInstallProgress = (handler) => listen("reveille://install", handler);

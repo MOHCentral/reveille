@@ -27,7 +27,6 @@ const pane = joinController({
   focusJoin: (address) => focused.push(address),
 });
 
-const PREVIEW = "reveille://preview";
 const INSTALL = "reveille://install";
 
 function row(address, verdict = "needs_maps") {
@@ -133,13 +132,31 @@ test("a preview that fails says why and takes the meter down", async () => {
   assert.equal(typeof state.previewError, "string");
 });
 
-test("preview progress for another server leaves the meter alone", () => {
+test("preview progress from a selection since left leaves the meter alone", async () => {
+  reset();
+  bridge.results.preview_join = hold("preview_join");
+  pane.select("a:1");
+  mock.timers.tick(PREVIEW_SETTLE_MS);
+  await settle();
+  bridge.send("preview_join", { address: "a:1", index: 0, of: 2, map: "dm/mohdm1" });
+  assert.equal(state.previewProgress.index, 0);
+  pane.select("b:1");
+  bridge.send("preview_join", { address: "a:1", index: 1, of: 2, map: "dm/mohdm2" });
+  assert.deepEqual(state.previewProgress, { index: -1, of: 0, map: "" });
+});
+
+test("the preview priced after server files land moves the meter until the selection changes", async () => {
   reset();
   pane.select("a:1");
-  bridge.emit(PREVIEW, { address: "b:1", index: 0, of: 2, map: "dm/mohdm2" });
+  bridge.results.install_server_files = hold("install_server_files");
+  const done = pane.getServerFiles(row("a:1"));
+  bridge.send("install_server_files", { address: "a:1", index: 0, of: 2, map: "dm/mohdm1" });
+  assert.equal(state.previewProgress.index, 0);
+  pane.select("b:1");
+  bridge.send("install_server_files", { address: "a:1", index: 1, of: 2, map: "dm/mohdm2" });
   assert.deepEqual(state.previewProgress, { index: -1, of: 0, map: "" });
-  bridge.emit(PREVIEW, { address: "a:1", index: 1, of: 2, map: "dm/mohdm1" });
-  assert.equal(state.previewProgress.index, 1);
+  held.get("install_server_files").resolve({ preview: null, failures: [] });
+  await done;
 });
 
 test("activating a ready server joins at once", async () => {
