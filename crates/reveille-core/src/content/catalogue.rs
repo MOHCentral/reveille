@@ -13,7 +13,8 @@ use crate::mapindex::MapKey;
 
 /// Entries per browse page: four rows of cards at the default width, and a short table.
 pub const BROWSE_PAGE_SIZE: usize = 48;
-// The site serves map pages at `/maps/{nid}-{slug}`; the API publishes no page URL of its own.
+// The site serves map pages at `/maps/{vid}-{slug}`, keyed by revision rather than node; the API
+// publishes no page URL of its own.
 const SITE_MAPS: &str = "https://www.moh-db.com/maps/";
 // Image paths the API gives without a host are served from moh-db's storage host.
 const IMAGE_BASE: &str = "https://storage.moh-db.com/";
@@ -35,12 +36,14 @@ pub enum CatalogueSort {
 
 impl CatalogueSort {
     /// The Spring `sort` parameter for this order.
+    // The endpoint answers 500 when sorting by `added` or `title`; node id tracks the date added
+    // and the map name is the only sortable name.
     #[must_use]
     pub const fn parameter(self) -> &'static str {
         match self {
             Self::Popular => "downloads,desc",
-            Self::Newest => "added,desc",
-            Self::Name => "title,asc",
+            Self::Newest => "nid,desc",
+            Self::Name => "mapName,asc",
         }
     }
 }
@@ -212,9 +215,9 @@ impl MohDbClient {
     }
 }
 
-/// The address of an entry's page on moh-db, `/maps/{id}-{slug}`.
+/// The address of an entry's page on moh-db, `/maps/{vid}-{slug}`.
 #[must_use]
-pub fn page_url(id: u64, title: &str) -> String {
+pub fn page_url(vid: u64, title: &str) -> String {
     let mut slug = String::with_capacity(title.len());
     for character in title.trim().chars() {
         if character.is_ascii_alphanumeric() {
@@ -225,9 +228,9 @@ pub fn page_url(id: u64, title: &str) -> String {
     }
     let slug = slug.trim_end_matches('-');
     if slug.is_empty() {
-        format!("{SITE_MAPS}{id}")
+        format!("{SITE_MAPS}{vid}")
     } else {
-        format!("{SITE_MAPS}{id}-{slug}")
+        format!("{SITE_MAPS}{vid}-{slug}")
     }
 }
 
@@ -327,6 +330,7 @@ impl BrowsePageWire {
 #[derive(Debug, Deserialize)]
 struct BrowseMapWire {
     nid: u64,
+    vid: u64,
     title: Option<String>,
     #[serde(rename = "mapName")]
     map_name: Option<String>,
@@ -402,7 +406,7 @@ impl BrowseMapWire {
             .collect::<Vec<_>>();
         Some(CatalogueEntry {
             id: self.nid,
-            page_url: page_url(self.nid, &title),
+            page_url: page_url(self.vid, &title),
             title,
             map_name,
             map_key,
@@ -446,7 +450,7 @@ mod tests {
             [
                 ("size", "48".to_owned()),
                 ("page", "2".to_owned()),
-                ("sort", "added,desc".to_owned()),
+                ("sort", "nid,desc".to_owned()),
                 ("title", "Snipertown".to_owned()),
             ]
         );
@@ -540,7 +544,7 @@ mod tests {
         assert_eq!(candidate.file_size.get(), 14_889_000);
         assert_eq!(
             snipertown.page_url,
-            "https://www.moh-db.com/maps/4301-snipertown"
+            "https://www.moh-db.com/maps/9101-snipertown"
         );
 
         // No file on moh-db: still listed, but nothing to install.

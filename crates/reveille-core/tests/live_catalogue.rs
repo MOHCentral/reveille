@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use reveille_core::content::{CatalogueQuery, MohDbClient};
+use reveille_core::content::{CatalogueQuery, CatalogueSort, MohDbClient};
 
 #[tokio::test]
 #[ignore = "requires the live third-party moh-db catalogue"]
@@ -37,4 +37,27 @@ async fn live_browse_returns_a_page_of_titled_maps_without_an_api_key() {
     assert!(!page.entries.is_empty());
     assert!(page.entries.iter().all(|entry| !entry.title.is_empty()));
     assert!(page.entries.iter().any(|entry| entry.candidate.is_some()));
+}
+
+#[tokio::test]
+#[ignore = "requires the live third-party moh-db catalogue"]
+async fn live_browse_accepts_every_sort_order() {
+    let Ok(client) = MohDbClient::new(Duration::from_secs(15)) else {
+        return;
+    };
+    for sort in [
+        CatalogueSort::Popular,
+        CatalogueSort::Newest,
+        CatalogueSort::Name,
+    ] {
+        let query = CatalogueQuery {
+            sort,
+            ..CatalogueQuery::default()
+        };
+        let page = client
+            .browse(&query)
+            .await
+            .unwrap_or_else(|error| panic!("moh-db sorts by {sort:?}: {error}"));
+        assert!(!page.entries.is_empty(), "{sort:?} returned no maps");
+    }
 }
