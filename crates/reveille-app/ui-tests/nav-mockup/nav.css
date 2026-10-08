@@ -128,3 +128,31 @@
 .sections__dl { width: 22px; height: 3px; border-radius: 2px; background: var(--line-strong); overflow: hidden; }
 .sections__dl span { display: block; width: 62%; height: 100%; background: var(--brass); }
 .titlebar { align-items: center; }
+
+/* Maps & mods as cards ------------------------------------------------------ */
+.layout-switch .scope__option { padding: 5px 8px; }
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3); padding: var(--space-4);
+}
+.card {
+  display: grid; grid-template-rows: auto 1fr;
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--panel); overflow: hidden;
+}
+.card:hover { border-color: var(--line-strong); }
+.card[aria-selected="true"] { border-color: var(--brass); box-shadow: 0 0 0 1px var(--brass); }
+.card__thumb {
+  position: relative; aspect-ratio: 16 / 9;
+  background: var(--g, linear-gradient(135deg, #3a4a3a, #1f2a24));
+}
+.card__thumb .kind-tag {
+  position: absolute; top: 8px; left: 8px; margin: 0;
+  background: rgb(9 11 14 / 80%); color: var(--ink); border-color: transparent;
+}
+.card__body { display: grid; gap: 2px; padding: 10px 12px 12px; min-width: 0; }
+.card__body .item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card__body .item-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card__live { margin-top: 6px; font-size: var(--text-sm); }
+.card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: 10px; min-height: 28px; }
+.card__foot .row-progress { width: 110px; }

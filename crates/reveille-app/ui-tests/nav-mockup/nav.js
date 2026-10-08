@@ -71,11 +71,19 @@ const search = (text) =>
   `<label class="field toolbar__search"><span class="field__icon" aria-hidden="true">⌕</span><input type="search" placeholder="${text}"></label>`;
 const pane = `<div class="toolbar__action"><button type="button" class="btn btn--icon toolbar__pane" aria-pressed="true"><span class="toolbar__pane-glyph"></span></button></div>`;
 
+const grid = params.get("view") === "grid";
+const LAYOUT = {
+  list: "M2 3h12v2H2Zm0 4h12v2H2Zm0 4h12v2H2Z",
+  grid: "M2 2h5v5H2Zm7 0h5v5H9ZM2 9h5v5H2Zm7 0h5v5H9Z",
+};
+const layoutSwitch = `<div class="scope layout-switch" role="group" aria-label="Layout">${["list", "grid"]
+  .map((k) => `<button type="button" class="scope__option" aria-pressed="${(k === "grid") === grid}" title="${k === "list" ? "List" : "Cards"}"><svg viewBox="0 0 16 16" class="icon scope__icon" aria-hidden="true"><path d="${LAYOUT[k]}" fill="currentColor"/></svg></button>`)
+  .join("")}</div>`;
 if (section === "maps") {
   toolbar.innerHTML = `${scope([["Maps", "1,240", 1], ["Mods", "86"], ["Installed", "37"]])}
     ${search("Search maps and mods on moh-db")}
     <div class="filters"><button class="filter-chip">Mode ▾</button><button class="filter-chip filter-chip--on">Played now</button><button class="filter-chip">Most played ▾</button></div>
-    <span class="toolbar__spacer"></span>${pane}`;
+    <span class="toolbar__spacer"></span>${layoutSwitch}${pane}`;
   const rows = [
     ["Snipertown", "dm/snipertown · 2 files", "14.2 MB", [1, 6], "install", "linear-gradient(160deg,#a59a7c 0 40%,#6a5d44 41%)", true],
     ["Rock Bound", "dm/dm_rockbound · 4 files", "31.8 MB", [1, 1], "progress", "linear-gradient(160deg,#7c8c99 0 45%,#3f4a3a 46%)"],
@@ -91,7 +99,15 @@ if (section === "maps") {
     kind === "install" ? '<button class="btn btn--sm">Install</button>'
     : kind === "installed" ? '<span class="state-installed">✓ Installed</span>'
     : '<span class="row-progress"><span>19.7 of 31.8 MB</span><span class="meter"><span class="meter__fill" style="width:62%"></span></span></span>';
-  list.innerHTML = `<div class="list-pane"><table class="catalog"><thead><tr><th></th><th>Name</th><th class="num">Size</th><th>On servers now</th><th></th></tr></thead><tbody>${rows
+  const liveText = (live) => live ? `<span class="live"><span class="ping-dot ping-dot--good"></span>${live[0]} server${live[0] > 1 ? "s" : ""} · ${live[1]} player${live[1] > 1 ? "s" : ""}</span>` : '<span class="quiet">Not on a server now</span>';
+  if (grid) list.innerHTML = `<div class="list-pane"><div class="cards">${rows
+    .map(([name, sub, size, live, kind, g, sel, mod]) => `<div class="card" ${sel ? 'aria-selected="true"' : ""}>
+      <span class="card__thumb" style="--g:${g}">${mod ? '<span class="kind-tag">MOD</span>' : ""}</span>
+      <div class="card__body"><span class="item-name">${name}</span><span class="item-sub">${sub}</span>
+      <div class="card__live">${liveText(live)}</div>
+      <div class="card__foot"><span class="data quiet">${size}</span>${action(kind)}</div></div></div>`)
+    .join("")}</div></div>`;
+  else list.innerHTML = `<div class="list-pane"><table class="catalog"><thead><tr><th></th><th>Name</th><th class="num">Size</th><th>On servers now</th><th></th></tr></thead><tbody>${rows
     .map(([name, sub, size, live, kind, g, sel, mod]) => `<tr ${sel ? 'aria-selected="true"' : ""}>
       <td class="c-thumb"><span class="thumb" style="--g:${g}"></span></td>
       <td><span class="item-name">${name}</span>${mod ? '<span class="kind-tag">MOD</span>' : ""}<span class="item-sub">${sub}</span></td>
