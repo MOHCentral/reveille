@@ -5,18 +5,17 @@
 import { clockTime } from "../../lib/format.js";
 import { generations, listIsForCurrentSession, session } from "../../lib/session.js";
 import { state, subscribe, update } from "../../lib/store.js";
-import { browseFailure, browseServers, cancelBrowse, onBrowseProgress } from "./api.js";
+import { browseFailure, browseServers, cancelBrowse } from "./api.js";
 import { adoptBackgroundSweep, countsByAddress } from "./reducers.js";
 
 /**
- * Listen for sweep progress and return the sweep's controls.
+ * The sweep's controls.
  *
  * `onReselect(address)` runs when a sweep behind the list changed the selected server's map or
  * readiness, so the pane works out its sources again.
  */
 export function browse({ onReselect }) {
-  onBrowseProgress((progress) => {
-    if (!state.browse.running) return;
+  function progressed(progress) {
     update((next) => {
       next.browse.registered = progress.registered;
       next.browse.inspected = progress.inspected;
@@ -27,7 +26,7 @@ export function browse({ onReselect }) {
       // sweep ends replaces this list with the authoritative one.
       if (progress.row && !next.browse.background) next.servers = [...next.servers, progress.row];
     });
-  });
+  }
 
   async function refreshBehind() {
     generations.check.next();
@@ -49,7 +48,7 @@ export function browse({ onReselect }) {
     });
 
     try {
-      const payload = await browseServers(swept);
+      const payload = await browseServers(swept, progressed);
       let reselect = false;
       update((next) => {
         reselect = adoptBackgroundSweep(next, payload, clockTime(), new Date().toISOString());
@@ -114,7 +113,7 @@ export function browse({ onReselect }) {
     });
 
     try {
-      const payload = await browseServers(swept);
+      const payload = await browseServers(swept, progressed);
       update((next) => {
         next.servers = payload.servers;
         next.summary = payload.summary;

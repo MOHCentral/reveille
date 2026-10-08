@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Commands (crates/reveille-app/src/main.rs):
-//   browse_servers(session)                    -> BrowserPayload
+//   browse_servers(session, onProgress)        -> BrowserPayload
 //   cancel_browse()                            -> void
 //   check_server(session, address, queryPort)  -> CheckResult
 //
@@ -9,12 +9,14 @@
 // the three games — Allied Assault, Spearhead or Breakthrough. Every server-facing command takes
 // all three together, because a folder and an engine without a game names no search path.
 //
-// Events:
-//   reveille://browse   BrowseProgress   { registered, inspected, probed, answered, non_results, row }
+// Channels:
+//   browse_servers.onProgress   BrowseProgress   { registered, inspected, probed, answered, non_results, row }
 
-import { errorText, invoke, listen } from "../../lib/bridge.js";
+import { errorText, invoke, invokeWithChannel } from "../../lib/bridge.js";
 
-export const browseServers = (session) => invoke("browse_servers", { session });
+/** `onProgress` hears this sweep only, and nothing after it settles. */
+export const browseServers = (session, onProgress) =>
+  invokeWithChannel("browse_servers", { session }, "onProgress", onProgress);
 
 export const cancelBrowse = () => invoke("cancel_browse");
 
@@ -25,8 +27,6 @@ export const cancelBrowse = () => invoke("cancel_browse");
  */
 export const checkServer = (session, address, queryPort) =>
   invoke("check_server", { session, address, queryPort });
-
-export const onBrowseProgress = (handler) => listen("reveille://browse", handler);
 
 /**
  * `browse_servers` is the one command that rejects with a classified failure rather than a string.

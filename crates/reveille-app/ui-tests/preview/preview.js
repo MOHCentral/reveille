@@ -27,18 +27,23 @@ const RESULTS = {
   installation_storage: { status: "writable" },
   check_reveille_update: null,
   // ?drift=1 moves some player counts on every sweep after the first, so the trend arrows show.
-  browse_servers: () => {
+  browse_servers: ({ onProgress }) => {
     sweeps += 1;
     const payload = browsePayload();
-    if (!params.has("drift") || sweeps < 2) return payload;
-    payload.servers.forEach((row, index) => {
-      const occupancy = row.server.occupancy;
-      const step = [2, -3, 0, 1, 0, -1][index % 6];
-      occupancy.clients_reported = Math.max(0, Math.min(row.server.client_capacity, occupancy.clients_reported + step));
-    });
-    payload.summary.clients_reported = payload.servers.reduce(
-      (sum, row) => sum + row.server.occupancy.clients_reported,
-      0,
+    if (params.has("drift") && sweeps >= 2) {
+      payload.servers.forEach((row, index) => {
+        const occupancy = row.server.occupancy;
+        const step = [2, -3, 0, 1, 0, -1][index % 6];
+        occupancy.clients_reported = Math.max(0, Math.min(row.server.client_capacity, occupancy.clients_reported + step));
+      });
+      payload.summary.clients_reported = payload.servers.reduce(
+        (sum, row) => sum + row.server.occupancy.clients_reported,
+        0,
+      );
+    }
+    const registered = payload.servers.length;
+    payload.servers.forEach((row, index) =>
+      onProgress.onmessage({ registered, inspected: registered, probed: index + 1, answered: index + 1, non_results: 0, row }),
     );
     return payload;
   },
@@ -61,6 +66,11 @@ const RESULTS = {
 
 window.__TAURI__ = {
   core: {
+    Channel: class {
+      constructor(onmessage) {
+        this.onmessage = onmessage ?? (() => {});
+      }
+    },
     invoke: (command, args) => {
       const result = RESULTS[command];
       return Promise.resolve((typeof result === "function" ? result(args) : result) ?? null);

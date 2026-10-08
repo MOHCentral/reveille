@@ -9,7 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { installTauri } from "../fakes/tauri.js";
-import { errorText, invoke, listen } from "../../ui/lib/bridge.js";
+import { errorText, invoke, invokeWithChannel, listen } from "../../ui/lib/bridge.js";
 
 test("the bridge is read when a command runs, not when the module loads", async () => {
   assert.equal(globalThis.window, undefined);
@@ -24,9 +24,24 @@ test("the bridge is read when a command runs, not when the module loads", async 
 test("a listener receives the payload, never the Tauri envelope", async () => {
   const bridge = installTauri();
   const seen = [];
-  await listen("reveille://browse", (payload) => seen.push(payload));
-  bridge.emit("reveille://browse", { probed: 3 });
-  assert.deepEqual(seen, [{ probed: 3 }]);
+  await listen("reveille://preview", (payload) => seen.push(payload));
+  bridge.emit("reveille://preview", { index: 1, of: 3 });
+  assert.deepEqual(seen, [{ index: 1, of: 3 }]);
+  delete globalThis.window;
+});
+
+test("a channel hears its own command until that command settles", async () => {
+  const bridge = installTauri();
+  const seen = [];
+  let settle;
+  bridge.results.browse_servers = () => new Promise((resolve) => (settle = resolve));
+  const call = invokeWithChannel("browse_servers", { session: "s" }, "onProgress", (message) => seen.push(message));
+  bridge.send("browse_servers", 1);
+  settle("done");
+  assert.equal(await call, "done");
+  bridge.send("browse_servers", 2);
+  assert.deepEqual(seen, [1]);
+  assert.deepEqual(Object.keys(bridge.calls[0].args), ["session", "onProgress"]);
   delete globalThis.window;
 });
 
