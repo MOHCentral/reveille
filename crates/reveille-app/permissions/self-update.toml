@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "self-update"
+description = "Check for, install and cancel a Reveille update."
+permissions = [
+  "allow-check-reveille-update",
+  "allow-install-reveille-update",
+  "allow-cancel-reveille-update",
+]

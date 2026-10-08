@@ -28,6 +28,8 @@ mod app_icon;
 mod autostart;
 #[cfg(test)]
 mod catalog_contract;
+#[cfg(test)]
+mod command_acl;
 mod engines;
 mod installation;
 mod join;

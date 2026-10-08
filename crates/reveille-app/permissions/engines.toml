@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "engines"
+description = "Report, select, install and cancel community engines."
+permissions = [
+  "allow-engine-overview",
+  "allow-select-engine",
+  "allow-install-reborn",
+  "allow-cancel-reborn-install",
+  "allow-openmohaa-status",
+  "allow-install-openmohaa",
+  "allow-cancel-openmohaa-install",
+]

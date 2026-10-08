@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "alerts"
+description = "Watch servers, notify the player and send cards to the alert pop-up."
+permissions = [
+  "allow-read-watched-server",
+  "allow-game-client-running",
+  "allow-send-player-notification",
+  "allow-send-reveille-notice",
+  "allow-open-notification-settings",
+  "allow-popup-supported",
+  "allow-show-alert-popup",
+]

@@ -6,6 +6,15 @@
     "alert-popup"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "installation",
+    "engines",
+    "servers",
+    "join",
+    "alerts",
+    "alert-popup",
+    "shell",
+    "self-update",
+    "telemetry"
   ]
 }

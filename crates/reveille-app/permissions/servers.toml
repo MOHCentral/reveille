@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "servers"
+description = "Browse the master list and check single servers."
+permissions = [
+  "allow-browse-servers",
+  "allow-cancel-browse",
+  "allow-check-server",
+]

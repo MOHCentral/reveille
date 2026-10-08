@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[[set]]
+identifier = "telemetry"
+description = "Read and set the statistics choice, and record an event."
+permissions = [
+  "allow-telemetry-status",
+  "allow-set-telemetry-shared",
+  "allow-track-event",
+]
