@@ -197,6 +197,15 @@
   padding: 4px;
 }
 
+/* Hidden until the card or row is pointed at or selected; still laid out, so nothing shifts. */
+.item-action .btn--remove {
+  visibility: hidden;
+}
+
+:is(.card, .catalogue-row):is(:hover, [aria-selected="true"], :focus-within) .item-action .btn--remove {
+  visibility: visible;
+}
+
 .btn--remove .icon {
   width: 14px;
   height: 14px;
