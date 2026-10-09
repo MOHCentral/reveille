@@ -54,6 +54,7 @@ function reset({ servers = [], sweptFor = null } = {}) {
   state.browse.completedAt = servers.length ? "11:58" : null;
   state.browse.finishedAt = servers.length ? "2026-10-05T11:58:00.000Z" : null;
   reselected.length = 0;
+  state.joining = false;
 }
 
 /** Make the next sweep wait until the test settles it. */
@@ -82,7 +83,7 @@ test("a sweep records the session its rows were swept for before any row arrives
   assert.deepEqual(state.listSession, thisSession(), "a failed sweep still says what it asked");
 });
 
-test("a sweep retires the checks still in flight against the list it replaces", async () => {
+test("only a foreground sweep retires checks still in flight", async () => {
   reset();
   const asked = generations.check.current();
   bridge.results.browse_servers = payload([]);
@@ -92,7 +93,90 @@ test("a sweep retires the checks still in flight against the list it replaces", 
   const behind = generations.check.current();
   bridge.results.browse_servers = payload([]);
   await sweep.refreshBehind();
-  assert.equal(generations.check.isCurrent(behind), false, "a sweep behind the list retires them too");
+  assert.equal(generations.check.isCurrent(behind), true, "a background sweep keeps individual checks valid");
+});
+
+test("a fresh single-server check survives background refresh completion", async () => {
+  const { checks } = await import("../../../ui/features/servers/check.js");
+  const address = "10.0.0.1:12203";
+  reset({ servers: [row(address)], sweptFor: thisSession() });
+  state.selected = address;
+  const held = holdSweep();
+  const done = sweep.refreshBehind();
+  assert.equal(bridge.calls.find(({ command }) => command === "browse_servers").args.background, true);
+  const fresh = row(address, { clients: 9, map: "obj/obj_team1" });
+  bridge.results.check_server = { row: fresh };
+  await checks({ onReselect: () => {} }).check({ address, queryPort: 12300 });
+  held.resolve(payload([row(address, { clients: 2 })]));
+  await done;
+  assert.equal(state.servers[0], fresh);
+  assert.equal(state.checkedAt.has(address), true);
+  assert.deepEqual(reselected, []);
+});
+
+test("background refresh cannot drop or reprice the server being joined", async () => {
+  const address = "10.0.0.1:12203";
+  const joining = row(address);
+  reset({ servers: [joining], sweptFor: thisSession() });
+  state.selected = address;
+  state.joining = true;
+  const preview = state.preview = { address };
+  const held = holdSweep();
+  const done = sweep.refreshBehind();
+  held.resolve(payload([]));
+  await done;
+  assert.equal(state.servers[0], joining);
+  assert.equal(state.selected, address);
+  assert.equal(state.preview, preview);
+  assert.deepEqual(reselected, []);
+  state.joining = false;
+});
+
+test("background refresh cannot restore a server a direct check found absent", async () => {
+  const { checks } = await import("../../../ui/features/servers/check.js");
+  const address = "10.0.0.1:12203";
+  reset({ servers: [row(address)], sweptFor: thisSession() });
+  const held = holdSweep();
+  const done = sweep.refreshBehind();
+  bridge.results.check_server = { row: null, non_result: { reason: "timeout" } };
+  await checks({ onReselect: () => {} }).check({ address, queryPort: 12300 });
+  held.resolve(payload([row(address)]));
+  await done;
+  assert.deepEqual(state.servers, []);
+  assert.equal(state.checks.get(address).status, "absent");
+});
+
+test("a check begun before background refresh can finish after the sweep", async () => {
+  const { checks } = await import("../../../ui/features/servers/check.js");
+  const address = "10.0.0.1:12203";
+  reset({ servers: [row(address)], sweptFor: thisSession() });
+  let answer;
+  bridge.results.check_server = () => new Promise((resolve) => { answer = resolve; });
+  const checked = checks({ onReselect: () => {} }).check({ address, queryPort: 12300 });
+  const held = holdSweep();
+  const done = sweep.refreshBehind();
+  held.resolve(payload([row(address)]));
+  await done;
+  assert.equal(state.checks.get(address).status, "checking");
+  const fresh = row(address, { clients: 9 });
+  answer({ row: fresh });
+  await checked;
+  assert.equal(state.servers[0], fresh);
+});
+
+test("a check that could not run does not override successful background readings", async () => {
+  const { checks } = await import("../../../ui/features/servers/check.js");
+  const address = "10.0.0.1:12203";
+  reset({ servers: [row(address)], sweptFor: thisSession() });
+  const held = holdSweep();
+  const done = sweep.refreshBehind();
+  bridge.fail("check_server", "cannot read installation");
+  await checks({ onReselect: () => {} }).check({ address, queryPort: 12300 });
+  const fresh = row(address, { clients: 7 });
+  held.resolve(payload([fresh]));
+  await done;
+  assert.equal(state.servers[0], fresh);
+  assert.equal(state.checks.has(address), false);
 });
 
 test("a failed sweep keeps this session's rows, marked with when they were measured", async () => {

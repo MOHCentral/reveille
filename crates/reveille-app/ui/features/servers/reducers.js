@@ -19,6 +19,11 @@ export function countsByAddress(rows) {
   return counts;
 }
 
+/** Keep a direct check or join's row when the background sweep settles. */
+export function retainBackgroundRow(next, address) {
+  if (next.browse.background) next.browse.protectedAddresses.add(address);
+}
+
 /**
  * Swap in a sweep that ran behind the list already on screen.
  *
@@ -32,17 +37,24 @@ export function countsByAddress(rows) {
 export function adoptBackgroundSweep(next, payload, at, finishedAt) {
   next.browse.running = false;
   if (payload.cancelled) return false;
+  const protectedAddresses = new Set(next.browse.protectedAddresses);
+  if (next.joining) protectedAddresses.add(next.selected);
+  // Individual checks and joins own these rows until the next refresh starts.
+  const servers = [
+    ...payload.servers.filter((row) => !protectedAddresses.has(row.address)),
+    ...next.servers.filter((row) => protectedAddresses.has(row.address)),
+  ];
   const before = next.servers.find((row) => row.address === next.selected);
-  const after = payload.servers.find((row) => row.address === next.selected);
+  const after = servers.find((row) => row.address === next.selected);
   next.previousCounts = countsByAddress(next.servers);
-  next.servers = payload.servers;
+  next.servers = servers;
   next.summary = payload.summary;
   next.nonResults = payload.non_results;
   next.browse.completedAt = at;
   next.browse.finishedAt = finishedAt;
   next.staleAt = null;
-  next.checks = new Map();
-  next.checkedAt = new Map();
+  next.checks = new Map([...next.checks].filter(([address]) => protectedAddresses.has(address)));
+  next.checkedAt = new Map([...next.checkedAt].filter(([address]) => protectedAddresses.has(address)));
   next.autoCheckedAt = null;
   if (!after) {
     next.selected = null;

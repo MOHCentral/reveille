@@ -45,7 +45,7 @@ import { closePopover, openPopover } from "../../lib/popover.js";
 import { GAME_LABELS } from "../../lib/catalog.js";
 import { state, update } from "../../lib/store.js";
 import { THRESHOLDS, playerAlert, setAlertThreshold } from "../alerts/index.js";
-import { canRecheck, nonResultReason, selectedRow } from "../servers/index.js";
+import { canRecheck, nonResultReason, recheckUnavailableReason, selectedRow } from "../servers/index.js";
 import { playableGames } from "../../lib/session.js";
 
 export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogglePlayerAlert }) {
@@ -123,6 +123,7 @@ function paneSnapshot(row) {
       state.checks.get(address),
       state.checkedAt.get(address),
       state.browse.running,
+      state.browse.background,
       state.browse.finishedAt,
       state.preview?.address === address ? state.preview : null,
       state.previewProgress,
@@ -232,7 +233,6 @@ function header(row, server, onRecheck, onTogglePlayerAlert) {
  */
 function reloadButton(row, onRecheck) {
   const checking = state.checks.get(row.address)?.status === "checking";
-  const sweeping = state.browse.running;
   const at = state.checkedAt.get(row.address) ?? state.browse.finishedAt;
   return el(
     "button",
@@ -245,11 +245,9 @@ function reloadButton(row, onRecheck) {
       "aria-disabled": canRecheck(row.address) ? null : "true",
       "aria-label": checking ? "Refreshing this server" : "Refresh this server",
       dataset: { focusKey: "detail-recheck" },
-      title: sweeping
-        ? "The whole list is being refreshed, this server with it"
-        : at
+      title: recheckUnavailableReason(row.address) ?? (at
           ? `Figures from ${clockTime(new Date(at))}. Refresh this server (R)`
-          : "Refresh this server (R)",
+          : "Refresh this server (R)"),
       onclick: () => onRecheck(row),
     },
     icon("reload", { outline: true }),
@@ -556,7 +554,7 @@ function pingLimits(server) {
 function afterChecks(address) {
   const check = state.checks.get(address);
   const failed =
-    check?.status === "failed" && !state.browse.running
+    check?.status === "failed" && (!state.browse.running || state.browse.background)
       ? el("p", { className: "error", role: "alert" }, `The check could not run. ${check.error}`)
       : null;
   const launched = launchedLine(address);
@@ -977,6 +975,7 @@ function goneActions(address, check, onRecheck) {
         className: "btn btn--block",
         // Focusable while busy, for the same reason as the header's refresh control.
         "aria-disabled": canRecheck(address) ? null : "true",
+        title: recheckUnavailableReason(address) ?? "Check this server again",
         dataset: { focusKey: "detail-recheck" },
         onclick: () =>
           onRecheck({ address, server: { endpoint: { query_port: check.dropped.queryPort } } }),

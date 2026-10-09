@@ -8,7 +8,8 @@ import { closePopover, openPopover, popoverAnchor } from "../../lib/popover.js";
 import { plural, timeAgo } from "../../lib/format.js";
 import { GAME_LABELS } from "../../lib/catalog.js";
 import { playableGames } from "../../lib/session.js";
-import { state, update } from "../../lib/store.js";
+import { state, subscribe, update } from "../../lib/store.js";
+import { openServerUnavailableReason } from "../../lib/open-server.js";
 import { arrivalEvents, clearArrivals, markArrivalsRead, unreadArrivalCount } from "./arrival-events.js";
 import { isStale } from "./reach.js";
 
@@ -37,11 +38,19 @@ export function arrivalTarget(event) {
  */
 export function bell({ onOpenWatching, onNotificationSettings, onBadge }) {
   let intents = null;
+  let actionButtons = [];
 
   function mount(table) {
     intents = table;
     $("#arrival-events-btn").prepend(icon("bell"));
     $("#arrival-events-btn").addEventListener("click", toggleArrivals);
+    subscribe(() => {
+      if (popoverAnchor() !== $("#arrival-events-btn")) {
+        actionButtons = [];
+        return;
+      }
+      for (const { button, game } of actionButtons) paintAction(button, game);
+    });
   }
 
   function renderArrivalBadge() {
@@ -65,6 +74,7 @@ export function bell({ onOpenWatching, onNotificationSettings, onBadge }) {
       return;
     }
     const events = arrivalEvents().slice(0, 12);
+    actionButtons = [];
     markArrivalsRead();
     renderArrivalBadge();
     openPopover(anchor, "Player alerts",
@@ -109,18 +119,30 @@ export function bell({ onOpenWatching, onNotificationSettings, onBadge }) {
       el("span", { className: "arrival__meta" },
         [where + (timeAgo(new Date(event.at).toISOString()) ?? ""), event.detail].filter(Boolean).join(" · ")),
       el("span", { className: "arrival__actions" },
-        el("button", {
-          type: "button",
-          className: "btn btn--sm",
-          onclick: () => intents.openServer(arrivalTarget(event)),
-        }, "Show"),
-        el("button", {
-          type: "button",
-          className: "btn btn--sm btn--primary",
-          onclick: () => intents.openServer({ ...arrivalTarget(event), join: true }),
-        }, "Join"),
+        arrivalAction(event, false),
+        arrivalAction(event, true),
       ),
     );
+  }
+
+  function arrivalAction(event, join) {
+    const button = el("button", {
+      type: "button",
+      className: join ? "btn btn--sm btn--primary" : "btn btn--sm",
+      onclick: () => {
+        if (openServerUnavailableReason(event.game)) return;
+        intents.openServer({ ...arrivalTarget(event), join });
+      },
+    }, join ? "Join" : "Show");
+    actionButtons.push({ button, game: event.game });
+    paintAction(button, event.game);
+    return button;
+  }
+
+  function paintAction(button, game) {
+    const reason = openServerUnavailableReason(game);
+    button.setAttribute("aria-disabled", reason ? "true" : "false");
+    button.title = reason ?? "";
   }
 
   return { mount, renderArrivalBadge, toggleArrivals };

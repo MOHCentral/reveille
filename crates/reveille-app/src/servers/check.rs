@@ -67,7 +67,7 @@ fn settle_check(
         // check that ran and got no answer is evidence about now that outranks whatever the sweep
         // saw — the same reason the shell drops the row. Leaving it would keep a join preparable
         // from figures the interface has already withdrawn.
-        settle(listing.update(ticket, |servers| {
+        settle(listing.update_checked(ticket, [address], |servers| {
             forget_checked_server(servers, address);
         })?);
         return Ok(CheckResult {
@@ -82,7 +82,7 @@ fn settle_check(
     if let Some(published) = server.answered_for_another_game(ticket.game) {
         info!(published_game = ?published, "checked server answered for another game");
         // It answered, for a game this session's client cannot join. Not a joinable entry either.
-        settle(listing.update(ticket, |servers| {
+        settle(listing.update_checked(ticket, [address], |servers| {
             forget_checked_server(servers, address);
         })?);
         return Ok(CheckResult {
@@ -95,7 +95,12 @@ fn settle_check(
     // than the remembered one. The row carries the address it actually answered at; repointing the
     // bookmark at it would be a guess about whether it is the same server.
     let row = classified(&server, index);
-    if settle(listing.update(ticket, |servers| merge_checked_server(servers, server))?) {
+    let answered = SocketAddrV4::new(server.endpoint.address, server.game_port.get());
+    if settle(
+        listing.update_checked(ticket, [address, answered], |servers| {
+            merge_checked_server(servers, server);
+        })?,
+    ) {
         info!("checked server answered and was merged into active list");
     }
     Ok(CheckResult {
@@ -229,6 +234,39 @@ mod tests {
     }
 
     #[test]
+    fn a_sweep_cannot_overwrite_a_server_checked_while_it_was_running() {
+        let listing = Listing::default();
+        let sweep = listing
+            .begin_sweep(TargetGame::AlliedAssault)
+            .expect("sweep");
+        settle_check(
+            &listing,
+            sweep,
+            &MapIndex::default(),
+            "10.0.0.1:12203".parse().expect("address"),
+            answered(probed("10.0.0.1", 12300, 12203, "fresh check")),
+        )
+        .expect("check");
+        listing
+            .update_sweep(
+                sweep,
+                vec![probed("10.0.0.1", 12300, 12203, "sweep")],
+                false,
+            )
+            .expect("streamed row");
+        listing
+            .update_sweep(sweep, vec![probed("10.0.0.1", 12300, 12203, "sweep")], true)
+            .expect("sweep completion");
+        assert_eq!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::AlliedAssault)
+                .expect("server")
+                .hostname,
+            "fresh check"
+        );
+    }
+
+    #[test]
     fn a_check_delayed_across_a_game_switch_leaves_the_new_list_alone() {
         let listing = Listing::default();
         listing
@@ -239,9 +277,11 @@ mod tests {
         // ...and the player switches to Spearhead before it answers.
         let spearhead = listing.begin_sweep(TargetGame::Spearhead).expect("sweep");
         listing
-            .update(spearhead, |servers| {
-                servers.push(probed("10.0.0.2", 12300, 12203, "a Spearhead server"));
-            })
+            .update_sweep(
+                spearhead,
+                vec![probed("10.0.0.2", 12300, 12203, "a Spearhead server")],
+                false,
+            )
             .expect("update");
 
         let result = settle_check(
@@ -273,6 +313,54 @@ mod tests {
     }
 
     #[test]
+    fn a_sweep_cannot_restore_a_server_a_direct_check_found_absent() {
+        let listing = Listing::default();
+        let sweep = listing
+            .begin_sweep(TargetGame::AlliedAssault)
+            .expect("sweep");
+        let address = "10.0.0.1:12203".parse().expect("address");
+        let stale = probed("10.0.0.1", 12300, 12203, "stale");
+        listing
+            .update_sweep(sweep, vec![stale.clone()], false)
+            .expect("streamed row");
+        settle_check(
+            &listing,
+            sweep,
+            &MapIndex::default(),
+            address,
+            ProbeOutcome {
+                endpoint: stale.endpoint,
+                gamespy_reachable: false,
+                server: None,
+                non_result: None,
+            },
+        )
+        .expect("check");
+        listing
+            .update_sweep(sweep, vec![stale.clone()], false)
+            .expect("late streamed row");
+        listing
+            .update_sweep(sweep, vec![stale.clone()], true)
+            .expect("sweep completion");
+        assert!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::AlliedAssault)
+                .is_err()
+        );
+        let next = listing
+            .begin_background_sweep(TargetGame::AlliedAssault)
+            .expect("next sweep");
+        listing
+            .update_sweep(next, vec![stale], true)
+            .expect("next completion");
+        assert!(
+            listing
+                .find("10.0.0.1:12203", TargetGame::AlliedAssault)
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn an_unanswered_check_delayed_across_a_sweep_does_not_drop_the_new_entry() {
         let listing = Listing::default();
         let ticket = listing.ticket(TargetGame::AlliedAssault).expect("ticket");
@@ -280,9 +368,11 @@ mod tests {
             .begin_sweep(TargetGame::AlliedAssault)
             .expect("sweep");
         listing
-            .update(sweep, |servers| {
-                servers.push(probed("10.0.0.1", 12300, 12203, "answered the sweep"));
-            })
+            .update_sweep(
+                sweep,
+                vec![probed("10.0.0.1", 12300, 12203, "answered the sweep")],
+                false,
+            )
             .expect("update");
 
         settle_check(

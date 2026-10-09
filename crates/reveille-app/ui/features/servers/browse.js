@@ -29,7 +29,6 @@ export function browse({ onReselect }) {
   }
 
   async function refreshBehind() {
-    generations.check.next();
     const swept = session();
     update((next) => {
       next.browse = {
@@ -37,6 +36,9 @@ export function browse({ onReselect }) {
         running: true,
         stopping: false,
         background: true,
+        protectedAddresses: new Set(
+          [...next.checks].filter(([, check]) => check.status === "checking").map(([address]) => address),
+        ),
         registered: 0,
         inspected: 0,
         probed: 0,
@@ -45,10 +47,11 @@ export function browse({ onReselect }) {
         cancelled: false,
         error: null,
       };
+      if (next.joining) next.browse.protectedAddresses.add(next.selected);
     });
 
     try {
-      const payload = await browseServers(swept, progressed);
+      const payload = await browseServers(swept, progressed, true);
       let reselect = false;
       update((next) => {
         reselect = adoptBackgroundSweep(next, payload, clockTime(), new Date().toISOString());

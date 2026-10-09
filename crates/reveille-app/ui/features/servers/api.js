@@ -107,10 +107,11 @@ import { errorText, invoke, invokeWithChannel } from "../../lib/bridge.js";
  *
  * @param {Session} session
  * @param {(progress: BrowseProgress) => void} onProgress
+ * @param {boolean} background Keep the current list and in-flight direct checks usable.
  * @returns {Promise<BrowserPayload>} Rejects with a `BrowseFailure`; read it with `browseFailure`.
  */
-export const browseServers = (session, onProgress) =>
-  invokeWithChannel("browse_servers", { session }, "onProgress", onProgress);
+export const browseServers = (session, onProgress, background = false) =>
+  invokeWithChannel("browse_servers", { session, background }, "onProgress", onProgress);
 
 /** @returns {Promise<void>} */
 export const cancelBrowse = () => invoke("cancel_browse");

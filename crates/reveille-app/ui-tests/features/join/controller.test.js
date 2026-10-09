@@ -170,6 +170,22 @@ test("activating a ready server joins at once", async () => {
   assert.deepEqual(focused, []);
 });
 
+test("a join completed during background refresh keeps its row and outcome", async () => {
+  const { adoptBackgroundSweep } = await import("../../../ui/features/servers/reducers.js");
+  reset();
+  state.browse.running = true;
+  state.browse.background = true;
+  const joined = state.servers.find((server) => server.address === "ready:1");
+  bridge.results.install_and_launch = launched();
+  pane.activate("ready:1");
+  await settle();
+  assert.equal(state.joining, false);
+  adoptBackgroundSweep(state, { servers: [], summary: {}, non_results: [] }, "now", "now");
+  assert.equal(state.servers[0], joined);
+  assert.equal(state.selected, "ready:1");
+  assert.equal(state.joinResult.outcome.launch, "launched");
+});
+
 test("activating a server that needs downloads stops on the Join button, opening a hidden pane", async () => {
   reset();
   state.detailCollapsed = true;

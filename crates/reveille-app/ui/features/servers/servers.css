@@ -33,7 +33,7 @@
   color: var(--dim);
 }
 
-.toolbar__refresh:hover:not(:disabled) {
+.toolbar__refresh:hover:not(:disabled):not([aria-disabled="true"]) {
   color: var(--ink);
 }
 

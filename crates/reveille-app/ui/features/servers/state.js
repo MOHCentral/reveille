@@ -22,6 +22,8 @@ export function initial() {
       stopping: false,
       /** Running behind the list on screen, which stays until the sweep finishes. */
       background: false,
+      /** Rows owned by individual checks or joins during this background sweep. */
+      protectedAddresses: new Set(),
       registered: 0,
       inspected: 0,
       probed: 0,

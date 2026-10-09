@@ -6,7 +6,7 @@ import { recordLaunch } from "../../lib/bookmarks.js";
 import { generations, session } from "../../lib/session.js";
 import { errorText, trackEvent } from "../../lib/shell.js";
 import { state, update } from "../../lib/store.js";
-import { rememberReadyJoin, selectedRow } from "../servers/index.js";
+import { rememberReadyJoin, retainBackgroundRow, selectedRow } from "../servers/index.js";
 import {
   installAndLaunch,
   installServerFiles,
@@ -141,6 +141,7 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
       next.joinError = null;
       next.joinResult = null;
       next.joining = true;
+      retainBackgroundRow(next, row.address);
       next.installRun = { items: new Map(), done: false };
     });
 
@@ -183,6 +184,7 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
       // nothing to fetch, so without this the pane would look idle while the game was being started,
       // and a check finishing in that window could drop the row the outcome renders against.
       next.joining = true;
+      retainBackgroundRow(next, row.address);
       next.installRun = totals.count > 0 ? { items: new Map(), done: false } : null;
     });
 

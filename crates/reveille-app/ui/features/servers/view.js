@@ -54,6 +54,7 @@ import { state, update } from "../../lib/store.js";
 import { PING_LIMITS, SCOPES, saveFilters } from "./state.js";
 import {
   canRecheck,
+  recheckUnavailableReason,
   filtering,
   foldedEmpty,
   listIsStale,
@@ -411,7 +412,9 @@ export function serversView({
       refreshLabel.textContent = stopping ? "Stopping…" : "✕ Stop";
       refreshAge.textContent = known ? `${probed}/${inspected}` : "contacting master";
       refreshAge.classList.remove("hidden");
-      refresh.title = state.browse.background
+      refresh.title = stopping
+        ? "Waiting for the remaining server requests to finish"
+        : state.browse.background
         ? "Stop getting the list. The list on screen stays"
         : "Stop getting the list. Servers found so far stay";
       meter.classList.toggle("meter--indeterminate", !known);
@@ -1216,6 +1219,8 @@ function absentAction(entry, check, onCheck, onGame) {
         type: "button",
         className: "btn btn--sm",
         disabled: state.browse.running || state.joining,
+        title: state.joining ? "Wait for the current join to finish"
+          : state.browse.running ? "Wait for the server list refresh to finish" : "",
         onclick: (event) => {
           event.stopPropagation();
           onGame(other);
@@ -1232,10 +1237,11 @@ function absentAction(entry, check, onCheck, onGame) {
       className: "btn btn--sm",
       // `aria-disabled` rather than `disabled`, as in the detail pane: this button goes busy the
       // moment it is pressed, and the repaint cannot return focus to a disabled element.
-      "aria-disabled": checking ? "true" : null,
+      "aria-disabled": canRecheck(entry.address) ? null : "true",
+      title: recheckUnavailableReason(entry.address) ?? "Check this server",
       onclick: (event) => {
         event.stopPropagation();
-        if (checking) return;
+        if (!canRecheck(entry.address)) return;
         onCheck(entry);
       },
     },

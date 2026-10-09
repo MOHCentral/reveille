@@ -458,6 +458,8 @@ test("one server may not be re-asked during a sweep, during a join, or while alr
 
   store.state.browse.running = true;
   assert.equal(store.canRecheck("a:1"), false, "a sweep is already re-asking every server");
+  store.state.browse.background = true;
+  assert.equal(store.canRecheck("a:1"), true, "a background sweep leaves individual checks available");
   store.state.browse.running = false;
 
   store.state.joining = true;

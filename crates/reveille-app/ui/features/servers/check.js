@@ -7,7 +7,7 @@ import { generations, session } from "../../lib/session.js";
 import { errorText } from "../../lib/shell.js";
 import { state, update } from "../../lib/store.js";
 import { checkServer } from "./api.js";
-import { applyCheckNonResult, applyCheckedRow } from "./reducers.js";
+import { applyCheckNonResult, applyCheckedRow, retainBackgroundRow } from "./reducers.js";
 import { canRecheck, droppedIdentity } from "./selectors.js";
 
 /**
@@ -42,20 +42,26 @@ export function checks({ onReselect }) {
       // reducers.js where it can be tested).
       const before = state.servers.find((row) => row.address === entry.address) ?? null;
       const dropped = droppedIdentity(entry);
-      update((next) => next.checks.set(entry.address, { status: "checking", dropped }));
+      const previouslyProtected = state.browse.background && state.browse.protectedAddresses.has(entry.address);
+      update((next) => {
+        next.checks.set(entry.address, { status: "checking", dropped });
+        retainBackgroundRow(next, entry.address);
+      });
 
       let result;
       try {
         result = await checkServer(session(), entry.address, entry.queryPort);
       } catch (error) {
         if (!generations.check.isCurrent(generation)) return;
-        update((next) =>
-          next.checks.set(entry.address, { status: "failed", error: errorText(error), dropped }),
-        );
+        update((next) => {
+          next.checks.set(entry.address, { status: "failed", error: errorText(error), dropped });
+          if (next.browse.background && !previouslyProtected) next.browse.protectedAddresses.delete(entry.address);
+        });
         continue;
       }
       if (!generations.check.isCurrent(generation)) return;
       update((next) => {
+        if (result.row) retainBackgroundRow(next, result.row.address);
         if (result.row) applyCheckedRow(next, entry, result, dropped, new Date().toISOString());
         else applyCheckNonResult(next, entry, result, dropped);
       });
@@ -68,9 +74,8 @@ export function checks({ onReselect }) {
   /**
    * The selected server, asked again on its own.
    *
-   * Not offered while a sweep is running: that is already re-asking every server in the list, and
-   * this row is about to be replaced by it. Nor while a join is running, where the pane belongs to
-   * that command and a check coming back empty would take the row out from under it.
+   * Not offered while a foreground sweep is replacing the list, or while a join owns the pane:
+   * a check coming back empty would take the row out from under that command.
    */
   function recheck(row) {
     if (!canRecheck(row.address)) return;

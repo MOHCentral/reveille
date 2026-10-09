@@ -268,17 +268,22 @@ export function scopedRows() {
 /**
  * Whether one server may be asked again right now.
  *
- * Not while a sweep is running — that is already re-asking every server in the list, this one
- * included. Not while a join is running — the pane belongs to that command, and a check that came
- * back empty would drop the row its progress is drawn against. And not while this address already
- * has a request in flight.
+ * Not while a foreground sweep is replacing the list, or while a join owns the pane: an empty
+ * answer would drop the row its progress is drawn against. And not while this address already has
+ * a request in flight.
  *
  * One question, read by both the control and the handler behind it, so the two cannot drift into
  * disagreeing about when the control works.
  */
 export function canRecheck(address) {
-  if (state.browse.running || state.joining) return false;
-  return state.checks.get(address)?.status !== "checking";
+  return recheckUnavailableReason(address) === null;
+}
+
+export function recheckUnavailableReason(address) {
+  if (state.joining) return "Wait for the current join to finish";
+  if (state.browse.running && !state.browse.background) return "Wait for the server list refresh to finish";
+  if (state.checks.get(address)?.status === "checking") return "This server is already being refreshed";
+  return null;
 }
 
 /**

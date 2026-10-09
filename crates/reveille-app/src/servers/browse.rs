@@ -64,12 +64,13 @@ pub fn cancel_browse(state: tauri::State<'_, Listing>) {
 #[tauri::command]
 pub async fn browse_servers(
     session: Session,
+    background: Option<bool>,
     on_progress: Channel<BrowseProgress>,
     state: tauri::State<'_, Listing>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<BrowserPayload, BrowseFailure> {
     let (game, engine) = (session.game, session.engine);
-    let result = sweep_servers(session, &on_progress, state).await;
+    let result = sweep_servers(session, background.unwrap_or(false), &on_progress, state).await;
     telemetry.track(&match &result {
         Ok(payload) => Event::ServerListLoaded {
             game,
@@ -88,6 +89,7 @@ pub async fn browse_servers(
 
 async fn sweep_servers(
     session: Session,
+    background: bool,
     on_progress: &Channel<BrowseProgress>,
     state: tauri::State<'_, Listing>,
 ) -> Result<BrowserPayload, BrowseFailure> {
@@ -100,7 +102,11 @@ async fn sweep_servers(
     drop(tokio::time::timeout(Duration::ZERO, state.cancel.notified()).await);
     // Rows are offered to the player as they stream, so a join prepared mid-sweep must be able to
     // find its server. The list is rebuilt from the authoritative report when the sweep ends.
-    let ticket = state.begin_sweep(session.game)?;
+    let ticket = if background {
+        state.begin_background_sweep(session.game)?
+    } else {
+        state.begin_sweep(session.game)?
+    };
 
     let (sink, mut events) = mpsc::channel(64);
     let sweep = tokio::spawn(discovery::browse_streaming(
@@ -147,7 +153,10 @@ async fn sweep_servers(
                 .map_or(0, discovery::ClientsReported::get),
         )
     });
-    if state.update(ticket, |list| *list = servers)?.is_none() {
+    if state
+        .update_sweep(ticket, servers, !background || !cancelled)?
+        .is_none()
+    {
         info!("a newer sweep replaced this one; its servers were not kept");
     }
 
@@ -214,7 +223,7 @@ async fn stream_sweep(
                     .map(|server| classified(server, index));
                 if let Some(server) = outcome.server {
                     progress.answered += 1;
-                    state.update(ticket, |list| list.push(server))?;
+                    state.update_sweep(ticket, vec![server], false)?;
                 } else {
                     progress.non_results += 1;
                 }

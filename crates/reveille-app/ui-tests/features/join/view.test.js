@@ -353,3 +353,28 @@ test("the header refreshes this server and spins while it is asked", () => {
   // The header says a check is running; Join keeps its own label rather than repeating it.
   assert.doesNotMatch(textOf(root.querySelector('[data-focus-key="join"]')), /Checking/u);
 });
+
+test("background refresh leaves this server's refresh and Join controls available", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  store.state.browse.running = true;
+  store.state.browse.background = true;
+  view.render();
+  const reload = root.querySelector('[data-focus-key="detail-recheck"]');
+  assert.notEqual(reload.getAttribute("aria-disabled"), "true");
+  assert.doesNotMatch(reload.title, /whole list/u);
+  assert.equal(root.querySelector('[data-focus-key="join"]').disabled, false);
+});
+
+test("the server refresh control explains its disabled state and restores after refresh", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  store.state.browse.running = true;
+  store.state.browse.background = false;
+  view.render();
+  const reload = () => root.querySelector('[data-focus-key="detail-recheck"]');
+  assert.equal(reload().getAttribute("aria-disabled"), "true");
+  assert.match(reload().title, /wait.*refresh/iu);
+  store.state.browse.running = false;
+  view.render();
+  assert.notEqual(reload().getAttribute("aria-disabled"), "true");
+  assert.doesNotMatch(reload().title, /wait/iu);
+});

@@ -49,13 +49,6 @@
   border-color: #e6b558;
 }
 
-.btn--primary:disabled,
-.btn--primary[aria-disabled="true"] {
-  background: var(--brass-quiet);
-  border-color: var(--brass-quiet);
-  color: #8a7642;
-}
-
 .btn--ghost {
   background: transparent;
 }
@@ -91,7 +84,7 @@
   color: var(--dim);
 }
 
-.btn--icon:hover:not(:disabled) {
+.btn--icon:hover:not(:disabled):not([aria-disabled="true"]) {
   color: var(--ink);
   background: var(--rise);
   border-color: var(--line);

@@ -60,7 +60,8 @@ function workflow({ clients = 3 } = {}) {
 function ready() {
   state.install = { root: "C:/Games/MOHAA", playable: ["allied_assault", "spearhead"] };
   state.game = "allied_assault";
-  state.browse = { ...state.browse, running: false };
+  state.browse = { ...state.browse, running: false, background: false };
+  state.servers = [];
   state.joining = false;
   if (dialog.open) dialog.close();
 }
@@ -121,6 +122,64 @@ test("a request made while a sweep runs is delivered once the shell resumes it",
   await settle();
   assert.deepEqual(calls.slice(1), [["check", "a:1", 12300], ["reveal", "a:1"], ["select", "a:1"]]);
 });
+
+test("Show selects a listed server immediately while a background refresh runs", async () => {
+  ready();
+  state.servers = [{ address: "a:1" }];
+  state.browse = { ...state.browse, running: true, background: true };
+  const { flow, calls, checks } = workflow();
+  flow.openServer(target("a:1"));
+  await settle();
+  assert.deepEqual(calls.filter(([step]) => step !== "focus"), [
+    ["reveal", "a:1"], ["select", "a:1"], ["check", "a:1", 12300],
+  ]);
+  assert.equal(state.browse.running, true);
+  checks.shift()();
+  await settle();
+  assert.equal(state.browse.running, true);
+  assert.deepEqual(calls.slice(-3), [
+    ["check", "a:1", 12300], ["reveal", "a:1"], ["select", "a:1"],
+  ]);
+});
+
+test("an alert can check and join an unlisted server before background refresh finishes", async () => {
+  ready();
+  state.browse = { ...state.browse, running: true, background: true };
+  const { flow, calls, checks } = workflow();
+  flow.openServer(target("a:1", { join: true }));
+  await settle();
+  assert.deepEqual(calls, [["focus"], ["check", "a:1", 12300]]);
+  checks.shift()();
+  await settle();
+  assert.equal(state.browse.running, true);
+  assert.deepEqual(calls.slice(-3), [["reveal", "a:1"], ["select", "a:1"], ["activate", "a:1"]]);
+});
+
+test("Show selects a listed server before its fresh check answers", async () => {
+  ready();
+  state.servers = [{ address: "a:1" }];
+  const { flow, calls, checks } = workflow();
+  flow.openServer(target("a:1"));
+  await settle();
+  assert.deepEqual(calls.filter(([step]) => step !== "focus"), [
+    ["reveal", "a:1"], ["select", "a:1"], ["check", "a:1", 12300],
+  ]);
+  checks.shift()();
+  await settle();
+});
+
+for (const scenario of ["foreground refresh", "another game", "join in progress"]) {
+  test(`Show waits during ${scenario} even when the address is listed`, async () => {
+    ready();
+    state.servers = [{ address: "a:1" }];
+    state.browse = { ...state.browse, running: true, background: scenario !== "foreground refresh" };
+    state.joining = scenario === "join in progress";
+    const { flow, calls } = workflow();
+    flow.openServer(target("a:1", { game: scenario === "another game" ? "spearhead" : "allied_assault" }));
+    await settle();
+    assert.deepEqual(calls, [["focus"]]);
+  });
+}
 
 test("a second request made during the first one's check replaces it", async () => {
   ready();

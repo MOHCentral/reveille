@@ -235,8 +235,8 @@ async fn join_and_launch(
         engine = ?session.engine,
         "starting install-and-launch flow"
     );
-    let server = listing
-        .find(&address, session.game)
+    let (server, _ownership) = listing
+        .find_for_join(&address, session.game)
         .map_err(failed(JoinFailureReason::ServerGone))?;
     let preview = match take_cached_preview(cache, &session, &address) {
         Some(preview) => preview,
