@@ -10,10 +10,14 @@
 import { closeDialog, openDialog } from "../../lib/dialog.js";
 import { el, fill, preserveFocus } from "../../lib/dom.js";
 import { icon } from "../../lib/icons.js";
-import { state } from "../../lib/store.js";
+import { state, update } from "../../lib/store.js";
 import { busyKey } from "./controller.js";
 import { confirmRemoveServer, openAddServer } from "./dialogs.js";
 import { mapPicker } from "./map-picker.js";
+import { freshness, GAME_TYPES } from "./format.js";
+import { consoleView, withoutColours } from "./console-view.js";
+
+export { withoutColours };
 
 export const VAULT_TEXT = {
   credential_manager: "RCON passwords kept in Windows Credential Manager",
@@ -54,59 +58,15 @@ export function adminView({ controller, onToggleDetail }) {
   );
 
   const head = el("div", { className: "admin-head" });
+  const actionStatus = el("p", { className: "admin-feedback", role: "status" });
+  const updatedAt = el("span", { className: "admin-freshness data" });
+  setInterval(() => {
+    if (!listPane.classList.contains("hidden")) updatedAt.textContent = freshness(entry());
+  }, 1000)?.unref?.();
   const players = el("div", { className: "admin-players", onkeydown: onPlayersKey });
 
-  // The console's input is built once, so a status poll never takes the caret out of it.
-  const history = [];
-  let historyAt = 0;
-  const consoleLog = el("div", { className: "admin-console__log data", role: "log", "aria-label": "Console output" });
-  const consoleInput = el("input", {
-    type: "text",
-    autocomplete: "off",
-    spellcheck: false,
-    placeholder: "Type an RCON command",
-    "aria-label": "RCON command",
-    dataset: { focusKey: "admin-console" },
-    onkeydown: (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        sendConsole();
-      } else if (event.key === "ArrowUp" && history.length) {
-        event.preventDefault();
-        historyAt = Math.max(0, historyAt - 1);
-        consoleInput.value = history[historyAt];
-      } else if (event.key === "ArrowDown" && history.length) {
-        event.preventDefault();
-        historyAt = Math.min(history.length, historyAt + 1);
-        consoleInput.value = history[historyAt] ?? "";
-      }
-    },
-  });
-  const consoleSend = el("button", { type: "button", className: "btn", onclick: sendConsole }, "Send");
-  const consolePane = el(
-    "div",
-    { className: "admin-console" },
-    el("p", { className: "label" }, "Console"),
-    consoleLog,
-    el(
-      "div",
-      { className: "admin-console__input" },
-      el("label", { className: "field" }, el("span", { className: "field__icon", "aria-hidden": "true" }, ">"), consoleInput),
-      consoleSend,
-    ),
-  );
-
-  function sendConsole() {
-    if (!selectedServer()) return;
-    const line = consoleInput.value.trim();
-    if (!line) return;
-    history.push(line);
-    historyAt = history.length;
-    consoleInput.value = "";
-    void controller.act({ kind: "console", line });
-  }
-
-  const listPane = el("div", { className: "list-pane admin-main" }, head, players, consolePane);
+  const console = consoleView({ controller });
+  const listPane = el("div", { className: "list-pane admin-main" }, head, actionStatus, players, console.root);
 
   // The pane's inputs are built once for the same reason.
   const mapChoice = mapPicker({ onSubmit: changeMap });
@@ -118,6 +78,9 @@ export function adminView({ controller, onToggleDetail }) {
     placeholder: "Shown in the chat of every player",
     "aria-label": "Message everyone",
     dataset: { focusKey: "admin-say" },
+    oninput: () => update((next) => {
+      if (next.admin.selected) next.admin.messageDrafts.set(next.admin.selected, sayInput.value);
+    }),
     onkeydown: (event) => {
       if (event.key === "Enter") say();
     },
@@ -146,6 +109,7 @@ export function adminView({ controller, onToggleDetail }) {
       if (mode >= 1 && mode <= 4 && selectedServer()) void controller.act({ kind: "set_game_type", game_type: mode });
     },
   }, "Apply");
+  const gameTypeSummary = el("p", { className: "quiet admin-game-type__note" });
   const removeLink = el(
     "button",
     {
@@ -188,6 +152,7 @@ export function adminView({ controller, onToggleDetail }) {
       { className: "detail__section" },
       el("h3", { className: "display heading-sm" }, "Game type"),
       gameType,
+      gameTypeSummary,
       el("p", { className: "quiet admin-game-type__note" }, "Applies on the next map load."),
       el("div", { className: "actions__row" }, gameTypeApply),
     ),
@@ -221,9 +186,15 @@ export function adminView({ controller, onToggleDetail }) {
   }
 
   async function say() {
+    const address = state.admin.selected;
     const text = sayInput.value.trim();
     if (!text) return;
-    if (await controller.act({ kind: "say", text })) sayInput.value = "";
+    if (await controller.act({ kind: "say", text })) {
+      update((next) => {
+        if (next.admin.messageDrafts.get(address)?.trim() === text) next.admin.messageDrafts.delete(address);
+      });
+      if (state.admin.selected === address && sayInput.value.trim() === text) sayInput.value = "";
+    }
   }
 
   const selectedServer = () => state.admin.servers.find((server) => server.address === state.admin.selected) ?? null;
@@ -270,6 +241,11 @@ export function adminView({ controller, onToggleDetail }) {
     const current = entry();
     const status = current?.status ?? null;
     const failure = current?.failure ?? null;
+    const feedback = state.admin.feedback.get(state.admin.selected);
+    const feedbackText = feedback?.text ?? "";
+    if (actionStatus.textContent !== feedbackText) actionStatus.textContent = feedbackText;
+    actionStatus.className = `admin-feedback${feedback ? ` admin-feedback--${feedback.phase}` : ""}`;
+    updatedAt.textContent = freshness(current);
     const name = status?.name ?? server?.name ?? "";
     const facts = status
       ? [status.map, status.game_type, `${status.players.length}${status.capacity ? `/${status.capacity}` : ""}`].filter(Boolean).join(" · ")
@@ -290,6 +266,7 @@ export function adminView({ controller, onToggleDetail }) {
           el("h2", { className: "pane-title truncate", title: name }, name),
           connection,
           facts && el("span", { className: "admin-head__facts data" }, facts),
+          server && updatedAt,
         ),
         failure && failureNotice(server, failure),
       ),
@@ -324,6 +301,7 @@ export function adminView({ controller, onToggleDetail }) {
     const status = current?.status ?? null;
     const signature = JSON.stringify([
       state.admin.selected,
+      state.admin.servers.length,
       status,
       Boolean(current?.loading),
       state.admin.player,
@@ -333,7 +311,17 @@ export function adminView({ controller, onToggleDetail }) {
     paintedPlayers = signature;
     preserveFocus(players, () => {
       if (!status) {
-        fill(players, el("p", { className: "admin-players__empty quiet" }, current?.loading ? "Asking the server…" : ""));
+        fill(players, !state.admin.servers.length
+          ? el("div", { className: "admin-empty" },
+              el("h2", { className: "display heading-sm" }, "Manage servers you run"),
+              el("p", { className: "quiet" }, "Add a server with its RCON password to manage players, maps, rotation and game type."),
+              el("button", {
+                type: "button", className: "btn btn--primary",
+                dataset: { focusKey: "admin-empty-add" },
+                onclick: () => openAddServer({ controller, vault: state.admin.vault }),
+              }, "Add your server"),
+            )
+          : el("p", { className: "admin-players__empty quiet" }, current?.loading ? "Asking the server…" : ""));
         return;
       }
       fill(
@@ -497,28 +485,12 @@ export function adminView({ controller, onToggleDetail }) {
     area.focus();
   }
 
-  let paintedConsole = null;
-  function paintConsole() {
-    const available = Boolean(selectedServer());
-    consoleInput.disabled = !available;
-    consoleSend.disabled = !available;
-    consoleInput.placeholder = available ? "Type an RCON command" : "Add a server to use the console";
-    const lines = state.admin.consoles.get(state.admin.selected) ?? [];
-    const signature = `${state.admin.selected}:${lines.length}:${lines.at(-1)?.text ?? ""}`;
-    if (signature === paintedConsole) return;
-    paintedConsole = signature;
-    fill(
-      consoleLog,
-      lines.map((line) =>
-        el("div", { className: `admin-console__line admin-console__line--${line.kind}` }, line.kind === "in" ? `> ${line.text}` : withoutColours(line.text)),
-      ),
-    );
-    consoleLog.scrollTop = consoleLog.scrollHeight;
-  }
-
   let paintedDetail = null;
   function paintDetail() {
     const status = entry()?.status ?? null;
+    sayInput.value = state.admin.messageDrafts.get(state.admin.selected) ?? "";
+    const pending = state.admin.pendingGameTypes.get(state.admin.selected);
+    gameTypeSummary.textContent = `Active: ${GAME_TYPES[status?.game_type_number] ?? status?.game_type ?? "Unknown"}${pending ? ` · Pending: ${GAME_TYPES[pending]}` : ""}`;
     const previous = JSON.parse(paintedDetail ?? "[null]");
     const changedServer = previous[0] !== state.admin.selected;
     if (changedServer) allRotationShown = false;
@@ -579,7 +551,7 @@ export function adminView({ controller, onToggleDetail }) {
     paintToolbar();
     paintHead();
     paintPlayers();
-    paintConsole();
+    console.render();
     if (state.admin.servers.length && !state.detailCollapsed) paintDetail();
     paintStatus();
   }
@@ -590,15 +562,8 @@ export function adminView({ controller, onToggleDetail }) {
     detail,
     statusbar,
     render,
-    focusSearch: () => (selectedServer() ? consoleInput : addButton).focus(),
-    focusList: () => (players.querySelector('tr[tabindex="0"]') ?? (selectedServer() ? consoleInput : addButton)).focus(),
-    clearSearch: () => {
-      consoleInput.value = "";
-    },
+    focusSearch: () => (selectedServer() ? console.input : addButton).focus(),
+    focusList: () => (players.querySelector('tr[tabindex="0"]') ?? (selectedServer() ? console.input : addButton)).focus(),
+    clearSearch: console.clearInput,
   };
-}
-
-/** Quake colour codes (`^7`) are the game's markup, not text the admin should read. */
-export function withoutColours(text) {
-  return text.replace(/\^[0-9]/gu, "");
 }

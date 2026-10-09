@@ -79,7 +79,8 @@ test("a selected player who left the server is no longer selected", async () => 
   assert.equal(state.admin.player, null);
 });
 
-test("an action is echoed in words, its output logged, and the status asked again", async () => {
+test("an action is echoed in words, its output timestamped, and the status asked again", async (t) => {
+  t.mock.method(Date, "now", () => 1234);
   reset();
   const controller = adminController();
   await controller.load();
@@ -89,8 +90,8 @@ test("an action is echoed in words, its output logged, and the status asked agai
   assert.equal(await controller.act({ kind: "kick", slot: 0 }), true);
   await settle();
   assert.deepEqual(state.admin.consoles.get(FIRST), [
-    { kind: "in", text: "kick Hawk" },
-    { kind: "out", text: "Hawk was kicked" },
+    { kind: "in", text: "kick Hawk", at: 1234 },
+    { kind: "out", text: "Hawk was kicked", at: 1234 },
   ]);
   assert.deepEqual(commands(), ["admin_action", "admin_status"]);
   assert.deepEqual(bridge.calls[0].args, { address: FIRST, action: { kind: "kick", slot: 0 } });
@@ -106,13 +107,14 @@ test("a message to everyone leaves the status as it was", async () => {
   assert.deepEqual(commands(), ["admin_action"]);
 });
 
-test("a refused action is logged as an error and reported as not taken", async () => {
+test("a refused action is logged as an error and reported as not taken", async (t) => {
+  t.mock.method(Date, "now", () => 1234);
   reset();
   const controller = adminController();
   await controller.load();
   bridge.fail("admin_action", { reason: "invalid", message: "Map names use letters, digits and / only." });
   assert.equal(await controller.act({ kind: "change_map", map: "dm/x" }), false);
-  assert.deepEqual(state.admin.consoles.get(FIRST).at(-1), { kind: "error", text: "Map names use letters, digits and / only." });
+  assert.deepEqual(state.admin.consoles.get(FIRST).at(-1), { kind: "error", text: "Map names use letters, digits and / only.", at: 1234 });
   assert.equal(state.admin.busy.size, 0);
 });
 
@@ -180,18 +182,133 @@ test("busy keys tell players apart but not two messages to everyone", () => {
   assert.equal(busyKey(FIRST, { kind: "say", text: "a" }), busyKey(FIRST, { kind: "say", text: "b" }));
 });
 
-test("setting game type echoes the pending change and refreshes status", async () => {
+test("setting game type echoes the pending change and refreshes status", async (t) => {
+  t.mock.method(Date, "now", () => 1234);
   reset();
   const controller = adminController();
   await controller.load();
   bridge.calls.length = 0;
   await controller.act({ kind: "set_game_type", game_type: 4 });
   await settle();
-  assert.deepEqual(state.admin.consoles.get(FIRST)[0], { kind: "in", text: "g_gametype 4 (next map load)" });
+  assert.deepEqual(state.admin.consoles.get(FIRST)[0], { kind: "in", text: "g_gametype 4 (next map load)", at: 1234 });
   assert.deepEqual(commands(), ["admin_action", "admin_status"]);
 });
 
 test("a failure Rust did not classify reads as no answer", () => {
   assert.deepEqual(failureOf({ reason: "bad_password", message: "No." }), { reason: "bad_password", message: "No." });
   assert.equal(failureOf(new Error("socket closed")).reason, "no_answer");
+});
+
+test("map actions show progress and retain success feedback for their server", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  let release;
+  bridge.results.admin_action = () => new Promise((resolve) => (release = resolve));
+  const action = controller.act({ kind: "change_map", map: "dm/mohdm2" });
+  assert.equal(state.admin.feedback.get(FIRST).phase, "busy");
+  assert.match(state.admin.feedback.get(FIRST).text, /Changing map/u);
+  state.admin.selected = SECOND;
+  release("");
+  await action;
+  assert.equal(state.admin.feedback.get(FIRST).phase, "success");
+  assert.equal(state.admin.feedback.has(SECOND), false);
+});
+
+test("a failed action has visible failure feedback and does not queue a game type", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  bridge.fail("admin_action", { reason: "no_answer", message: "No answer." });
+  await controller.act({ kind: "set_game_type", game_type: 4 });
+  assert.equal(state.admin.feedback.get(FIRST).phase, "error");
+  assert.equal(state.admin.feedback.get(FIRST).text, "No answer.");
+  assert.equal(state.admin.pendingGameTypes.has(FIRST), false);
+});
+
+test("a queued game type survives old readings and clears when the server reports it active", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  bridge.results.admin_status = () => ({ ...status(), game_type_number: 2 });
+  await controller.act({ kind: "set_game_type", game_type: 4 });
+  await settle();
+  assert.equal(state.admin.pendingGameTypes.get(FIRST), 4);
+  await controller.refresh();
+  assert.equal(state.admin.pendingGameTypes.get(FIRST), 4);
+  bridge.results.admin_status = () => ({ ...status(), game_type_number: 4 });
+  await controller.refresh();
+  assert.equal(state.admin.pendingGameTypes.has(FIRST), false);
+  assert.match(state.admin.feedback.get(FIRST).text, /Objective match is active/u);
+});
+
+test("an older action finishing does not overwrite feedback from a newer action", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  let release;
+  bridge.results.admin_action = ({ action }) => action.kind === "change_map"
+    ? new Promise((resolve) => (release = resolve)) : "";
+  const changing = controller.act({ kind: "change_map", map: "dm/mohdm2" });
+  await controller.act({ kind: "say", text: "gg" });
+  const latest = state.admin.feedback.get(FIRST);
+  release("");
+  await changing;
+  assert.equal(state.admin.feedback.get(FIRST), latest);
+});
+
+test("late replies cannot restore a removed server's output or status", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  let release;
+  bridge.results.admin_action = () => new Promise((resolve) => (release = resolve));
+  const action = controller.act({ kind: "set_game_type", game_type: 4 });
+  bridge.results.admin_servers = () => ({ servers: [], vault: "credential_manager" });
+  await controller.remove(FIRST);
+  release("queued\n");
+  await action;
+  await settle();
+  assert.equal(state.admin.consoles.has(FIRST), false);
+  assert.equal(state.admin.statuses.has(FIRST), false);
+  assert.equal(state.admin.feedback.has(FIRST), false);
+  assert.equal(state.admin.pendingGameTypes.has(FIRST), false);
+});
+
+test("removal invalidates replies before the refreshed server list arrives", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  let releaseAction;
+  let releaseList;
+  bridge.results.admin_action = () => new Promise((resolve) => (releaseAction = resolve));
+  const action = controller.act({ kind: "set_game_type", game_type: 4 });
+  bridge.results.admin_servers = () => new Promise((resolve) => (releaseList = resolve));
+  const removal = controller.remove(FIRST);
+  await settle();
+  releaseAction("");
+  await action;
+  releaseList({ servers: [], vault: "credential_manager" });
+  await removal;
+  assert.equal(state.admin.pendingGameTypes.has(FIRST), false);
+  assert.equal(state.admin.feedback.has(FIRST), false);
+});
+
+test("an action from an old registration cannot affect a re-added server", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  let release;
+  bridge.results.admin_action = () => new Promise((resolve) => (release = resolve));
+  const oldAction = controller.act({ kind: "set_game_type", game_type: 4 });
+  bridge.results.admin_servers = () => ({ servers: [], vault: "credential_manager" });
+  await controller.remove(FIRST);
+  bridge.results.add_admin_server = () => ({ address: FIRST, name: "Re-added" });
+  bridge.results.admin_servers = () => ({ servers: [{ address: FIRST, name: "Re-added" }], vault: "credential_manager" });
+  await controller.add(FIRST, "password");
+  release("old reply");
+  assert.equal(await oldAction, false);
+  assert.equal(state.admin.pendingGameTypes.has(FIRST), false);
+  assert.equal(state.admin.feedback.has(FIRST), false);
+  assert.equal(state.admin.consoles.has(FIRST), false);
 });

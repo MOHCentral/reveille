@@ -18,13 +18,13 @@ const status = (rotation, gameType = 2) => ({
   capacity: 16, players: [], rotation, engine: "original", can_message: false, can_ban: false,
 });
 
-function setup(rotation = ["dm/a", "dm/b", "dm/c", "dm/d", "dm/e", "dm/f"]) {
+function setup(rotation = ["dm/a", "dm/b", "dm/c", "dm/d", "dm/e", "dm/f"], act = () => true) {
   Object.assign(state, initial(), { detailCollapsed: false });
   state.admin.servers = [{ address: "203.0.113.4:12203", name: "Stock" }];
   state.admin.selected = "203.0.113.4:12203";
   state.admin.statuses.set(state.admin.selected, { status: status(rotation) });
   const actions = [];
-  const page = adminView({ controller: { act: (action) => actions.push(action) }, onToggleDetail() {} });
+  const page = adminView({ controller: { act: (action) => { actions.push(action); return act(action); } }, onToggleDetail() {} });
   page.render();
   return { page, actions };
 }
@@ -89,4 +89,74 @@ test("status polling preserves the chosen game type until the active mode change
 test("the console drops the game's colour codes and keeps every other caret", () => {
   assert.equal(withoutColours('"sv_hostname" is:"^1Red^7 Base^7"'), '"sv_hostname" is:"Red Base"');
   assert.equal(withoutColours("2^x stays"), "2^x stays");
+});
+
+test("Admin explains the empty state and offers an add-server action", () => {
+  const { page } = setup();
+  state.admin.servers = [];
+  state.admin.selected = null;
+  page.render();
+  assert.match(page.listPane.text, /Manage servers you run/u);
+  assert.ok(page.listPane.querySelector('[data-focus-key="admin-empty-add"]'));
+});
+
+test("the header exposes stale data and action feedback", () => {
+  const { page } = setup();
+  const entry = state.admin.statuses.get(state.admin.selected);
+  entry.at = Date.now() - 65_000;
+  entry.failure = { reason: "no_answer", message: "No answer." };
+  state.admin.feedback.set(state.admin.selected, { phase: "success", text: "Rotation saved." });
+  page.render();
+  assert.match(findClass(page.listPane, "admin-freshness").textContent, /Last update.*ago.*stale/u);
+  assert.match(findClass(page.listPane, "admin-feedback").textContent, /Rotation saved/u);
+});
+
+test("game type distinguishes the active mode from the queued mode", () => {
+  const { page } = setup();
+  state.admin.pendingGameTypes.set(state.admin.selected, 4);
+  page.render();
+  const summary = findClass(page.detail, "admin-game-type__note").textContent;
+  assert.match(summary, /Active: Team match/u);
+  assert.match(summary, /Pending: Objective match/u);
+});
+
+test("message drafts stay with their server", () => {
+  const { page } = setup();
+  const input = page.detail.querySelector('[data-focus-key="admin-say"]');
+  input.value = "First server message";
+  input.dispatch("input");
+  const first = state.admin.selected;
+  const second = "203.0.113.9:12203";
+  state.admin.servers.push({ address: second, name: "Clan" });
+  state.admin.statuses.set(second, { status: status([]) });
+  state.admin.selected = second;
+  page.render();
+  assert.equal(input.value, "");
+  input.value = "Second server message";
+  input.dispatch("input");
+  state.admin.selected = first;
+  page.render();
+  assert.equal(input.value, "First server message");
+});
+
+test("a late successful message clears its original draft without touching another server", async () => {
+  let release;
+  const { page } = setup([], () => new Promise((resolve) => (release = resolve)));
+  const input = page.detail.querySelector('[data-focus-key="admin-say"]');
+  const first = state.admin.selected;
+  input.value = "First server message";
+  input.dispatch("input");
+  page.detail.querySelector('[data-focus-key="admin-say-send"]').dispatch("click");
+  const second = "203.0.113.9:12203";
+  state.admin.servers.push({ address: second, name: "Clan" });
+  state.admin.statuses.set(second, { status: status([]) });
+  state.admin.selected = second;
+  page.render();
+  input.value = "Second server message";
+  input.dispatch("input");
+  release(true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.admin.messageDrafts.has(first), false);
+  assert.equal(state.admin.messageDrafts.get(second), "Second server message");
+  assert.equal(input.value, "Second server message");
 });

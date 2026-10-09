@@ -18,10 +18,16 @@ export function initial() {
       player: null,
       /** What each server last said, by address: `{ status, failure, at, loading }`. */
       statuses: new Map(),
-      /** Console lines, by address: `{ kind: "in" | "out" | "error", text }`. */
+      /** Console lines, by address: `{ kind: "in" | "out" | "error", text, at }`. */
       consoles: new Map(),
       /** Actions waiting on a server's answer, as `address:kind:slot`. */
       busy: new Set(),
+      /** The latest action's progress or outcome, by server address. */
+      feedback: new Map(),
+      /** Game types accepted by RCON but not yet reported active. */
+      pendingGameTypes: new Map(),
+      /** Unsent messages, kept separately for each server. */
+      messageDrafts: new Map(),
     },
   };
 }
