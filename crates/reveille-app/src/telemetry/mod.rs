@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use reveille_core::content::CatalogueKind;
 use reveille_core::discovery::TargetGame;
 use reveille_core::engine::EngineChoice;
 use serde::{Deserialize, Serialize};
@@ -76,6 +77,75 @@ pub enum DownloadSource {
     Catalogue,
     /// A map installed from Maps & mods, outside any join.
     Browse,
+}
+
+/// Where the first map in a failed download batch stopped. The map name and error text stay on
+/// the machine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapFailureStage {
+    /// The catalogue could not be asked, or had no copy of the map.
+    Lookup,
+    /// The server's own download list could not be read.
+    Manifest,
+    /// A copy already on the search path could not be read to compare against the list.
+    LocalCopy,
+    /// The archive could not be fetched.
+    Download,
+    /// The archive could not be opened.
+    Archive,
+    /// The archive does not hold the map the server runs.
+    Mismatch,
+    /// The files could not be written into the game folder.
+    Install,
+    /// The batch could not start: no HTTP client or staging folder.
+    Setup,
+}
+
+/// How long a launched game ran, in buckets coarse enough to identify nobody.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayTime {
+    /// Usually a failed connection or an immediate kick rather than a game played.
+    UnderAMinute,
+    UpToTenMinutes,
+    OverTenMinutes,
+}
+
+impl From<Duration> for PlayTime {
+    fn from(played: Duration) -> Self {
+        if played < Duration::from_mins(1) {
+            Self::UnderAMinute
+        } else if played <= Duration::from_mins(10) {
+            Self::UpToTenMinutes
+        } else {
+            Self::OverTenMinutes
+        }
+    }
+}
+
+/// A section of the rail other than Servers, where Reveille always opens.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Section {
+    Content,
+    Admin,
+}
+
+/// Which Admin command ran. The slot, text, map and command line stay on the machine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdminActionKind {
+    Kick,
+    Ban,
+    Message,
+    Say,
+    ChangeMap,
+    RestartRound,
+    SetRotation,
+    SetGameType,
+    ReadCvar,
+    Console,
 }
 
 /// Why a join did not end with the game starting. Low-cardinality on purpose: the player still
@@ -224,6 +294,8 @@ pub enum Event {
     GameInstallDetected {
         games: Vec<reveille_core::install::Product>,
     },
+    /// Separates players with no game found from players who never reached detection.
+    GameInstallNotFound,
     FirstRunCompleted {
         game: TargetGame,
         engine: EngineChoice,
@@ -245,14 +317,37 @@ pub enum Event {
     MapDownloadStarted {
         source: DownloadSource,
         count: usize,
+        /// Set for Maps & mods installs, which are mods as often as maps; a join only adds maps.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<CatalogueKind>,
     },
     MapDownloadCompleted {
         source: DownloadSource,
         installed: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<CatalogueKind>,
     },
     MapDownloadFailed {
         source: DownloadSource,
         failed: usize,
+        stage: MapFailureStage,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<CatalogueKind>,
+    },
+    ContentRemoved {
+        kind: CatalogueKind,
+    },
+    SectionOpened {
+        section: Section,
+    },
+    AdminServerAdded,
+    AdminServerAddFailed {
+        reason: crate::admin::FailureReason,
+    },
+    AdminAction {
+        action: AdminActionKind,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure: Option<crate::admin::FailureReason>,
     },
     JoinClicked {
         game: TargetGame,
@@ -268,6 +363,12 @@ pub enum Event {
         engine: EngineChoice,
         reason: JoinFailureReason,
     },
+    /// The game program Reveille started has closed. Lost when Reveille quits first.
+    GameExited {
+        game: TargetGame,
+        engine: EngineChoice,
+        played: PlayTime,
+    },
 }
 
 /// The events the frontend may ask for. Everything else is sent from the command that observes
@@ -281,6 +382,9 @@ pub enum UiEvent {
     },
     ServerSelected {
         ready: bool,
+    },
+    SectionOpened {
+        section: Section,
     },
 }
 
@@ -326,6 +430,10 @@ pub struct Telemetry {
     /// Read by the panic hook, which cannot take the lock.
     sharing: Arc<AtomicBool>,
     server_selected_sent: AtomicBool,
+    install_not_found_sent: AtomicBool,
+    sections_opened: [AtomicBool; 2],
+    /// The games last reported found, so a re-detection of the same folder is not sent again.
+    detected_games: Mutex<Option<Vec<reveille_core::install::Product>>>,
     client: reqwest::Client,
     /// False when there is no config directory to write the choice, crash marker or ID into.
     persist: bool,
@@ -376,6 +484,9 @@ impl Telemetry {
             choice: Mutex::new(choice),
             sharing,
             server_selected_sent: AtomicBool::new(false),
+            install_not_found_sent: AtomicBool::new(false),
+            sections_opened: [AtomicBool::new(false), AtomicBool::new(false)],
+            detected_games: Mutex::new(None),
             client,
             persist,
         }
@@ -443,11 +554,52 @@ impl Telemetry {
             UiEvent::ServerSelected { ready } => {
                 // Once per run: selection follows the arrow keys, and the funnel only needs to
                 // know that a player got this far.
-                if !self.server_selected_sent.swap(true, Ordering::SeqCst) {
+                if self.first_this_run(&self.server_selected_sent) {
                     self.track(&Event::ServerSelected { ready });
                 }
             }
+            UiEvent::SectionOpened { section } => {
+                // Once per run per section: the rail is switched back and forth all session.
+                if self.first_this_run(&self.sections_opened[section as usize]) {
+                    self.track(&Event::SectionOpened { section });
+                }
+            }
         }
+    }
+
+    /// Sent again only when the games found change: the setup screen detects again after an
+    /// engine install, and the funnel only needs to know that a game was found.
+    pub fn track_install_detected(&self, games: Vec<reveille_core::install::Product>) {
+        if !self.would_send() {
+            return;
+        }
+        let mut last = self
+            .detected_games
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if last.as_ref() == Some(&games) {
+            return;
+        }
+        *last = Some(games.clone());
+        drop(last);
+        self.track(&Event::GameInstallDetected { games });
+    }
+
+    /// Once per run, so a retried store search counts as one run with no game, as detection does.
+    pub fn track_install_not_found(&self) {
+        if self.first_this_run(&self.install_not_found_sent) {
+            self.track(&Event::GameInstallNotFound);
+        }
+    }
+
+    /// Claims `flag` only when the event would leave the machine, so a run that turns sharing on
+    /// part-way still sends its first occurrence.
+    fn first_this_run(&self, flag: &AtomicBool) -> bool {
+        self.would_send() && !flag.swap(true, Ordering::SeqCst)
+    }
+
+    fn would_send(&self) -> bool {
+        self.sink.is_some() && self.sharing.load(Ordering::SeqCst)
     }
 
     /// Queue `event` if the player shares and the build has a destination. Never blocks and never
@@ -703,6 +855,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
     use std::time::{Duration, UNIX_EPOCH};
 
     use serde_json::json;
@@ -710,8 +863,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        CHOICE_FILENAME, CRASH_FILENAME, Event, JoinFailureReason, PanicReport, Session, Sink,
-        Telemetry, UiEvent, payload, rfc3339, source_relative,
+        AdminActionKind, CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, JoinFailureReason,
+        MapFailureStage, PanicReport, PlayTime, Section, Session, Sink, Telemetry, UiEvent,
+        payload, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -816,6 +970,130 @@ mod tests {
         .expect("write marker");
         loaded(&directory, None).set_shared(false).expect("decline");
         assert!(!marker.exists());
+    }
+
+    #[test]
+    fn play_time_buckets_split_at_one_and_ten_minutes() {
+        assert_eq!(
+            PlayTime::from(Duration::from_secs(59)),
+            PlayTime::UnderAMinute
+        );
+        assert_eq!(
+            PlayTime::from(Duration::from_mins(1)),
+            PlayTime::UpToTenMinutes
+        );
+        assert_eq!(
+            PlayTime::from(Duration::from_mins(10)),
+            PlayTime::UpToTenMinutes
+        );
+        assert_eq!(
+            PlayTime::from(Duration::from_secs(601)),
+            PlayTime::OverTenMinutes
+        );
+    }
+
+    #[test]
+    fn an_admin_action_names_its_command_and_only_a_failure_reason() {
+        let sent = |failure| {
+            payload(
+                &sink(),
+                &Event::AdminAction {
+                    action: AdminActionKind::ChangeMap,
+                    failure,
+                },
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "0.4.0",
+                UNIX_EPOCH,
+            )["properties"]
+                .clone()
+        };
+        let ok = sent(None);
+        assert_eq!(ok["action"], "change_map");
+        assert!(ok.get("failure").is_none());
+        assert_eq!(
+            sent(Some(crate::admin::FailureReason::BadPassword))["failure"],
+            "bad_password"
+        );
+    }
+
+    #[test]
+    fn the_rail_can_only_report_its_named_sections() {
+        let opened = serde_json::from_value::<UiEvent>(
+            json!({ "event": "section_opened", "section": "admin" }),
+        )
+        .expect("admin");
+        assert_eq!(
+            opened,
+            UiEvent::SectionOpened {
+                section: Section::Admin
+            }
+        );
+        assert!(
+            serde_json::from_value::<UiEvent>(
+                json!({ "event": "section_opened", "section": "servers" })
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_failed_download_names_its_stage() {
+        let body = payload(
+            &sink(),
+            &Event::MapDownloadFailed {
+                source: DownloadSource::Catalogue,
+                failed: 1,
+                stage: MapFailureStage::Lookup,
+                kind: None,
+            },
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "0.4.0",
+            UNIX_EPOCH,
+        );
+        assert_eq!(body["properties"]["stage"], "lookup");
+    }
+
+    #[test]
+    fn a_once_per_run_event_is_claimed_only_when_it_would_be_sent() {
+        let directory = TempDir::new().expect("directory");
+        let telemetry = loaded(&directory, Some(sink()));
+        telemetry.sharing.store(false, Ordering::SeqCst);
+        assert!(!telemetry.first_this_run(&telemetry.server_selected_sent));
+        telemetry.sharing.store(true, Ordering::SeqCst);
+        assert!(telemetry.first_this_run(&telemetry.server_selected_sent));
+        assert!(!telemetry.first_this_run(&telemetry.server_selected_sent));
+        assert!(telemetry.first_this_run(&telemetry.sections_opened[Section::Admin as usize]));
+        assert!(telemetry.first_this_run(&telemetry.sections_opened[Section::Content as usize]));
+        assert!(!telemetry.first_this_run(&telemetry.sections_opened[Section::Admin as usize]));
+    }
+
+    #[test]
+    fn a_build_without_a_destination_claims_nothing() {
+        let directory = TempDir::new().expect("directory");
+        let telemetry = loaded(&directory, None);
+        assert!(!telemetry.first_this_run(&telemetry.install_not_found_sent));
+    }
+
+    #[test]
+    fn a_missing_install_is_sent_without_properties_of_its_own() {
+        let body = payload(
+            &sink(),
+            &Event::GameInstallNotFound,
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "0.4.0",
+            UNIX_EPOCH,
+        );
+        assert_eq!(body["event"], "game_install_not_found");
+        let own: Vec<_> = body["properties"]
+            .as_object()
+            .expect("properties")
+            .keys()
+            .filter(|key| !key.starts_with('$') && !["app_version", "os"].contains(&key.as_str()))
+            .collect();
+        assert!(own.is_empty(), "unexpected properties {own:?}");
     }
 
     #[test]

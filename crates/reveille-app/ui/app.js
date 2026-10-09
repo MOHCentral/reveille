@@ -203,6 +203,7 @@ registerSection({
     content.focusList();
   },
   refresh: catalogue.refresh,
+  enter: () => trackEvent({ event: "section_opened", section: "content" }),
 });
 registerSection({
   id: "admin",
@@ -215,6 +216,7 @@ registerSection({
   focusList: adminPage.focusList,
   clearSearch: adminPage.clearSearch,
   refresh: () => void admin.refresh(),
+  enter: () => trackEvent({ event: "section_opened", section: "admin" }),
 });
 const rail = railView($("#rail"), { onSettings: () => void openAppSettings() });
 

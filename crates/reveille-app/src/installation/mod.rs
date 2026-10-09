@@ -7,7 +7,7 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use crate::telemetry::{Event, Telemetry};
+use crate::telemetry::Telemetry;
 
 #[tauri::command]
 #[expect(
@@ -18,13 +18,17 @@ pub fn detect_install(
     selected_path: Option<String>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<Option<Installation>, String> {
-    let found = find_install(selected_path)?;
-    if let Some(installation) = &found {
-        telemetry.track(&Event::GameInstallDetected {
-            games: installation.playable.clone(),
-        });
+    let chosen = chosen_folder(selected_path);
+    let automatic = chosen.is_none();
+    let found = find_install(chosen);
+    match &found {
+        Ok(Some(installation)) => telemetry.track_install_detected(installation.playable.clone()),
+        // Only the store search: a missing remembered folder is followed by one, and a rejected
+        // pick is the player's own try, so counting either would double or mislabel a run.
+        Ok(None) | Err(_) if automatic => telemetry.track_install_not_found(),
+        Ok(None) | Err(_) => {}
     }
-    Ok(found)
+    found
 }
 
 /// Re-read a folder the player already chose. Unlike `detect_install` it sends no event: reopening
@@ -34,8 +38,13 @@ pub fn identify_install(path: String) -> Result<Installation, String> {
     install::identify(path).map_err(|error| error.to_string())
 }
 
-fn find_install(selected_path: Option<String>) -> Result<Option<Installation>, String> {
-    if let Some(path) = selected_path.filter(|path| !path.trim().is_empty()) {
+/// The folder to read instead of searching the store install locations, if any.
+fn chosen_folder(selected_path: Option<String>) -> Option<String> {
+    selected_path.filter(|path| !path.trim().is_empty())
+}
+
+fn find_install(chosen: Option<String>) -> Result<Option<Installation>, String> {
+    if let Some(path) = chosen {
         return install::identify(path)
             .map(Some)
             .map_err(|error| error.to_string());

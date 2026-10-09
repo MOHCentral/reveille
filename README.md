@@ -150,12 +150,20 @@ While it is on, Reveille sends these events to PostHog's EU region:
 
 - the app started, and the previous run crashed (with the Reveille version and a source file and
   line, never the error text);
-- a game folder was found (which games it holds), and first-time setup finished (game and engine);
+- a game folder was found (which games it holds), or the automatic search found none (once per
+  run), and first-time setup finished (game and engine);
 - the server list loaded (how many servers) or failed (the kind of failure);
 - a server was selected (once per run), and whether it was ready to join;
-- a map download started, finished or failed (which kind of download, and how many maps);
+- Maps & mods or Admin was opened (once per run each);
+- a map or mod download started, finished or failed (which kind of download, map or mod, how
+  many, and for a failure the step that failed, such as `download` or `install`), and a package
+  was removed (map or mod);
 - Join was pressed, the game started, or the join failed (with a short reason code such as
-  `engine_missing` or `download_failed`).
+  `engine_missing` or `download_failed`), and the game closed (whether it ran under a minute, up
+  to ten minutes, or longer);
+- in Admin, a server was added or could not be (with the kind of failure, such as
+  `bad_password`), and a command was sent (which kind, such as `kick` or `change_map`, and the
+  kind of failure if it failed) — never the command line, message, map, player or password.
 
 Every event carries a random installation ID, a random session ID (new for each launch, and after 30 idle minutes), the Reveille
 version, the operating system (`windows` or `macos`) and a timestamp. The installation ID is

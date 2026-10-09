@@ -24,6 +24,7 @@ use tauri::Manager;
 use tracing::warn;
 
 use crate::servers::PROBE_TIMEOUT;
+use crate::telemetry::{AdminActionKind, Event, Telemetry};
 use list::{AdminList, AdminServer};
 use vault::VaultKind;
 
@@ -177,6 +178,22 @@ pub async fn add_admin_server(
     address: String,
     password: String,
     admin: tauri::State<'_, Admin>,
+    telemetry: tauri::State<'_, Telemetry>,
+) -> Result<AdminServerView, AdminFailure> {
+    let result = add_server(address, password, &admin).await;
+    telemetry.track(&match &result {
+        Ok(_) => Event::AdminServerAdded,
+        Err(failure) => Event::AdminServerAddFailed {
+            reason: failure.reason,
+        },
+    });
+    result
+}
+
+async fn add_server(
+    address: String,
+    password: String,
+    admin: &Admin,
 ) -> Result<AdminServerView, AdminFailure> {
     let address = resolve(&address).await?;
     let password = RconPassword::new(password).map_err(|error| {
@@ -307,6 +324,21 @@ pub enum ActionRequest {
 }
 
 impl ActionRequest {
+    fn kind(&self) -> AdminActionKind {
+        match self {
+            Self::Kick { .. } => AdminActionKind::Kick,
+            Self::Ban { .. } => AdminActionKind::Ban,
+            Self::Message { .. } => AdminActionKind::Message,
+            Self::Say { .. } => AdminActionKind::Say,
+            Self::ChangeMap { .. } => AdminActionKind::ChangeMap,
+            Self::RestartRound => AdminActionKind::RestartRound,
+            Self::SetRotation { .. } => AdminActionKind::SetRotation,
+            Self::SetGameType { .. } => AdminActionKind::SetGameType,
+            Self::ReadCvar { .. } => AdminActionKind::ReadCvar,
+            Self::Console { .. } => AdminActionKind::Console,
+        }
+    }
+
     fn action(self) -> Result<RconAction, AdminFailure> {
         let text = |text: &str| {
             ChatText::new(text).map_err(|error| AdminFailure::invalid("message", error))
@@ -360,9 +392,24 @@ pub async fn admin_action(
     address: String,
     action: ActionRequest,
     admin: tauri::State<'_, Admin>,
+    telemetry: tauri::State<'_, Telemetry>,
+) -> Result<String, AdminFailure> {
+    let kind = action.kind();
+    let result = run_action(&address, action, &admin).await;
+    telemetry.track(&Event::AdminAction {
+        action: kind,
+        failure: result.as_ref().err().map(|failure| failure.reason),
+    });
+    result
+}
+
+async fn run_action(
+    address: &str,
+    action: ActionRequest,
+    admin: &Admin,
 ) -> Result<String, AdminFailure> {
     let action = action.action()?;
-    let (address, console) = admin.console(&address)?;
+    let (address, console) = admin.console(address)?;
     if matches!(action, RconAction::Tell(..) | RconAction::Ban(_)) {
         let engine = lock(&admin.engines).get(&address).copied();
         if !engine.is_some_and(|engine| action.available_on(engine)) {

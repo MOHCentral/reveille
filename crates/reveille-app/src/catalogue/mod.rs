@@ -26,7 +26,7 @@ use tracing::{info, warn};
 
 use crate::join::content::{catalogue_reason, install_destination};
 use crate::session::{Session, installed_maps, session_search_path};
-use crate::telemetry::{DownloadSource, Event, Telemetry};
+use crate::telemetry::{DownloadSource, Event, MapFailureStage, Telemetry};
 use record::{InstallRecord, InstalledItem};
 
 /// Bytes between progress messages, as for join downloads.
@@ -517,10 +517,12 @@ pub async fn install_catalogue_item(
     telemetry.track(&Event::MapDownloadStarted {
         source: DownloadSource::Browse,
         count: 1,
+        kind: Some(entry.kind),
     });
     let result = async {
-        let target = install_destination(&session)?;
-        let staging = tempfile::TempDir::new().map_err(|error| error.to_string())?;
+        let setup = |reason: String| (MapFailureStage::Setup, reason);
+        let target = install_destination(&session).map_err(setup)?;
+        let staging = tempfile::TempDir::new().map_err(|error| setup(error.to_string()))?;
         install_entry(
             &installable,
             &target.game_directory,
@@ -537,6 +539,7 @@ pub async fn install_catalogue_item(
             telemetry.track(&Event::MapDownloadCompleted {
                 source: DownloadSource::Browse,
                 installed: 1,
+                kind: Some(entry.kind),
             });
             let path = installed.path.clone();
             if let Some(record) = install_record(&app)
@@ -551,12 +554,14 @@ pub async fn install_catalogue_item(
                 state: ItemState::Installed,
             })
         }
-        Err(reason) => {
+        Err((stage, reason)) => {
             if reason != CANCELLED {
                 warn!(id, %reason, "catalogue install failed");
                 telemetry.track(&Event::MapDownloadFailed {
                     source: DownloadSource::Browse,
                     failed: 1,
+                    stage,
+                    kind: Some(entry.kind),
                 });
             }
             Err(reason)
@@ -619,9 +624,10 @@ async fn install_entry(
     staging: &Path,
     report: impl Fn(InstallStep),
     cancel: &Notify,
-) -> Result<InstalledItem, String> {
+) -> Result<InstalledItem, (MapFailureStage, String)> {
     let file = &entry.file;
-    let client = MohDbClient::new(Duration::from_secs(30)).map_err(|error| error.to_string())?;
+    let client = MohDbClient::new(Duration::from_secs(30))
+        .map_err(|error| (MapFailureStage::Setup, error.to_string()))?;
     let total = file.file_size.get();
     let mut announced = 0_u64;
     let download = content::download_mohdb_file_reporting(
@@ -637,16 +643,18 @@ async fn install_entry(
         },
     );
     let archive = tokio::select! {
-        archive = download => archive.map_err(|error| error.to_string())?,
-        () = cancel.notified() => return Err(CANCELLED.to_owned()),
+        archive = download => archive.map_err(|error| (MapFailureStage::Download, error.to_string()))?,
+        () = cancel.notified() => return Err((MapFailureStage::Download, CANCELLED.to_owned())),
     };
     report(InstallStep::Confirming);
-    let inspection = content::inspect_archive(&archive.path).map_err(|error| error.to_string())?;
+    let inspection = content::inspect_archive(&archive.path)
+        .map_err(|error| (MapFailureStage::Archive, error.to_string()))?;
     if let Some(map_name) = &entry.map_name {
-        content::confirm_map(&inspection, map_name, None).map_err(|error| error.to_string())?;
+        content::confirm_map(&inspection, map_name, None)
+            .map_err(|error| (MapFailureStage::Mismatch, error.to_string()))?;
     }
-    let path =
-        content::install_archive(&archive, game_directory).map_err(|error| error.to_string())?;
+    let path = content::install_archive(&archive, game_directory)
+        .map_err(|error| (MapFailureStage::Install, error.to_string()))?;
     let MohDbIntegrity::RecordedSha256(sha256) = archive.integrity;
     Ok(InstalledItem {
         id: entry.id,
@@ -752,6 +760,7 @@ pub async fn remove_installed_item(
     session: Session,
     filename: String,
     app: tauri::AppHandle,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<RemovalOutcome, String> {
     let record = install_record(&app)
         .ok_or_else(|| "Reveille cannot read its list of installs.".to_owned())?;
@@ -764,6 +773,7 @@ pub async fn remove_installed_item(
         warn!(%error, "could not update the install record after a removal");
     }
     info!(%filename, path = %item.path.display(), "removed installed content");
+    telemetry.track(&Event::ContentRemoved { kind: item.kind });
     Ok(RemovalOutcome {
         filename: item.filename.clone(),
         state: ItemState::Available,
@@ -1047,7 +1057,10 @@ mod tests {
         )
         .await;
 
-        assert_eq!(cancelled.err().as_deref(), Some(CANCELLED));
+        assert_eq!(
+            cancelled.err().map(|(_, reason)| reason).as_deref(),
+            Some(CANCELLED)
+        );
         assert_eq!(fs::read_dir(game.path()).expect("game folder").count(), 0);
     }
 
