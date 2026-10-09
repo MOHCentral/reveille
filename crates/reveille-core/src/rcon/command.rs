@@ -5,7 +5,8 @@
 //! The server reads one request line with `MSG_ReadStringLine` and splits it with
 //! `Cmd_TokenizeString` (`sv_main.c:742-745`), which ends a token at whitespace or a quote and
 //! drops everything after `//` or `/*`. Each newtype refuses exactly what would let its value
-//! leave its argument that way, plus `;`, which some engines read as a command separator.
+//! leave its argument that way. Command values also refuse `;`, which some engines read as a
+//! command separator; the password is removed before command execution (`SVC_RemoteCommand`).
 
 use std::fmt;
 
@@ -536,9 +537,10 @@ mod tests {
     proptest::proptest! {
         #[test]
         fn accepted_values_never_leave_their_argument(value in "\\PC{0,200}") {
-            let breaks = |text: &str| {
-                text.contains(['"', ';', '\n', '\r']) || text.contains("//") || text.contains("/*")
+            let breaks_token = |text: &str| {
+                text.contains(['"', '\n', '\r']) || text.contains("//") || text.contains("/*")
             };
+            let breaks = |text: &str| breaks_token(text) || text.contains(';');
             if let Ok(text) = ChatText::new(&value) {
                 proptest::prop_assert!(!breaks(text.as_str()));
             }
@@ -549,7 +551,7 @@ mod tests {
                 proptest::prop_assert!(!breaks(name.as_str()) && !name.as_str().contains(' '));
             }
             if let Ok(password) = RconPassword::new(value.clone()) {
-                proptest::prop_assert!(!breaks(password.expose()) && !password.expose().contains(' '));
+                proptest::prop_assert!(!breaks_token(password.expose()) && !password.expose().contains(' '));
             }
             if let Ok(line) = RawCommand::new(&value) {
                 proptest::prop_assert!(!line.as_str().contains(['\n', '\r']));
