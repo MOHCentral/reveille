@@ -21,3 +21,6 @@ pub use protocol::{
     gs_encode, gs_encrypt, parse_gamespy_status, parse_master_challenge, parse_master_response,
     parse_oob_getinfo, parse_oob_getstatus,
 };
+
+pub(crate) use client::is_openmohaa_version;
+pub(crate) use protocol::{OOB_RECV_HEADER, OOB_SEND_HEADER};

@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { installTauri } from "../fakes/tauri.js";
+import * as admin from "../../ui/features/admin/api.js";
 import * as alerts from "../../ui/features/alerts/api.js";
 import * as bugReport from "../../ui/features/bug-report/api.js";
 import * as join from "../../ui/features/join/api.js";
@@ -19,7 +20,7 @@ import * as settings from "../../ui/features/settings/api.js";
 import * as setup from "../../ui/features/setup/api.js";
 import * as shell from "../../ui/lib/shell.js";
 
-const api = { ...alerts, ...bugReport, ...join, ...selfUpdate, ...servers, ...settings, ...setup, ...shell };
+const api = { ...admin, ...alerts, ...bugReport, ...join, ...selfUpdate, ...servers, ...settings, ...setup, ...shell };
 
 const bridge = installTauri();
 
@@ -108,6 +109,11 @@ test("each wrapper invokes the command it is named for", async () => {
     [() => api.pickInstallFolder(), "pick_install_folder"],
     [() => api.checkReveilleUpdate(), "check_reveille_update"],
     [() => api.appLogFiles(), "app_log_files"],
+    [() => api.adminServers(), "admin_servers"],
+    [() => api.addAdminServer("203.0.113.4", "pw"), "add_admin_server"],
+    [() => api.removeAdminServer("203.0.113.4:12203"), "remove_admin_server"],
+    [() => api.adminStatus("203.0.113.4:12203"), "admin_status"],
+    [() => api.adminAction("203.0.113.4:12203", { kind: "restart_round" }), "admin_action"],
   ];
   for (const [call, command] of cases) {
     bridge.reset();

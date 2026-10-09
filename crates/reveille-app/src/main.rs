@@ -22,6 +22,7 @@
 //! Tauri shell. This layer owns presentation policy: it turns the pipeline's typed results into
 //! payloads and progress events, and decides nothing the core has not already established.
 
+mod admin;
 mod alerts;
 #[cfg(windows)]
 mod app_icon;
@@ -91,6 +92,7 @@ fn main() {
             servers::register(app);
             join::register(app);
             catalogue::register(app);
+            admin::register(app);
             self_update::register(app);
             Ok(())
         })
@@ -128,6 +130,12 @@ fn main() {
             catalogue::catalogue_played_now,
             catalogue::installed_content,
             catalogue::remove_installed_item,
+            // admin
+            admin::admin_servers,
+            admin::add_admin_server,
+            admin::remove_admin_server,
+            admin::admin_status,
+            admin::admin_action,
             // alerts
             alerts::read_watched_server,
             alerts::game_client_running,

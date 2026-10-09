@@ -12,8 +12,20 @@ import { intentsTable } from "./lib/intents.js";
 import { openServerWorkflow } from "./lib/open-server.js";
 import { closePopover, popoverAnchor } from "./lib/popover.js";
 import { railView } from "./lib/rail.js";
-import { activeSection, initial as sectionsState, registerSection, sections, showSection } from "./lib/sections.js";
+import {
+  activeSection,
+  initial as sectionsState,
+  registerSection,
+  registeredSections,
+  sections,
+  showSection,
+} from "./lib/sections.js";
 import { appVersion, openExternalUrl, trackEvent } from "./lib/shell.js";
+import { adminController } from "./features/admin/controller.js";
+import { openAddServer } from "./features/admin/dialogs.js";
+import { hasAdminServers, initial as adminState } from "./features/admin/index.js";
+import { adminSettingsSection } from "./features/admin/settings-section.js";
+import { adminView } from "./features/admin/view.js";
 import { openBugReport } from "./features/bug-report/index.js";
 import { initial as contentState, installShare } from "./features/content/index.js";
 import { contentController } from "./features/content/controller.js";
@@ -59,7 +71,7 @@ import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./features/servers/view.js";
 import { joinView } from "./features/join/view.js";
 
-composeState([sectionsState(), selfUpdateState(), serversState(), joinState(), contentState()]);
+composeState([sectionsState(), selfUpdateState(), serversState(), joinState(), contentState(), adminState()]);
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");
@@ -119,6 +131,8 @@ const servers = serversView({
   onGame: intents.selectGame,
   onToggleWatch: intents.togglePlayerAlert,
   onToggleDetail: toggleDetail,
+  onRunServer: runServer,
+  runsServer: (address) => state.admin.servers.some((server) => server.address === address),
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
@@ -133,6 +147,8 @@ const content = contentView({
   onJoinServer: joinServer,
   onToggleDetail: toggleDetail,
 });
+const admin = adminController();
+const adminPage = adminView({ controller: admin, onToggleDetail: toggleDetail });
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {
     if (firstRun) trackEvent({ event: "first_run_completed", game: state.game, engine: state.engine });
@@ -150,10 +166,10 @@ const updates = selfUpdate({
   },
 });
 
-$("#toolbar-slot").replaceWith(servers.toolbar, content.toolbar);
-$("#list-slot").replaceWith(servers.listPane, content.listPane);
-$("#detail-slot").after(content.detail);
-$("#status-slot").replaceWith(servers.statusbar, content.statusbar);
+$("#toolbar-slot").replaceWith(servers.toolbar, content.toolbar, adminPage.toolbar);
+$("#list-slot").replaceWith(servers.listPane, content.listPane, adminPage.listPane);
+$("#detail-slot").after(content.detail, adminPage.detail);
+$("#status-slot").replaceWith(servers.statusbar, content.statusbar, adminPage.statusbar);
 document.body.append(servers.live);
 
 registerSection({
@@ -187,6 +203,18 @@ registerSection({
     content.focusList();
   },
   refresh: catalogue.refresh,
+});
+registerSection({
+  id: "admin",
+  label: "Admin",
+  icon: "terminal",
+  visible: hasAdminServers,
+  parts: [adminPage.toolbar, adminPage.listPane, adminPage.statusbar],
+  detail: adminPage.detail,
+  focusSearch: adminPage.focusSearch,
+  focusList: adminPage.focusList,
+  clearSearch: adminPage.clearSearch,
+  refresh: () => void admin.refresh(),
 });
 const rail = railView($("#rail"), { onSettings: () => void openAppSettings() });
 
@@ -276,6 +304,7 @@ async function openAppSettings() {
       },
     }),
     serverListSettingsSection(),
+    adminSettingsSection({ controller: admin, onAdded: () => showSection("admin") }),
     installSettingsSection({
       engine,
       onChangeInstall: () => {
@@ -315,7 +344,7 @@ function render() {
   $("#reveille-update-btn").disabled = state.joining;
   const active = activeSection();
   const collapsed = state.detailCollapsed;
-  for (const section of sections()) {
+  for (const section of registeredSections()) {
     const shown = section === active;
     for (const part of section.parts) part.classList.toggle("hidden", !shown);
     section.detail.classList.toggle("hidden", !shown || collapsed);
@@ -328,6 +357,24 @@ function render() {
     catalogue.ensureLoaded();
     content.render();
   }
+  admin.watch(active.id === "admin");
+  if (active.id === "admin") adminPage.render();
+}
+
+/** "I run this server…" on a row: the server in Admin, or the dialog that adds it there. */
+function runServer(address, hostname) {
+  if (state.admin.servers.some((server) => server.address === address)) {
+    showSection("admin");
+    admin.select(address);
+    return;
+  }
+  openAddServer({
+    controller: admin,
+    vault: state.admin.vault,
+    address,
+    name: hostname,
+    onAdded: () => showSection("admin"),
+  });
 }
 
 function openWatching() {
@@ -614,6 +661,7 @@ if (preferences().closeToTray) alerts.syncCloseToTray(true);
 alerts.keepWatchingInBackground();
 setup.detect();
 void updates.find();
+void admin.load();
 
 function engineLabel(engine) {
   return ENGINE_LABELS[engine] ?? ENGINE_LABELS.original;
