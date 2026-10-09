@@ -211,6 +211,110 @@ test("players without scores show only name and ping", () => {
   assert.equal(root.querySelector('[data-focus-key="detail-players"]'), null);
 });
 
+test("sweep updates preserve scrolling through an expanded player roster", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  store.state.servers[0].server.players = Array.from({ length: 20 }, (_, index) => ({
+    name: `Player ${index}`, ping: 40, kills: index, deaths: 1,
+  }));
+  store.state.browse.running = true;
+  view.render();
+  const toggle = root.querySelector('[data-focus-key="detail-players"]');
+  toggle.focus();
+  toggle.dispatch("click");
+  view.render();
+  const scroll = root.children[0];
+  scroll.scrollTop = 360;
+  // Synthetic scroll changes exercise restoration order; this fake does not lay out a pane.
+  const replaceChildren = scroll.replaceChildren.bind(scroll);
+  scroll.replaceChildren = (...nodes) => {
+    replaceChildren(...nodes);
+    scroll.scrollTop = 0;
+  };
+  const createElement = document.createElement;
+  document.createElement = (tag) => {
+    const node = createElement(tag);
+    const focus = node.focus.bind(node);
+    node.focus = () => {
+      focus();
+      scroll.scrollTop = 120;
+    };
+    return node;
+  };
+  try {
+    for (let update = 0; update < 3; update += 1) {
+      store.state.servers.push({ ...row(), address: `127.0.0.${update + 2}:12203` });
+      store.state.servers[0].server.status_round_trip += 1;
+      view.render();
+      assert.equal(scroll.scrollTop, 360);
+      assert.equal(document.activeElement, root.querySelector('[data-focus-key="detail-players"]'));
+      assert.match(textOf(root), /Show fewer/u);
+    }
+  } finally {
+    document.createElement = createElement;
+    document.activeElement = null;
+    root.querySelector('[data-focus-key="detail-players"]').dispatch("click");
+  }
+});
+
+test("selecting another server starts its details at the top", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  const scroll = root.children[0];
+  scroll.scrollTop = 360;
+  const other = { ...row(), address: "127.0.0.2:12203" };
+  store.state.servers.push(other);
+  store.state.selected = other.address;
+  view.render();
+  assert.equal(scroll.scrollTop, 0);
+});
+
+test("refresh progress leaves detail controls attached so a pending click can finish", () => {
+  const { root, view } = renderView({ assessment: assessment("compatible"), catalogue: null });
+  store.state.servers[0].server.players = Array.from({ length: 20 }, (_, index) => ({
+    name: `Player ${index}`, ping: 40, kills: index, deaths: 1,
+  }));
+  store.state.browse.running = true;
+  view.render();
+  const keys = ["detail-more", "detail-players", "detail-star", "detail-player-alert", "join"];
+  const controls = keys.map((key) => root.querySelector(`[data-focus-key="${key}"]`));
+  for (let progress = 1; progress <= 3; progress += 1) {
+    store.state.browse.probed = progress;
+    store.state.servers.push({ ...row(), address: `127.0.0.${progress + 1}:12203` });
+    view.render();
+    controls.forEach((control, index) => {
+      assert.equal(root.contains(control), true, `${keys[index]} was detached mid-click`);
+    });
+  }
+  const more = controls[0];
+  more.dispatch("click");
+  view.render();
+  assert.equal(root.querySelector('[data-focus-key="detail-more"]').getAttribute("aria-expanded"), "true");
+  root.querySelector('[data-focus-key="detail-more"]').dispatch("click");
+  view.render();
+  root.querySelector('[data-focus-key="detail-players"]').dispatch("click");
+  view.render();
+  assert.match(textOf(root), /Show fewer/u);
+  root.querySelector('[data-focus-key="detail-players"]').dispatch("click");
+  view.render();
+  const star = root.querySelector('[data-focus-key="detail-star"]');
+  const wasStarred = star.getAttribute("aria-pressed");
+  star.dispatch("click");
+  view.render();
+  assert.notEqual(root.querySelector('[data-focus-key="detail-star"]').getAttribute("aria-pressed"), wasStarred);
+  root.querySelector('[data-focus-key="detail-star"]').dispatch("click");
+  view.render();
+});
+
+test("download progress repaints when an install item changes in place", () => {
+  const { root, view } = renderView({ assessment: assessment(), catalogue: exactCatalogue() });
+  const item = { map: "dm/mohdm1", filename: "mohdm1.pk3", phase: "downloading", received: 1024, total: 4096 };
+  store.state.installRun = { items: new Map([["dm/mohdm1", item]]), done: false };
+  view.render();
+  assert.match(textOf(root), /1\.0 KB \/ 4\.0 KB/u);
+  item.received = 2048;
+  view.render();
+  assert.match(textOf(root), /2\.0 KB \/ 4\.0 KB/u);
+});
+
 test("an activated row that needs downloads focuses the priced Join once it can take focus", () => {
   const { root, view } = renderView({ assessment: assessment(), catalogue: exactCatalogue() });
   store.state.preview = null;
@@ -230,7 +334,7 @@ test("an activated row that needs downloads focuses the priced Join once it can 
   // Once is enough: a later repaint after the player moved on does not pull focus back.
   document.activeElement = null;
   view.render();
-  assert.equal(root.querySelector('[data-focus-key="join"]').focusCount, 0);
+  assert.equal(document.activeElement, null);
 });
 
 test("the header refreshes this server and spins while it is asked", () => {

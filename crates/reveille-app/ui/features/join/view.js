@@ -57,14 +57,26 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
   // Set by a double-click or Enter on a row that needs something first. Join is disabled while the
   // downloads are being priced, so focus waits for the first render where it can land.
   let focusJoinFor = null;
+  let renderedGame = null;
+  let renderedAddress = null;
+  let renderedSnapshot = null;
 
   const render = () => {
     const row = selectedRow();
+    const snapshot = paneSnapshot(row);
+    // Sweep counters and other servers must not detach a button between mouse down and click.
+    if (snapshot === renderedSnapshot && focusJoinFor === null) return;
+    renderedSnapshot = snapshot;
+    const scrollTop =
+      renderedGame === state.game && renderedAddress === state.selected ? scroll.scrollTop : 0;
+    renderedGame = state.game;
+    renderedAddress = state.selected;
     // A selection whose row has left the list because a check found it gone. The pane keeps the
     // player's place and says what the check found, rather than emptying with no explanation.
     const gone = !row && state.selected ? state.checks.get(state.selected) : null;
     if (!row && !gone?.dropped) {
       fill(scroll, idlePlaceholder());
+      scroll.scrollTop = 0;
       return;
     }
     preserveFocus(root, () => {
@@ -81,6 +93,8 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
           : frag(gonePane(state.selected, gone), actions),
       );
     });
+    // Replacing content and restoring focus can both move the viewport during a sweep.
+    scroll.scrollTop = scrollTop;
     if (focusJoinFor !== null) {
       const join = actions.querySelector('[data-focus-key="join"]');
       if (focusJoinFor !== row?.address) focusJoinFor = null;
@@ -97,6 +111,36 @@ export function joinView(root, { onInstallServerFiles, onJoin, onRecheck, onTogg
   };
 
   return { render, focusJoin };
+}
+
+function paneSnapshot(row) {
+  const address = state.selected;
+  return JSON.stringify(
+    [
+      state.game,
+      address,
+      row,
+      state.checks.get(address),
+      state.checkedAt.get(address),
+      state.browse.running,
+      state.browse.finishedAt,
+      state.preview?.address === address ? state.preview : null,
+      state.previewProgress,
+      state.previewError,
+      state.choices,
+      state.installRun,
+      state.joining,
+      state.joinResult?.address === address ? state.joinResult : null,
+      state.joinError,
+      playableGames(state.install),
+      isFavorite(address),
+      playerAlert(state.game, address),
+      launchedLabel(historyByAddress().get(address)),
+      allPlayersShown,
+      moreOpen,
+    ],
+    (_key, value) => (value instanceof Map ? [...value] : value),
+  );
 }
 
 function idlePlaceholder() {
