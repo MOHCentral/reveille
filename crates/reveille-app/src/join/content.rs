@@ -22,9 +22,9 @@ use super::preview::{
     build_pakradar_preview, build_preview, cache_preview,
 };
 use super::{Shell, track_download};
-use crate::servers;
 use crate::session::{Session, session_installation};
 use crate::telemetry::{DownloadSource, Event, Telemetry};
+use crate::{catalogue, servers};
 
 pub const EVENT: &str = "reveille://install";
 
@@ -85,6 +85,8 @@ pub trait ContentHost: PreviewHost {
     fn game_directory(&self) -> Result<PathBuf, String>;
     fn telemetry(&self) -> &Telemetry;
     fn report_install(&self, progress: &InstallProgress, phase: InstallPhase);
+    /// Note a package written to the game folder in the install record.
+    fn record_install(&self, title: &str, path: &Path);
 }
 
 /// Install the server's own files, then price the join again against the search path they changed.
@@ -260,6 +262,7 @@ async fn install_pakradar_manifest(
         match result {
             Ok(path) => {
                 host.report_install(&progress, InstallPhase::Installed);
+                host.record_install(&entry.alias, &path);
                 installed.push(path);
             }
             Err(reason) => {
@@ -335,6 +338,7 @@ pub async fn install_shopping_list(
         {
             Ok(path) => {
                 emit_install(app, &progress, InstallPhase::Installed);
+                catalogue::record_join_install(app, candidate.id, &resolution.wanted.name, &path);
                 installed.push(path);
             }
             Err(reason) => {
@@ -575,6 +579,7 @@ mod tests {
         _root: TempDir,
         main: PathBuf,
         priced: Mutex<Vec<Vec<String>>>,
+        recorded: Mutex<Vec<(String, PathBuf)>>,
         telemetry: Telemetry,
     }
 
@@ -587,6 +592,7 @@ mod tests {
                 _root: root,
                 main,
                 priced: Mutex::new(Vec::new()),
+                recorded: Mutex::new(Vec::new()),
                 telemetry: Telemetry::unavailable("0.0.0".to_owned()),
             }
         }
@@ -632,6 +638,13 @@ mod tests {
         }
 
         fn report_install(&self, _progress: &InstallProgress, _phase: InstallPhase) {}
+
+        fn record_install(&self, title: &str, path: &std::path::Path) {
+            self.recorded
+                .lock()
+                .expect("recorded installs")
+                .push((title.to_owned(), path.to_path_buf()));
+        }
     }
 
     /// A server package holding one map, as the server's own download host would serve it.
@@ -731,6 +744,11 @@ mod tests {
 
         assert!(applied.failures.is_empty());
         assert!(fixture.main.join("custom.pk3").is_file());
+        assert_eq!(
+            *fixture.recorded.lock().expect("recorded installs"),
+            [("Custom pack".to_owned(), fixture.main.join("custom.pk3"))],
+            "the package is recorded, so Maps & mods counts it and can remove it"
+        );
         assert_eq!(
             applied
                 .preview

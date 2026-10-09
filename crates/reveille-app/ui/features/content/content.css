@@ -186,6 +186,35 @@
   align-items: center;
 }
 
+.item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.btn--remove.btn--icon {
+  width: 24px;
+  padding: 4px;
+}
+
+/* Hidden until the card or row is pointed at or selected; still laid out, so nothing shifts. */
+.item-action .btn--remove {
+  visibility: hidden;
+}
+
+:is(.card, .catalogue-row):is(:hover, [aria-selected="true"], :focus-within) .item-action .btn--remove {
+  visibility: visible;
+}
+
+.btn--remove .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.btn--remove:hover:not(:disabled) {
+  color: var(--bad-text);
+}
+
 /* List --------------------------------------------------------------------- */
 
 .catalogue-head,
@@ -386,4 +415,25 @@
 .statusbar .statusbar__source {
   font-family: var(--face-ui);
   font-size: var(--text-sm);
+}
+
+/* Tabs, mods and Installed ------------------------------------------------- */
+
+.content-tabs {
+  flex: none;
+}
+
+.kind-badge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  color: var(--faint);
+  font-family: var(--face-data);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 1px;
 }

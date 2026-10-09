@@ -30,6 +30,15 @@
   .scope__label {
     display: none;
   }
+
+  /* Maps & mods' tabs have no icon to fall back on, so they keep their names and give up counts. */
+  .content-tabs .scope__label {
+    display: inline;
+  }
+
+  .content-tabs .scope__count {
+    display: none;
+  }
 }
 
 /* Below this the remaining fixed columns leave the server name too narrow to

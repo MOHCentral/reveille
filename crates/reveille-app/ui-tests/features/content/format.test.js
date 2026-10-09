@@ -3,7 +3,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { byline, liveText, progressText, stateNote } = await import("../../../ui/features/content/format.js");
+const { byline, liveText, progressText, stateExplanation, stateNote } = await import(
+  "../../../ui/features/content/format.js"
+);
 
 test("download progress shares the unit when both sides have it, so it fits a card", () => {
   const mb = 1024 * 1024;
@@ -29,4 +31,14 @@ test("only an entry that can be installed has no note in place of its Install bu
   assert.equal(stateNote("installed"), "✓ Installed");
   assert.equal(stateNote("present"), "In your game folder");
   assert.equal(stateNote("unavailable"), "No download");
+});
+
+test("a mod's byline names its kind where a map names its map", () => {
+  assert.equal(byline({ kind: "mod", author: "Dizzle813", mod_type: "Avatar", map_name: null }), "by Dizzle813 · Avatar");
+});
+
+test("a mod Reveille cannot install points to its notes on moh-db", () => {
+  assert.match(stateExplanation("unavailable", "mod"), /single \.pk3.*notes on moh-db/);
+  assert.match(stateExplanation("unavailable", "map"), /no file Reveille can install for this map/);
+  assert.match(stateExplanation("available"), /Reveille can remove it again/);
 });

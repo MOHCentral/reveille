@@ -17,14 +17,14 @@ pub use archive::{
     install_verified_archive,
 };
 pub use catalogue::{
-    BROWSE_PAGE_SIZE, BrowsePage, CatalogueEntry, CatalogueImage, CatalogueQuery, CatalogueSort,
-    page_url,
+    BROWSE_PAGE_SIZE, BrowsePage, CatalogueEntry, CatalogueImage, CatalogueKind, CatalogueQuery,
+    CatalogueSort, MapMode, page_url,
 };
 pub use mohdb::{
     CatalogueCandidate, CatalogueNonResult, CatalogueNonResultReason, CataloguePage,
     CatalogueProgress, CatalogueResolution, CatalogueResolutionPass, DownloadProgress, FileSize,
-    MohDbClient, MohDbError, ResolutionOutcome, download_mohdb_archive,
-    download_mohdb_archive_reporting, resolve_candidates,
+    MohDbClient, MohDbError, MohDbFile, ResolutionOutcome, download_mohdb_archive,
+    download_mohdb_archive_reporting, download_mohdb_file_reporting, resolve_candidates,
 };
 pub use pakradar::{
     Md5Digest, PakRadarDownloadProgress, PakRadarEntry, PakRadarError, PakRadarPackageStatus,

@@ -125,6 +125,9 @@ fn main() {
             catalogue::catalogue_image,
             catalogue::install_catalogue_item,
             catalogue::cancel_catalogue_install,
+            catalogue::catalogue_played_now,
+            catalogue::installed_content,
+            catalogue::remove_installed_item,
             // alerts
             alerts::read_watched_server,
             alerts::game_client_running,

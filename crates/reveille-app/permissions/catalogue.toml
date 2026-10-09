@@ -2,10 +2,13 @@
 
 [[set]]
 identifier = "catalogue"
-description = "Browse moh-db's maps, show their screenshots and install one at a time."
+description = "Browse moh-db's maps and mods, show their screenshots, install one at a time and remove what Reveille installed."
 permissions = [
   "allow-browse-catalogue",
   "allow-catalogue-image",
   "allow-install-catalogue-item",
   "allow-cancel-catalogue-install",
+  "allow-catalogue-played-now",
+  "allow-installed-content",
+  "allow-remove-installed-item",
 ]

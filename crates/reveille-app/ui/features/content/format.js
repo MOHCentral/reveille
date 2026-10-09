@@ -4,7 +4,9 @@
 
 import { bytes, plural } from "../../lib/format.js";
 
-export const SORT_LABELS = { popular: "Most downloaded", newest: "Newest", name: "A to Z" };
+export const TAB_LABELS = { maps: "Maps", mods: "Mods", installed: "Installed" };
+export const SORT_LABELS = { played: "Most played", popular: "Most downloaded", newest: "Newest", name: "A to Z" };
+export const MODE_LABELS = { deathmatch: "Deathmatch", objective: "Objective", liberation: "Liberation" };
 
 /** "2 servers · 26 players", or null when no server in the list runs it. */
 export function liveText({ servers, players }) {
@@ -23,15 +25,16 @@ export function progressText(install) {
   return receivedUnit === unit ? `${amount} of ${total}` : `${received} of ${total}`;
 }
 
-/** The day moh-db added a map, or null. `added` is in Unix seconds. */
-export function addedText(added) {
-  if (!Number.isFinite(added) || added <= 0) return null;
-  return new Date(added * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+/** A day as "14 Nov 2023", or null. `seconds` is Unix seconds. */
+export function addedText(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(seconds * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** The line under a title: who made it and the map name servers will show. */
+/** The line under a title: who made it, and the map name servers will show or the kind of mod. */
 export function byline(item) {
-  return [item.author && `by ${item.author}`, item.map_name].filter(Boolean).join(" · ");
+  const what = item.kind === "mod" ? item.mod_type : item.map_name;
+  return [item.author && `by ${item.author}`, what].filter(Boolean).join(" · ");
 }
 
 /** What the action area says for an entry that cannot simply be installed. */
@@ -43,11 +46,14 @@ export function stateNote(state) {
 }
 
 /** The pane's sentence under the action, for each state. */
-export function stateExplanation(state) {
-  if (state === "installed") return "Reveille installed this map in your game folder.";
-  if (state === "present") {
-    return "A file with this name is already in your game folder, so Reveille leaves it alone.";
+export function stateExplanation(state, kind = "map") {
+  const it = kind === "mod" ? "mod" : "map";
+  if (state === "installed") return `Reveille installed this ${it} in your game folder and can remove it again.`;
+  if (state === "present") return `Your game already has this ${it}, so Reveille leaves it alone.`;
+  if (state === "unavailable") {
+    return kind === "mod"
+      ? "This mod does not come as a single .pk3, so Reveille cannot tell where its files go. Follow its notes on moh-db."
+      : "moh-db has no file Reveille can install for this map. Its page may explain how to get it.";
   }
-  if (state === "unavailable") return "moh-db has no file Reveille can install for this map. Its page may explain how to get it.";
-  return "Goes into your game folder. Nothing already there is replaced.";
+  return "Goes into your game folder. Nothing already there is replaced, and Reveille can remove it again.";
 }

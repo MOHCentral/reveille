@@ -21,6 +21,7 @@ use crate::mapindex::MapKey;
 // Public endpoint documented by moh-db; gameType is intentionally not sent because it is ignored.
 // The current public MapDto also omits gameType, so no reliable pre-download local filter exists.
 pub(super) const MAPS_ENDPOINT: &str = "https://api.moh-db.com/api/external/v1/maps";
+pub(super) const MODS_ENDPOINT: &str = "https://api.moh-db.com/api/external/v1/mods";
 const PAGE_SIZE: usize = 100;
 // moh-db rejects generic library user agents with HTTP 403.
 const USER_AGENT: &str = "Reveille/0.1 (MOHAA content resolver)";
@@ -370,6 +371,41 @@ pub async fn download_mohdb_archive(
 pub async fn download_mohdb_archive_reporting(
     client: &MohDbClient,
     candidate: &CatalogueCandidate,
+    staging_directory: &Path,
+    report: impl FnMut(DownloadProgress),
+) -> Result<DownloadedArchive<MohDbIntegrity>, MohDbError> {
+    download_mohdb_file_reporting(
+        client,
+        &MohDbFile {
+            filename: candidate.filename.clone(),
+            file_size: candidate.file_size,
+            download_url: candidate.download_url.clone(),
+        },
+        staging_directory,
+        report,
+    )
+    .await
+}
+
+/// One package moh-db publishes, map or mod, as far as downloading it goes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct MohDbFile {
+    /// Filename that must be preserved through staging and installation.
+    pub filename: String,
+    /// Published byte size, checked against what arrives.
+    pub file_size: FileSize,
+    /// Direct archive URL returned by moh-db.
+    pub download_url: String,
+}
+
+/// Download one published file into staging, as [`download_mohdb_archive_reporting`] does.
+///
+/// # Errors
+///
+/// Same as [`download_mohdb_archive`].
+pub async fn download_mohdb_file_reporting(
+    client: &MohDbClient,
+    candidate: &MohDbFile,
     staging_directory: &Path,
     mut report: impl FnMut(DownloadProgress),
 ) -> Result<DownloadedArchive<MohDbIntegrity>, MohDbError> {
