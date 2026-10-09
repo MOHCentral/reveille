@@ -131,6 +131,7 @@ async fn apply_server_files(
             host.telemetry().track(&Event::MapDownloadStarted {
                 source: DownloadSource::ServerFiles,
                 count: pakradar.pending,
+                kind: None,
             });
             let result =
                 install_pakradar_manifest(&pakradar, &search_path, game_directory, host).await;

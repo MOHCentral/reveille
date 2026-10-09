@@ -517,6 +517,7 @@ pub async fn install_catalogue_item(
     telemetry.track(&Event::MapDownloadStarted {
         source: DownloadSource::Browse,
         count: 1,
+        kind: Some(entry.kind),
     });
     let result = async {
         let setup = |reason: String| (MapFailureStage::Setup, reason);
@@ -538,6 +539,7 @@ pub async fn install_catalogue_item(
             telemetry.track(&Event::MapDownloadCompleted {
                 source: DownloadSource::Browse,
                 installed: 1,
+                kind: Some(entry.kind),
             });
             let path = installed.path.clone();
             if let Some(record) = install_record(&app)
@@ -559,6 +561,7 @@ pub async fn install_catalogue_item(
                     source: DownloadSource::Browse,
                     failed: 1,
                     stage,
+                    kind: Some(entry.kind),
                 });
             }
             Err(reason)
@@ -757,6 +760,7 @@ pub async fn remove_installed_item(
     session: Session,
     filename: String,
     app: tauri::AppHandle,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<RemovalOutcome, String> {
     let record = install_record(&app)
         .ok_or_else(|| "Reveille cannot read its list of installs.".to_owned())?;
@@ -769,6 +773,7 @@ pub async fn remove_installed_item(
         warn!(%error, "could not update the install record after a removal");
     }
     info!(%filename, path = %item.path.display(), "removed installed content");
+    telemetry.track(&Event::ContentRemoved { kind: item.kind });
     Ok(RemovalOutcome {
         filename: item.filename.clone(),
         state: ItemState::Available,

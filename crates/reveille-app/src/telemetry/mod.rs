@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use reveille_core::content::CatalogueKind;
 use reveille_core::discovery::TargetGame;
 use reveille_core::engine::EngineChoice;
 use serde::{Deserialize, Serialize};
@@ -119,6 +120,30 @@ impl From<Duration> for PlayTime {
             Self::OverTenMinutes
         }
     }
+}
+
+/// A section of the rail other than Servers, where Reveille always opens.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Section {
+    Content,
+    Admin,
+}
+
+/// Which Admin command ran. The slot, text, map and command line stay on the machine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdminActionKind {
+    Kick,
+    Ban,
+    Message,
+    Say,
+    ChangeMap,
+    RestartRound,
+    SetRotation,
+    SetGameType,
+    ReadCvar,
+    Console,
 }
 
 /// Why a join did not end with the game starting. Low-cardinality on purpose: the player still
@@ -290,15 +315,37 @@ pub enum Event {
     MapDownloadStarted {
         source: DownloadSource,
         count: usize,
+        /// Set for Maps & mods installs, which are mods as often as maps; a join only adds maps.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<CatalogueKind>,
     },
     MapDownloadCompleted {
         source: DownloadSource,
         installed: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<CatalogueKind>,
     },
     MapDownloadFailed {
         source: DownloadSource,
         failed: usize,
         stage: MapFailureStage,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<CatalogueKind>,
+    },
+    ContentRemoved {
+        kind: CatalogueKind,
+    },
+    SectionOpened {
+        section: Section,
+    },
+    AdminServerAdded,
+    AdminServerAddFailed {
+        reason: crate::admin::FailureReason,
+    },
+    AdminAction {
+        action: AdminActionKind,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure: Option<crate::admin::FailureReason>,
     },
     JoinClicked {
         game: TargetGame,
@@ -333,6 +380,9 @@ pub enum UiEvent {
     },
     ServerSelected {
         ready: bool,
+    },
+    SectionOpened {
+        section: Section,
     },
 }
 
@@ -379,6 +429,7 @@ pub struct Telemetry {
     sharing: Arc<AtomicBool>,
     server_selected_sent: AtomicBool,
     install_detected_sent: AtomicBool,
+    sections_opened: Mutex<Vec<Section>>,
     client: reqwest::Client,
     /// False when there is no config directory to write the choice, crash marker or ID into.
     persist: bool,
@@ -430,6 +481,7 @@ impl Telemetry {
             sharing,
             server_selected_sent: AtomicBool::new(false),
             install_detected_sent: AtomicBool::new(false),
+            sections_opened: Mutex::new(Vec::new()),
             client,
             persist,
         }
@@ -499,6 +551,18 @@ impl Telemetry {
                 // know that a player got this far.
                 if !self.server_selected_sent.swap(true, Ordering::SeqCst) {
                     self.track(&Event::ServerSelected { ready });
+                }
+            }
+            UiEvent::SectionOpened { section } => {
+                // Once per run per section: the rail is switched back and forth all session.
+                let mut opened = self
+                    .sections_opened
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                if !opened.contains(&section) {
+                    opened.push(section);
+                    drop(opened);
+                    self.track(&Event::SectionOpened { section });
                 }
             }
         }
@@ -772,9 +836,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, JoinFailureReason, MapFailureStage,
-        PanicReport, PlayTime, Session, Sink, Telemetry, UiEvent, payload, rfc3339,
-        source_relative,
+        AdminActionKind, CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, JoinFailureReason,
+        MapFailureStage, PanicReport, PlayTime, Section, Session, Sink, Telemetry, UiEvent,
+        payload, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -902,6 +966,51 @@ mod tests {
     }
 
     #[test]
+    fn an_admin_action_names_its_command_and_only_a_failure_reason() {
+        let sent = |failure| {
+            payload(
+                &sink(),
+                &Event::AdminAction {
+                    action: AdminActionKind::ChangeMap,
+                    failure,
+                },
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "0.4.0",
+                UNIX_EPOCH,
+            )["properties"]
+                .clone()
+        };
+        let ok = sent(None);
+        assert_eq!(ok["action"], "change_map");
+        assert!(ok.get("failure").is_none());
+        assert_eq!(
+            sent(Some(crate::admin::FailureReason::BadPassword))["failure"],
+            "bad_password"
+        );
+    }
+
+    #[test]
+    fn the_rail_can_only_report_its_named_sections() {
+        let opened = serde_json::from_value::<UiEvent>(
+            json!({ "event": "section_opened", "section": "admin" }),
+        )
+        .expect("admin");
+        assert_eq!(
+            opened,
+            UiEvent::SectionOpened {
+                section: Section::Admin
+            }
+        );
+        assert!(
+            serde_json::from_value::<UiEvent>(
+                json!({ "event": "section_opened", "section": "servers" })
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn a_failed_download_names_its_stage() {
         let body = payload(
             &sink(),
@@ -909,6 +1018,7 @@ mod tests {
                 source: DownloadSource::Catalogue,
                 failed: 1,
                 stage: MapFailureStage::Lookup,
+                kind: None,
             },
             Uuid::new_v4(),
             Uuid::new_v4(),

@@ -272,6 +272,7 @@ async fn join_and_launch(
         telemetry.track(&Event::MapDownloadStarted {
             source: DownloadSource::Catalogue,
             count: selected.len(),
+            kind: None,
         });
         let result =
             install_shopping_list(catalogue, &selected, &server, &target.game_directory, app).await;
@@ -327,15 +328,18 @@ pub fn track_download(
             source,
             failed: failures.len(),
             stage: failures[0].stage,
+            kind: None,
         },
         Ok((installed, _)) => Event::MapDownloadCompleted {
             source,
             installed: installed.len(),
+            kind: None,
         },
         Err(_) => Event::MapDownloadFailed {
             source,
             failed: attempted,
             stage: MapFailureStage::Setup,
+            kind: None,
         },
     });
 }
