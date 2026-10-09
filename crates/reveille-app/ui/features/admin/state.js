@@ -8,7 +8,7 @@ export function initial() {
     admin: {
       /** The servers added, as `admin_servers` lists them. */
       servers: [],
-      /** Whether the list has been read once; until then the rail cannot know whether to show Admin. */
+      /** Whether the list has been read once. */
       loaded: false,
       /** Where passwords are kept: "credential_manager", "keychain" or "memory". */
       vault: "memory",

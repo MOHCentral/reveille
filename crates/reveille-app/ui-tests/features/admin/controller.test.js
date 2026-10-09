@@ -13,7 +13,7 @@ import { installTauri } from "../../fakes/tauri.js";
 installStorage();
 const bridge = installTauri();
 const { composeState, state } = await import("../../../ui/lib/store.js");
-const { initial: adminState, hasAdminServers } = await import("../../../ui/features/admin/index.js");
+const { initial: adminState } = await import("../../../ui/features/admin/index.js");
 const { adminController, busyKey, echo, failureOf } = await import("../../../ui/features/admin/controller.js");
 
 composeState([adminState()]);
@@ -38,13 +38,13 @@ function reset(servers = [{ address: FIRST, name: "Stock" }]) {
   Object.assign(state, adminState());
 }
 
-test("loading the list selects the first server and shows the Admin section", async () => {
+test("loading the list selects the first server and records the password vault", async () => {
   reset();
-  assert.equal(hasAdminServers(), false);
+  assert.equal(state.admin.servers.length, 0);
   await adminController().load();
   assert.equal(state.admin.selected, FIRST);
   assert.equal(state.admin.vault, "credential_manager");
-  assert.equal(hasAdminServers(), true);
+  assert.equal(state.admin.servers.length, 1);
 });
 
 test("a selection that left the list moves to the first server that is still there", async () => {
@@ -152,7 +152,7 @@ test("removing a server forgets its status and console", async () => {
   assert.equal(state.admin.consoles.has(FIRST), false);
   assert.equal(state.admin.statuses.has(FIRST), false);
   assert.equal(state.admin.selected, null);
-  assert.equal(hasAdminServers(), false);
+  assert.equal(state.admin.servers.length, 0);
 });
 
 test("watching asks once now and stops when Admin is left", async () => {
@@ -178,6 +178,17 @@ test("the echo names the player, never a slot number, when the player is known",
 test("busy keys tell players apart but not two messages to everyone", () => {
   assert.notEqual(busyKey(FIRST, { kind: "kick", slot: 0 }), busyKey(FIRST, { kind: "kick", slot: 3 }));
   assert.equal(busyKey(FIRST, { kind: "say", text: "a" }), busyKey(FIRST, { kind: "say", text: "b" }));
+});
+
+test("setting game type echoes the pending change and refreshes status", async () => {
+  reset();
+  const controller = adminController();
+  await controller.load();
+  bridge.calls.length = 0;
+  await controller.act({ kind: "set_game_type", game_type: 4 });
+  await settle();
+  assert.deepEqual(state.admin.consoles.get(FIRST)[0], { kind: "in", text: "g_gametype 4 (next map load)" });
+  assert.deepEqual(commands(), ["admin_action", "admin_status"]);
 });
 
 test("a failure Rust did not classify reads as no answer", () => {

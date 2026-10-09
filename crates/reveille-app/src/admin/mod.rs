@@ -3,7 +3,7 @@
 //! Admin: the remote console of servers the player runs.
 //!
 //! The first slice shaped as an extension (issue #63): it owns its commands, its state and its
-//! file, and the page shows its section only once a server is added. The password goes from the
+//! file. The password goes from the
 //! add dialog to the server and the credential store and never comes back to the page; commands
 //! and their output are never logged.
 
@@ -244,6 +244,7 @@ pub struct AdminStatus {
     name: Option<String>,
     map: Option<String>,
     game_type: Option<String>,
+    game_type_number: Option<u8>,
     capacity: Option<u32>,
     players: Vec<RconPlayer>,
     rotation: Vec<String>,
@@ -277,6 +278,7 @@ pub async fn admin_status(
         name: field("sv_hostname"),
         map: status.map.or_else(|| field("mapname")),
         game_type: field("g_gametypestring"),
+        game_type_number: field("g_gametype").and_then(|value| value.parse().ok()),
         capacity: field("sv_maxclients").and_then(|value| value.parse().ok()),
         players: status.players,
         rotation: field("sv_maplist")
@@ -299,6 +301,7 @@ pub enum ActionRequest {
     ChangeMap { map: String },
     RestartRound,
     SetRotation { maps: Vec<String> },
+    SetGameType { game_type: u8 },
     ReadCvar { name: String },
     Console { line: String },
 }
@@ -319,6 +322,19 @@ impl ActionRequest {
             Self::Say { text: line } => RconAction::Say(text(&line)?),
             Self::ChangeMap { map: name } => RconAction::ChangeMap(map(&name)?),
             Self::RestartRound => RconAction::RestartRound,
+            Self::SetGameType { game_type } => {
+                // OpenMoHAA code/fgame/bg_public.h:112-123: FFA, Team, Team Rounds, Objective.
+                if !(1..=4).contains(&game_type) {
+                    return Err(AdminFailure::new(
+                        FailureReason::Invalid,
+                        "Choose a game type from 1 to 4.",
+                    ));
+                }
+                RconAction::Raw(
+                    RawCommand::new(&format!("set g_gametype {game_type}"))
+                        .map_err(|error| AdminFailure::invalid("game type", error))?,
+                )
+            }
             Self::SetRotation { maps } => RconAction::SetRotation(
                 Rotation::new(
                     maps.iter()
@@ -487,6 +503,26 @@ mod tests {
                 FailureReason::Invalid,
                 "{smuggled}"
             );
+        }
+    }
+
+    #[test]
+    fn game_type_actions_accept_only_modes_one_through_four() {
+        for mode in 1..=4 {
+            let json = format!(r#"{{"kind":"set_game_type","game_type":{mode}}}"#);
+            let action = serde_json::from_str::<ActionRequest>(&json)
+                .expect("shape")
+                .action()
+                .expect("supported mode");
+            assert_eq!(action.command_lines(), [format!("set g_gametype {mode}")]);
+        }
+        for mode in [0, 5, 255] {
+            let json = format!(r#"{{"kind":"set_game_type","game_type":{mode}}}"#);
+            let failure = serde_json::from_str::<ActionRequest>(&json)
+                .expect("shape")
+                .action()
+                .expect_err("unsupported mode");
+            assert_eq!(failure.reason, FailureReason::Invalid);
         }
     }
 

@@ -25,6 +25,7 @@ import { invoke } from "../../lib/bridge.js";
  * @property {string | null} name
  * @property {string | null} map
  * @property {string | null} game_type
+ * @property {number | null} game_type_number
  * @property {number | null} capacity
  * @property {AdminPlayer[]} players
  * @property {string[]} rotation
@@ -42,6 +43,7 @@ import { invoke } from "../../lib/bridge.js";
  *   | { kind: "change_map", map: string }
  *   | { kind: "restart_round" }
  *   | { kind: "set_rotation", maps: string[] }
+ *   | { kind: "set_game_type", game_type: number }
  *   | { kind: "console", line: string }} AdminAction
  */
 

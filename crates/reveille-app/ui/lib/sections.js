@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The sections the rail switches between: Servers, Maps & mods, and later Admin.
+// The sections the rail switches between: Servers, Maps & mods, and Admin.
 //
 // A section owns a toolbar, a list, a detail pane and a status bar, and the shell shows one
 // section's four at a time. Registering is the whole contract, so a new section — Admin, or an
@@ -20,7 +20,7 @@ const registry = [];
 /**
  * Add a section. `id`, `label` and `icon` name it on the rail; `parts` are its four regions.
  *
- * `railLabel` breaks the label where the rail should, with a newline. Optional hooks: `visible()` hides it from the rail (Admin, until a server is added); `progress()`
+ * `railLabel` breaks the label where the rail should, with a newline. Optional hooks: `visible()` hides it from the rail; `progress()`
  * returns 0–1 while it has work running, drawn as a line under its rail item; `enter()` runs each
  * time it is shown; `focusSearch`, `focusList`, `clearSearch` and `refresh` serve the global keys.
  */
