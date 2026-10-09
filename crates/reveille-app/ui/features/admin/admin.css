@@ -233,6 +233,83 @@
   display: grid;
 }
 
+.admin-game-type {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--void);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.admin-game-type__note {
+  margin: var(--space-2) 0;
+  font-size: var(--text-sm);
+}
+
+.admin-map-picker {
+  position: relative;
+}
+
+.admin-map-picker__toggle {
+  align-self: stretch;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+}
+
+.admin-map-picker__toggle:hover {
+  color: var(--brass);
+}
+
+.admin-map-picker__list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--lift);
+}
+
+.admin-map-picker__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 8px;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.admin-map-picker__option:hover,
+.admin-map-picker__option[aria-selected="true"] {
+  background: var(--rise);
+  color: var(--brass);
+  box-shadow: inset 2px 0 0 var(--brass);
+}
+
+.admin-map-picker__current {
+  flex-shrink: 0;
+  color: var(--dim);
+  font-size: var(--text-xs);
+}
+
+.admin-map-picker__empty {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+}
+
 .admin-rotation__row {
   display: flex;
   justify-content: space-between;

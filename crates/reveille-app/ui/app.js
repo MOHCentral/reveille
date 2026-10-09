@@ -23,7 +23,7 @@ import {
 import { appVersion, openExternalUrl, trackEvent } from "./lib/shell.js";
 import { adminController } from "./features/admin/controller.js";
 import { openAddServer } from "./features/admin/dialogs.js";
-import { hasAdminServers, initial as adminState } from "./features/admin/index.js";
+import { initial as adminState } from "./features/admin/index.js";
 import { adminSettingsSection } from "./features/admin/settings-section.js";
 import { adminView } from "./features/admin/view.js";
 import { openBugReport } from "./features/bug-report/index.js";
@@ -208,9 +208,9 @@ registerSection({
   id: "admin",
   label: "Admin",
   icon: "terminal",
-  visible: hasAdminServers,
   parts: [adminPage.toolbar, adminPage.listPane, adminPage.statusbar],
   detail: adminPage.detail,
+  detailVisible: () => state.admin.servers.length > 0,
   focusSearch: adminPage.focusSearch,
   focusList: adminPage.focusList,
   clearSearch: adminPage.clearSearch,
@@ -343,7 +343,7 @@ function render() {
   $("#reveille-update-btn").classList.toggle("hidden", !state.selfUpdate.offer);
   $("#reveille-update-btn").disabled = state.joining;
   const active = activeSection();
-  const collapsed = state.detailCollapsed;
+  const collapsed = state.detailCollapsed || !(active.detailVisible?.() ?? true);
   for (const section of registeredSections()) {
     const shown = section === active;
     for (const part of section.parts) part.classList.toggle("hidden", !shown);

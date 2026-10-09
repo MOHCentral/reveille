@@ -24,15 +24,17 @@ const SERVERS = [
     name: "harzCore | Stock Maps 24/7",
     map: "dm/mohdm6",
     game_type: "Team-Match",
+    game_type_number: 2,
     capacity: 32,
     players: PLAYERS,
-    rotation: ["dm/mohdm6", "dm/mohdm2", "dm/mohdm4", "dm/mohdm1"],
+    rotation: ["dm/mohdm6", "dm/mohdm2", "dm/mohdm4", "dm/mohdm1", "dm/mohdm3", "dm/mohdm5"],
     engine: "open_mohaa",
   },
   {
     name: "[DSB]Clan DM",
     map: "dm/mohdm1",
     game_type: "Free-For-All",
+    game_type_number: 1,
     capacity: 16,
     players: PLAYERS.slice(6, 10),
     rotation: ["dm/mohdm1", "dm/mohdm7"],
@@ -45,6 +47,10 @@ export function adminCommands({ count, failure }) {
   const addresses = browsePayload().servers.map((row) => row.address);
   const added = SERVERS.slice(0, count).map((server, index) => ({ address: addresses[index], name: server.name }));
   const fixture = (address) => SERVERS[addresses.indexOf(address)] ?? SERVERS[0];
+  const pendingModes = new Map();
+  const activeModes = new Map();
+  const activeMaps = new Map();
+  const modeNames = [null, "Free-For-All", "Team-Match", "Round-Based-Match", "Objective-Match"];
   let failing = failure;
 
   return {
@@ -77,8 +83,9 @@ export function adminCommands({ count, failure }) {
       const server = fixture(address);
       return {
         name: server.name,
-        map: server.map,
-        game_type: server.game_type,
+        map: activeMaps.get(address) ?? server.map,
+        game_type: modeNames[activeModes.get(address)] ?? server.game_type,
+        game_type_number: activeModes.get(address) ?? server.game_type_number,
         capacity: server.capacity,
         players: server.players.map(([name, score, ping], slot) => ({ slot, name, score, ping })),
         rotation: server.rotation,
@@ -87,8 +94,19 @@ export function adminCommands({ count, failure }) {
         can_ban: server.engine === "open_mohaa",
       };
     },
-    admin_action: ({ action }) => {
+    admin_action: ({ address, action }) => {
       switch (action.kind) {
+        case "set_game_type":
+          pendingModes.set(address, action.game_type);
+          return "g_gametype will be changed upon restarting.\n";
+        case "change_map":
+        case "restart_round":
+          if (action.kind === "change_map") activeMaps.set(address, action.map);
+          if (pendingModes.has(address)) {
+            activeModes.set(address, pendingModes.get(address));
+            pendingModes.delete(address);
+          }
+          return "";
         case "console":
           return action.line === "sv_maplist"
             ? '"sv_maplist" is:"dm/mohdm6 dm/mohdm2 dm/mohdm4 dm/mohdm1^7" default:"^7"\n'

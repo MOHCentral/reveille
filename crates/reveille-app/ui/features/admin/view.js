@@ -13,6 +13,7 @@ import { icon } from "../../lib/icons.js";
 import { state } from "../../lib/store.js";
 import { busyKey } from "./controller.js";
 import { confirmRemoveServer, openAddServer } from "./dialogs.js";
+import { mapPicker } from "./map-picker.js";
 
 export const VAULT_TEXT = {
   credential_manager: "RCON passwords kept in Windows Credential Manager",
@@ -96,6 +97,7 @@ export function adminView({ controller, onToggleDetail }) {
   );
 
   function sendConsole() {
+    if (!selectedServer()) return;
     const line = consoleInput.value.trim();
     if (!line) return;
     history.push(line);
@@ -107,19 +109,8 @@ export function adminView({ controller, onToggleDetail }) {
   const listPane = el("div", { className: "list-pane admin-main" }, head, players, consolePane);
 
   // The pane's inputs are built once for the same reason.
-  const mapInput = el("input", {
-    type: "text",
-    autocomplete: "off",
-    spellcheck: false,
-    placeholder: "dm/mohdm6",
-    "aria-label": "Map",
-    list: "admin-maps",
-    dataset: { focusKey: "admin-map" },
-    onkeydown: (event) => {
-      if (event.key === "Enter") changeMap();
-    },
-  });
-  const mapChoices = el("datalist", { id: "admin-maps" });
+  const mapChoice = mapPicker({ onSubmit: changeMap });
+  const mapInput = mapChoice.input;
   const sayInput = el("input", {
     type: "text",
     autocomplete: "off",
@@ -132,6 +123,29 @@ export function adminView({ controller, onToggleDetail }) {
     },
   });
   const rotationList = el("div", { className: "admin-rotation" });
+  const rotationMore = el("div");
+  let allRotationShown = false;
+  // OpenMoHAA code/fgame/bg_public.h:112-123 defines the numeric multiplayer modes.
+  const gameType = el("select", {
+    "aria-label": "Game type",
+    className: "admin-game-type",
+    dataset: { focusKey: "admin-game-type" },
+    onchange: () => paintDetail(),
+  },
+  el("option", { value: "" }, "Choose game type"),
+  el("option", { value: "1" }, "1 · Free-for-all"),
+  el("option", { value: "2" }, "2 · Team match"),
+  el("option", { value: "3" }, "3 · Round-based match"),
+  el("option", { value: "4" }, "4 · Objective match"));
+  const gameTypeApply = el("button", {
+    type: "button",
+    className: "btn",
+    dataset: { focusKey: "admin-game-type-apply" },
+    onclick: () => {
+      const mode = Number(gameType.value);
+      if (mode >= 1 && mode <= 4 && selectedServer()) void controller.act({ kind: "set_game_type", game_type: mode });
+    },
+  }, "Apply");
   const removeLink = el(
     "button",
     {
@@ -152,8 +166,7 @@ export function adminView({ controller, onToggleDetail }) {
       "section",
       { className: "detail__section" },
       el("h3", { className: "display heading-sm" }, "Map"),
-      el("label", { className: "field" }, mapInput),
-      mapChoices,
+      mapChoice.root,
       el(
         "div",
         { className: "actions__row" },
@@ -173,8 +186,17 @@ export function adminView({ controller, onToggleDetail }) {
     el(
       "section",
       { className: "detail__section" },
+      el("h3", { className: "display heading-sm" }, "Game type"),
+      gameType,
+      el("p", { className: "quiet admin-game-type__note" }, "Applies on the next map load."),
+      el("div", { className: "actions__row" }, gameTypeApply),
+    ),
+    el(
+      "section",
+      { className: "detail__section" },
       el("h3", { className: "display heading-sm" }, "Rotation"),
       rotationList,
+      rotationMore,
       el(
         "div",
         { className: "actions__row" },
@@ -236,6 +258,7 @@ export function adminView({ controller, onToggleDetail }) {
       );
     }
     const collapsed = state.detailCollapsed;
+    detailToggle.classList.toggle("hidden", state.admin.servers.length === 0);
     detailToggle.setAttribute("aria-pressed", collapsed ? "false" : "true");
     detailToggle.title = collapsed ? "Show details (Ctrl+D)" : "Hide details (Ctrl+D)";
   }
@@ -476,6 +499,10 @@ export function adminView({ controller, onToggleDetail }) {
 
   let paintedConsole = null;
   function paintConsole() {
+    const available = Boolean(selectedServer());
+    consoleInput.disabled = !available;
+    consoleSend.disabled = !available;
+    consoleInput.placeholder = available ? "Type an RCON command" : "Add a server to use the console";
     const lines = state.admin.consoles.get(state.admin.selected) ?? [];
     const signature = `${state.admin.selected}:${lines.length}:${lines.at(-1)?.text ?? ""}`;
     if (signature === paintedConsole) return;
@@ -492,17 +519,24 @@ export function adminView({ controller, onToggleDetail }) {
   let paintedDetail = null;
   function paintDetail() {
     const status = entry()?.status ?? null;
-    const signature = JSON.stringify([state.admin.selected, status?.map, status?.rotation]);
+    const previous = JSON.parse(paintedDetail ?? "[null]");
+    const changedServer = previous[0] !== state.admin.selected;
+    if (changedServer) allRotationShown = false;
+    if (changedServer || previous[3] !== status?.game_type_number) {
+      const mode = status?.game_type_number;
+      gameType.value = mode >= 1 && mode <= 4 ? String(mode) : "";
+    }
+    gameTypeApply.disabled = !gameType.value || !selectedServer() || state.admin.busy.has(busyKey(state.admin.selected, { kind: "set_game_type" }));
+    const signature = JSON.stringify([state.admin.selected, status?.map, status?.rotation, status?.game_type_number, allRotationShown]);
     if (signature === paintedDetail) return;
-    const changedServer = JSON.parse(paintedDetail ?? "[null]")[0] !== state.admin.selected;
     paintedDetail = signature;
     const rotation = status?.rotation ?? [];
     if (changedServer || !mapInput.value) mapInput.value = rotation.find((map) => map !== status?.map) ?? "";
-    fill(mapChoices, [...new Set([...rotation, status?.map].filter(Boolean))].map((map) => el("option", { value: map })));
+    mapChoice.update({ maps: rotation, current: status?.map ?? "", reset: changedServer });
     fill(
       rotationList,
       rotation.length
-        ? rotation.map((map) =>
+        ? (allRotationShown ? rotation : rotation.slice(0, 4)).map((map) =>
             el(
               "div",
               { className: `admin-rotation__row${map === status?.map ? " admin-rotation__row--now" : ""}` },
@@ -512,6 +546,19 @@ export function adminView({ controller, onToggleDetail }) {
           )
         : el("p", { className: "quiet" }, status ? "The server publishes no rotation." : ""),
     );
+    preserveFocus(rotationMore, () => fill(
+      rotationMore,
+      rotation.length > 4 && el("button", {
+        type: "button",
+        className: "detail__more-toggle",
+        "aria-expanded": String(allRotationShown),
+        dataset: { focusKey: "admin-rotation-more" },
+        onclick: () => {
+          allRotationShown = !allRotationShown;
+          paintDetail();
+        },
+      }, allRotationShown ? "Show fewer" : `Show all ${rotation.length}`),
+    ));
   }
 
   function paintStatus() {
@@ -533,7 +580,7 @@ export function adminView({ controller, onToggleDetail }) {
     paintHead();
     paintPlayers();
     paintConsole();
-    if (!state.detailCollapsed) paintDetail();
+    if (state.admin.servers.length && !state.detailCollapsed) paintDetail();
     paintStatus();
   }
 
@@ -543,8 +590,8 @@ export function adminView({ controller, onToggleDetail }) {
     detail,
     statusbar,
     render,
-    focusSearch: () => consoleInput.focus(),
-    focusList: () => (players.querySelector('tr[tabindex="0"]') ?? consoleInput).focus(),
+    focusSearch: () => (selectedServer() ? consoleInput : addButton).focus(),
+    focusList: () => (players.querySelector('tr[tabindex="0"]') ?? (selectedServer() ? consoleInput : addButton)).focus(),
     clearSearch: () => {
       consoleInput.value = "";
     },

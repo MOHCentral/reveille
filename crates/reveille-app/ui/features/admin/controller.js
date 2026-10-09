@@ -30,13 +30,15 @@ export function echo(action, players = []) {
       return "restart";
     case "set_rotation":
       return `rotation ${action.maps.join(" ")}`;
+    case "set_game_type":
+      return `g_gametype ${action.game_type} (next map load)`;
     default:
       return action.line;
   }
 }
 
 /** Actions after which the status on screen is out of date. */
-const CHANGES_STATUS = new Set(["kick", "ban", "change_map", "restart_round", "set_rotation", "console"]);
+const CHANGES_STATUS = new Set(["kick", "ban", "change_map", "restart_round", "set_rotation", "set_game_type", "console"]);
 
 export function adminController({ onListChanged = () => {} } = {}) {
   let timer = null;
