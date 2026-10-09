@@ -61,10 +61,10 @@ pub struct ServerFilesResult {
 /// interface decides how to say it.
 #[derive(Serialize)]
 pub struct InstallFailure {
-    map: String,
-    reason: String,
+    pub(super) map: String,
+    pub(super) reason: String,
     #[serde(skip)]
-    pub stage: MapFailureStage,
+    pub(super) stage: MapFailureStage,
 }
 
 /// Resolve where downloaded content goes for this session, and nothing else.
@@ -219,7 +219,7 @@ async fn install_pakradar_manifest(
             Err(error) => failures.push(InstallFailure {
                 map: entry.alias.clone(),
                 reason: error.to_string(),
-                stage: MapFailureStage::Manifest,
+                stage: MapFailureStage::LocalCopy,
             }),
         }
     }

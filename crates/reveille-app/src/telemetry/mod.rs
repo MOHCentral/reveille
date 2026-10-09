@@ -88,6 +88,8 @@ pub enum MapFailureStage {
     Lookup,
     /// The server's own download list could not be read.
     Manifest,
+    /// A copy already on the search path could not be read to compare against the list.
+    LocalCopy,
     /// The archive could not be fetched.
     Download,
     /// The archive could not be opened.
@@ -428,8 +430,10 @@ pub struct Telemetry {
     /// Read by the panic hook, which cannot take the lock.
     sharing: Arc<AtomicBool>,
     server_selected_sent: AtomicBool,
-    install_detected_sent: AtomicBool,
-    sections_opened: Mutex<Vec<Section>>,
+    install_not_found_sent: AtomicBool,
+    sections_opened: [AtomicBool; 2],
+    /// The games last reported found, so a re-detection of the same folder is not sent again.
+    detected_games: Mutex<Option<Vec<reveille_core::install::Product>>>,
     client: reqwest::Client,
     /// False when there is no config directory to write the choice, crash marker or ID into.
     persist: bool,
@@ -480,8 +484,9 @@ impl Telemetry {
             choice: Mutex::new(choice),
             sharing,
             server_selected_sent: AtomicBool::new(false),
-            install_detected_sent: AtomicBool::new(false),
-            sections_opened: Mutex::new(Vec::new()),
+            install_not_found_sent: AtomicBool::new(false),
+            sections_opened: [AtomicBool::new(false), AtomicBool::new(false)],
+            detected_games: Mutex::new(None),
             client,
             persist,
         }
@@ -549,31 +554,52 @@ impl Telemetry {
             UiEvent::ServerSelected { ready } => {
                 // Once per run: selection follows the arrow keys, and the funnel only needs to
                 // know that a player got this far.
-                if !self.server_selected_sent.swap(true, Ordering::SeqCst) {
+                if self.first_this_run(&self.server_selected_sent) {
                     self.track(&Event::ServerSelected { ready });
                 }
             }
             UiEvent::SectionOpened { section } => {
                 // Once per run per section: the rail is switched back and forth all session.
-                let mut opened = self
-                    .sections_opened
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                if !opened.contains(&section) {
-                    opened.push(section);
-                    drop(opened);
+                if self.first_this_run(&self.sections_opened[section as usize]) {
                     self.track(&Event::SectionOpened { section });
                 }
             }
         }
     }
 
-    /// Once per run: the setup screen detects again after an engine install, and the funnel only
-    /// needs to know that a game was found.
+    /// Sent again only when the games found change: the setup screen detects again after an
+    /// engine install, and the funnel only needs to know that a game was found.
     pub fn track_install_detected(&self, games: Vec<reveille_core::install::Product>) {
-        if !self.install_detected_sent.swap(true, Ordering::SeqCst) {
-            self.track(&Event::GameInstallDetected { games });
+        if !self.would_send() {
+            return;
         }
+        let mut last = self
+            .detected_games
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if last.as_ref() == Some(&games) {
+            return;
+        }
+        *last = Some(games.clone());
+        drop(last);
+        self.track(&Event::GameInstallDetected { games });
+    }
+
+    /// Once per run, so a retried store search counts as one run with no game, as detection does.
+    pub fn track_install_not_found(&self) {
+        if self.first_this_run(&self.install_not_found_sent) {
+            self.track(&Event::GameInstallNotFound);
+        }
+    }
+
+    /// Claims `flag` only when the event would leave the machine, so a run that turns sharing on
+    /// part-way still sends its first occurrence.
+    fn first_this_run(&self, flag: &AtomicBool) -> bool {
+        self.would_send() && !flag.swap(true, Ordering::SeqCst)
+    }
+
+    fn would_send(&self) -> bool {
+        self.sink.is_some() && self.sharing.load(Ordering::SeqCst)
     }
 
     /// Queue `event` if the player shares and the build has a destination. Never blocks and never
@@ -829,6 +855,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
     use std::time::{Duration, UNIX_EPOCH};
 
     use serde_json::json;
@@ -1029,6 +1056,27 @@ mod tests {
     }
 
     #[test]
+    fn a_once_per_run_event_is_claimed_only_when_it_would_be_sent() {
+        let directory = TempDir::new().expect("directory");
+        let telemetry = loaded(&directory, Some(sink()));
+        telemetry.sharing.store(false, Ordering::SeqCst);
+        assert!(!telemetry.first_this_run(&telemetry.server_selected_sent));
+        telemetry.sharing.store(true, Ordering::SeqCst);
+        assert!(telemetry.first_this_run(&telemetry.server_selected_sent));
+        assert!(!telemetry.first_this_run(&telemetry.server_selected_sent));
+        assert!(telemetry.first_this_run(&telemetry.sections_opened[Section::Admin as usize]));
+        assert!(telemetry.first_this_run(&telemetry.sections_opened[Section::Content as usize]));
+        assert!(!telemetry.first_this_run(&telemetry.sections_opened[Section::Admin as usize]));
+    }
+
+    #[test]
+    fn a_build_without_a_destination_claims_nothing() {
+        let directory = TempDir::new().expect("directory");
+        let telemetry = loaded(&directory, None);
+        assert!(!telemetry.first_this_run(&telemetry.install_not_found_sent));
+    }
+
+    #[test]
     fn a_missing_install_is_sent_without_properties_of_its_own() {
         let body = payload(
             &sink(),
@@ -1039,7 +1087,13 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(body["event"], "game_install_not_found");
-        assert!(body["properties"].get("search").is_none());
+        let own: Vec<_> = body["properties"]
+            .as_object()
+            .expect("properties")
+            .keys()
+            .filter(|key| !key.starts_with('$') && !["app_version", "os"].contains(&key.as_str()))
+            .collect();
+        assert!(own.is_empty(), "unexpected properties {own:?}");
     }
 
     #[test]

@@ -323,25 +323,41 @@ pub fn track_download(
     result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), String>,
     attempted: usize,
 ) {
-    telemetry.track(&match result {
-        Ok((_, failures)) if !failures.is_empty() => Event::MapDownloadFailed {
-            source,
-            failed: failures.len(),
-            stage: failures[0].stage,
-            kind: None,
-        },
-        Ok((installed, _)) => Event::MapDownloadCompleted {
-            source,
-            installed: installed.len(),
-            kind: None,
-        },
+    telemetry.track(&download_outcome(source, result, attempted));
+}
+
+/// Maps the catalogue had no copy of were never part of the batch, so they never fail it.
+fn download_outcome(
+    source: DownloadSource,
+    result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), String>,
+    attempted: usize,
+) -> Event {
+    match result {
+        Ok((installed, failures)) => {
+            let mut failed = failures
+                .iter()
+                .filter(|failure| failure.stage != MapFailureStage::Lookup);
+            match failed.next() {
+                Some(first) => Event::MapDownloadFailed {
+                    source,
+                    failed: 1 + failed.count(),
+                    stage: first.stage,
+                    kind: None,
+                },
+                None => Event::MapDownloadCompleted {
+                    source,
+                    installed: installed.len(),
+                    kind: None,
+                },
+            }
+        }
         Err(_) => Event::MapDownloadFailed {
             source,
             failed: attempted,
             stage: MapFailureStage::Setup,
             kind: None,
         },
-    });
+    }
 }
 
 /// Start the client the detected install actually provides, connected to `address`.
@@ -379,6 +395,8 @@ fn launch(
     Ok(LaunchOutcome::Launched { process_id })
 }
 
+const CLIENT_POLL: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// Report how long the game ran once it closes. A thread rather than a task: `wait` blocks for the
 /// whole match.
 fn watch_game_exit(
@@ -390,6 +408,11 @@ fn watch_game_exit(
     let started = Instant::now();
     std::thread::spawn(move || {
         if child.wait().is_ok() {
+            // A store bootstrap or an already-open game takes over and the spawned program exits
+            // at once; the match lasts as long as any game client is still running.
+            while platform::game_client_running() == Some(true) {
+                std::thread::sleep(CLIENT_POLL);
+            }
             app.state::<Telemetry>().track(&Event::GameExited {
                 game,
                 engine,
@@ -453,7 +476,12 @@ mod tests {
     };
     use reveille_core::preflight::{MapResult, MapStatus, Report, Verdict};
 
-    use super::{JoinFailureReason, failed, launch_refusal, refusal_reason};
+    use std::path::PathBuf;
+
+    use super::{
+        DownloadSource, Event, InstallFailure, JoinFailureReason, MapFailureStage, failed,
+        launch_refusal, refusal_reason,
+    };
 
     fn assessment(
         state: CompatibilityState,
@@ -556,5 +584,36 @@ mod tests {
             failure.message,
             "This server is no longer in the current list."
         );
+    }
+
+    #[test]
+    fn a_map_the_catalogue_lacks_does_not_fail_a_batch_that_installed() {
+        let failure = |stage| InstallFailure {
+            map: "obj_team2".to_owned(),
+            reason: String::new(),
+            stage,
+        };
+        let outcome = |failures| {
+            super::download_outcome(
+                DownloadSource::Catalogue,
+                &Ok((vec![PathBuf::from("a.pk3")], failures)),
+                1,
+            )
+        };
+        assert!(matches!(
+            outcome(vec![failure(MapFailureStage::Lookup)]),
+            Event::MapDownloadCompleted { installed: 1, .. }
+        ));
+        assert!(matches!(
+            outcome(vec![
+                failure(MapFailureStage::Lookup),
+                failure(MapFailureStage::Mismatch)
+            ]),
+            Event::MapDownloadFailed {
+                failed: 1,
+                stage: MapFailureStage::Mismatch,
+                ..
+            }
+        ));
     }
 }
