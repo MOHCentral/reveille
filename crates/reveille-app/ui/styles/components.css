@@ -471,6 +471,12 @@ dialog::backdrop {
   border-bottom: 1px solid var(--line);
 }
 
+.dialog__close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+
 .dialog__body {
   padding: var(--space-5);
   display: grid;

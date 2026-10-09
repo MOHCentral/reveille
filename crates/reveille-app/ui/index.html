@@ -70,11 +70,20 @@
       <div class="dialog__head">
         <!-- Set by lib/dialog.js: one modal serves every panel. -->
         <h2 class="display heading-sm" id="info-dialog-title"></h2>
+        <button
+          type="button"
+          class="btn btn--icon dialog__close"
+          id="info-dialog-close"
+          aria-label="Close"
+          title="Close"
+          autofocus
+        >
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+        </button>
       </div>
       <div class="dialog__body" id="info-dialog-body"></div>
-      <div class="dialog__foot">
-        <button type="button" class="btn" id="info-dialog-close" autofocus>Close</button>
-      </div>
     </dialog>
 
     <dialog id="setup-dialog" aria-labelledby="setup-dialog-title">
