@@ -3,6 +3,7 @@
 //! Content-source resolution and safe package installation.
 
 mod archive;
+mod catalogue;
 mod mohdb;
 mod pakradar;
 
@@ -14,6 +15,10 @@ pub use archive::{
     ArchiveError, ArchiveInspection, ArchiveMap, ConfirmedMap, DownloadedArchive, MohDbIntegrity,
     PakRadarIntegrity, confirm_map, disambiguate_by_checksum, inspect_archive, install_archive,
     install_verified_archive,
+};
+pub use catalogue::{
+    BROWSE_PAGE_SIZE, BrowsePage, CatalogueEntry, CatalogueImage, CatalogueQuery, CatalogueSort,
+    page_url,
 };
 pub use mohdb::{
     CatalogueCandidate, CatalogueNonResult, CatalogueNonResultReason, CataloguePage,

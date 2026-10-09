@@ -2,6 +2,7 @@
 
 import { GAMES } from "../../ui/lib/catalog.js";
 import { INSTALL, browsePayload } from "./fixture.js";
+import { cataloguePage, catalogueScreenshot } from "./catalogue.js";
 
 const SHELL = new URL("../../ui/", import.meta.url);
 const params = new URLSearchParams(location.search);
@@ -51,6 +52,26 @@ const RESULTS = {
     row: browsePayload().servers.find((row) => row.address === address) ?? null,
     non_result: { stage: "status", reason: "timeout" },
   }),
+  // ?downloading=4301 leaves that map's install running at 62%, so its progress shows.
+  browse_catalogue: () => cataloguePage(),
+  catalogue_image: ({ id, index }) => catalogueScreenshot(id, index),
+  install_catalogue_item: ({ id, onProgress }) =>
+    new Promise((resolve) => {
+      const total = cataloguePage().entries.find((item) => item.id === id)?.file?.size ?? 1;
+      if (Number(params.get("downloading")) === id) {
+        onProgress.onmessage({ phase: "downloading", received: Math.round(total * 0.62), total });
+        return;
+      }
+      let received = 0;
+      const tick = setInterval(() => {
+        received = Math.min(total, received + total / 8);
+        onProgress.onmessage({ phase: "downloading", received, total });
+        if (received >= total) {
+          clearInterval(tick);
+          resolve({ id, path: "C:\\Games\\MOHAA\\main\\map.pk3", state: "installed" });
+        }
+      }, 250);
+    }),
   // The monitor sees what the list saw, so Watching can be compared with it.
   read_watched_server: ({ address }) => {
     const server = browsePayload().servers.find((row) => row.address === address)?.server;
@@ -88,6 +109,10 @@ window.__TAURI__ = {
 };
 
 localStorage.clear();
+// ?layout=list draws Maps & mods as a list instead of cards.
+if (params.get("layout")) {
+  localStorage.setItem("reveille.preferences", JSON.stringify({ contentLayout: params.get("layout") }));
+}
 localStorage.setItem("reveille.install", INSTALL.root);
 const favorites = Number(params.get("favorites") ?? 0);
 const played = Number(params.get("history") ?? 0);
@@ -159,3 +184,10 @@ for (const link of page.head.querySelectorAll('link[rel="stylesheet"]')) {
 for (const script of page.body.querySelectorAll("script")) script.remove();
 document.body.replaceChildren(...page.body.childNodes);
 await import(new URL("app.js", SHELL).href);
+
+// ?section=content opens Maps & mods once the shell is up.
+if (params.get("section")) {
+  const rail = () => document.querySelector(`.rail__item[data-section="${params.get("section")}"]`);
+  while (!rail()) await new Promise((resolve) => setTimeout(resolve, 50));
+  rail().click();
+}

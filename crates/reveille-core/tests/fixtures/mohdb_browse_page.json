@@ -1,0 +1,61 @@
+{
+  "content": [
+    {
+      "vid": 9101,
+      "nid": 4301,
+      "title": "Snipertown",
+      "mapName": "dm/snipertown",
+      "mapSize": "Medium",
+      "mapDescription": "<p>A sniper town in the hills: rooftops, a bell tower and one long main street.</p><p>Built for 8 to 20 players.</p>",
+      "mapCreator": "Dr. Fragg",
+      "mapsTheme": "Normandy",
+      "featureModes": "Deathmatch, Team-Match",
+      "mapFileTested": "File tested and Validated",
+      "mapFile": {
+        "filename": "snipertown.pk3",
+        "filesize": 14889000,
+        "downloadLink": "https://storage.moh-db.com/MOHAA-MAP-FILE/snipertown.pk3"
+      },
+      "downloadLink": "https://storage.moh-db.com/MOHAA-MAP-FILE/snipertown.pk3",
+      "downloads": 1840,
+      "images": [
+        "https://storage.moh-db.com/MOHAA-MAP-IMAGE/snipertown_1.jpg",
+        "/MOHAA-MAP-IMAGE/snipertown_2.jpg",
+        "https://tracker.example/pixel.gif"
+      ],
+      "added": 1700000000000,
+      "rating": 4.5
+    },
+    {
+      "vid": 9102,
+      "nid": 4291,
+      "title": "Snipervalley",
+      "mapName": "dm/snipervalley ",
+      "mapDescription": "",
+      "mapCreator": "Bonzo",
+      "downloads": 12,
+      "images": [],
+      "added": 1650000000
+    },
+    {
+      "vid": 9103,
+      "nid": 4300,
+      "title": "Escape Artist",
+      "mapName": "dm/escape",
+      "mapFile": {
+        "filename": "../escape.pk3",
+        "filesize": 1000,
+        "downloadLink": "https://storage.moh-db.com/MOHAA-MAP-FILE/escape.pk3"
+      },
+      "downloads": 3
+    }
+  ],
+  "totalElements": 3,
+  "totalPages": 1,
+  "first": true,
+  "last": true,
+  "size": 48,
+  "number": 0,
+  "numberOfElements": 3,
+  "empty": false
+}

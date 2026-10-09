@@ -30,6 +30,11 @@ const COMMANDS: &[&str] = &[
     "preview_join",
     "install_server_files",
     "install_and_launch",
+    // catalogue
+    "browse_catalogue",
+    "catalogue_image",
+    "install_catalogue_item",
+    "cancel_catalogue_install",
     // alerts, notifications and the main window's side of the pop-up
     "read_watched_server",
     "game_client_running",

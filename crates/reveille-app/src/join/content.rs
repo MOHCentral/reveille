@@ -366,7 +366,7 @@ pub async fn install_shopping_list(
 /// detail pane of a launcher aimed at people who have never seen a Rust enum.
 /// The wording lives here rather than in `reveille-core` because how
 /// a non-result is presented is policy, and the core stays free of it (AGENTS.md).
-fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
+pub fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
     match reason {
         CatalogueNonResultReason::Timeout => "the map catalogue did not answer in time".to_owned(),
         CatalogueNonResultReason::HttpStatus { status } => {

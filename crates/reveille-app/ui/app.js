@@ -11,8 +11,13 @@ import { icon } from "./lib/icons.js";
 import { intentsTable } from "./lib/intents.js";
 import { openServerWorkflow } from "./lib/open-server.js";
 import { closePopover, popoverAnchor } from "./lib/popover.js";
+import { railView } from "./lib/rail.js";
+import { activeSection, initial as sectionsState, registerSection, sections, showSection } from "./lib/sections.js";
 import { appVersion, openExternalUrl, trackEvent } from "./lib/shell.js";
 import { openBugReport } from "./features/bug-report/index.js";
+import { initial as contentState, installShare } from "./features/content/index.js";
+import { contentController } from "./features/content/controller.js";
+import { contentView } from "./features/content/view.js";
 import { joinController } from "./features/join/controller.js";
 import { initial as joinState } from "./features/join/index.js";
 import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
@@ -54,7 +59,7 @@ import "./features/alerts/preferences.js";
 import { nonResultsBreakdown, serversView } from "./features/servers/view.js";
 import { joinView } from "./features/join/view.js";
 
-composeState([selfUpdateState(), serversState(), joinState()]);
+composeState([sectionsState(), selfUpdateState(), serversState(), joinState(), contentState()]);
 
 const shell = $("#shell");
 const setupRoot = $("#setup-root");
@@ -84,7 +89,10 @@ const opening = openServerWorkflow({
   selectGame,
   browseFinished,
   check,
-  reveal: (address) => servers.reveal(address),
+  reveal: (address) => {
+    showSection("servers");
+    servers.reveal(address);
+  },
   select,
   activate,
   focus: focusReveille,
@@ -117,6 +125,8 @@ const join = joinView($("#detail-slot"), {
   onRecheck: recheck,
   onTogglePlayerAlert: intents.togglePlayerAlert,
 });
+const catalogue = contentController();
+const content = contentView({ controller: catalogue, onShowServer: showServer, onToggleDetail: toggleDetail });
 const setup = setupView(setupRoot, $("#setup-dialog"), {
   onReady: () => {
     if (firstRun) trackEvent({ event: "first_run_completed", game: state.game, engine: state.engine });
@@ -134,16 +144,49 @@ const updates = selfUpdate({
   },
 });
 
-$("#toolbar-slot").replaceWith(servers.toolbar);
-$("#list-slot").replaceWith(servers.listPane);
-$("#status-slot").replaceWith(servers.statusbar);
+$("#toolbar-slot").replaceWith(servers.toolbar, content.toolbar);
+$("#list-slot").replaceWith(servers.listPane, content.listPane);
+$("#detail-slot").after(content.detail);
+$("#status-slot").replaceWith(servers.statusbar, content.statusbar);
 document.body.append(servers.live);
 
-$("#settings-btn").append(icon("gear"));
+registerSection({
+  id: "servers",
+  label: "Servers",
+  icon: "servers",
+  parts: [servers.toolbar, servers.listPane, servers.statusbar],
+  detail: $("#detail-slot"),
+  focusSearch: servers.focusSearch,
+  focusList: servers.focusFirstRow,
+  clearSearch: () => {
+    update((next) => (next.filters.query = ""));
+    servers.focusFirstRow();
+  },
+  refresh: () => {
+    if (!state.browse.running) intents.refresh();
+  },
+});
+registerSection({
+  id: "content",
+  label: "Maps & mods",
+  railLabel: "Maps\n& mods",
+  icon: "package",
+  parts: [content.toolbar, content.listPane, content.statusbar],
+  detail: content.detail,
+  progress: () => installShare(),
+  focusSearch: content.focusSearch,
+  focusList: content.focusList,
+  clearSearch: () => {
+    content.clearSearch();
+    content.focusList();
+  },
+  refresh: catalogue.refresh,
+});
+const rail = railView($("#rail"), { onSettings: () => void openAppSettings() });
+
 $("#more-btn").append(icon("dots"));
 $("#game-switch").addEventListener("click", openGameMenu);
 $("#reveille-update-btn").addEventListener("click", () => updates.open());
-$("#settings-btn").addEventListener("click", () => void openAppSettings());
 $("#more-btn").addEventListener("click", openMoreMenu);
 $("#info-dialog-close").addEventListener("click", closeDialog);
 
@@ -264,15 +307,33 @@ function render() {
   $("#game-switch").title = `${displayPath(state.install.root)}\nChange game, engine or folder`;
   $("#reveille-update-btn").classList.toggle("hidden", !state.selfUpdate.offer);
   $("#reveille-update-btn").disabled = state.joining;
+  const active = activeSection();
   const collapsed = state.detailCollapsed;
+  for (const section of sections()) {
+    const shown = section === active;
+    for (const part of section.parts) part.classList.toggle("hidden", !shown);
+    section.detail.classList.toggle("hidden", !shown || collapsed);
+  }
   $("main.split").classList.toggle("split--wide", collapsed);
-  $("#detail-slot").classList.toggle("hidden", collapsed);
+  rail.render();
   servers.render();
-  if (!collapsed) join.render();
+  if (active.id === "servers" && !collapsed) join.render();
+  if (active.id === "content") {
+    catalogue.ensureLoaded();
+    content.render();
+  }
 }
 
 function openWatching() {
+  showSection("servers");
   servers.selectScope("watching");
+}
+
+/** From a map's Running now list: the server, selected in the full list. */
+function showServer(address) {
+  showSection("servers");
+  servers.selectScope("all");
+  intents.select(address);
 }
 
 function toggleDetail() {
@@ -409,11 +470,11 @@ function showNonResults() {
  * end first.
  */
 const REGIONS = [
-  { root: () => document.querySelector(".toolbar"), enter: () => servers.focusSearch() },
-  { root: () => document.querySelector(".list-pane"), enter: () => servers.focusFirstRow() },
+  { root: () => activeSection().parts[0], enter: () => activeSection().focusSearch() },
+  { root: () => activeSection().parts[1], enter: () => activeSection().focusList() },
   {
-    root: () => $("#detail-slot"),
-    enter: () => $("#detail-slot")?.querySelector("button, input, select, a[href]")?.focus(),
+    root: () => activeSection().detail,
+    enter: () => activeSection().detail.querySelector("button, input, select, a[href]")?.focus(),
   },
 ];
 
@@ -467,16 +528,23 @@ document.addEventListener("keydown", (event) => {
     Boolean(event.target.closest?.("dialog[open], .popover"));
   const plain = !event.ctrlKey && !event.altKey && !event.metaKey;
   const findOrRefreshModifier = (event.ctrlKey || event.metaKey) && !event.altKey;
-  if (event.key === "F6") {
+  const inServers = activeSection().id === "servers";
+  if (findOrRefreshModifier && event.shiftKey && /^Digit[1-9]$/u.test(event.code)) {
+    // `code`, not `key`: with Shift held, the key reads `!`, `"` or `&` depending on the layout.
+    event.preventDefault();
+    const section = sections()[Number(event.code.slice(5)) - 1];
+    if (section) showSection(section.id);
+  } else if (event.key === "F6") {
     event.preventDefault();
     cycleRegion(event.shiftKey);
   } else if (findOrRefreshModifier && (event.key === "f" || event.key === "F")) {
     // Ctrl+F on Windows and Command+F on macOS are the native "find in this thing" chords. `/`
     // stays for the players who learned it here.
     event.preventDefault();
-    servers.focusSearch();
+    activeSection().focusSearch();
   } else if (findOrRefreshModifier && /^[1-4]$/u.test(event.key)) {
     event.preventDefault();
+    showSection("servers");
     servers.selectScope(SCOPES[Number(event.key) - 1]);
   } else if (findOrRefreshModifier && (event.key === "d" || event.key === "D")) {
     event.preventDefault();
@@ -486,17 +554,18 @@ document.addEventListener("keydown", (event) => {
     openShortcuts();
   } else if (event.key === "/" && !typing) {
     event.preventDefault();
-    servers.focusSearch();
+    activeSection().focusSearch();
   } else if (event.key === "Escape" && popoverAnchor()) {
     closePopover({ restoreFocus: true });
   } else if (event.key === "Escape" && menuIsOpen()) {
     closeMenu();
   } else if (event.key === "Escape" && typing) {
-    update((next) => (next.filters.query = ""));
-    servers.focusFirstRow();
+    activeSection().clearSearch();
   } else if (event.key === "F5" || (findOrRefreshModifier && event.key.toLowerCase() === "r")) {
     event.preventDefault();
-    if (!state.browse.running) intents.refresh();
+    activeSection().refresh();
+  } else if (!inServers) {
+    // The single-letter keys below act on the selected server.
   } else if ((event.key === "f" || event.key === "F") && !typing && plain) {
     const row = selectedRow();
     if (!row) return;

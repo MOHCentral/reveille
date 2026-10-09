@@ -20,7 +20,7 @@ use crate::mapindex::MapKey;
 
 // Public endpoint documented by moh-db; gameType is intentionally not sent because it is ignored.
 // The current public MapDto also omits gameType, so no reliable pre-download local filter exists.
-const MAPS_ENDPOINT: &str = "https://api.moh-db.com/api/external/v1/maps";
+pub(super) const MAPS_ENDPOINT: &str = "https://api.moh-db.com/api/external/v1/maps";
 const PAGE_SIZE: usize = 100;
 // moh-db rejects generic library user agents with HTTP 403.
 const USER_AGENT: &str = "Reveille/0.1 (MOHAA content resolver)";
@@ -187,6 +187,10 @@ impl MohDbClient {
             .build()
             .map_err(MohDbError::Client)?;
         Ok(Self { client })
+    }
+
+    pub(super) const fn http(&self) -> &Client {
+        &self.client
     }
 
     /// Query all pages for one search term.
@@ -461,6 +465,12 @@ pub enum MohDbError {
     /// The response body did not match the public schema.
     #[error("malformed moh-db response")]
     Malformed(#[source] reqwest::Error),
+    /// A screenshot reference or reply that is not a raster image on a moh-db host.
+    #[error("moh-db did not return an image")]
+    NotAnImage,
+    /// A screenshot larger than any screenshot should be.
+    #[error("moh-db image is too large")]
+    ImageTooLarge,
     /// The archive filename could escape its intended directory.
     #[error(transparent)]
     Archive(#[from] super::archive::ArchiveError),
@@ -586,7 +596,7 @@ fn is_narrow_choice_candidate(candidate: &CatalogueCandidate, search_term: &str)
         .is_some_and(|basename| basename == search_term)
 }
 
-fn classify_request_error(error: reqwest::Error) -> MohDbError {
+pub(super) fn classify_request_error(error: reqwest::Error) -> MohDbError {
     if error.is_timeout() {
         MohDbError::Timeout
     } else {

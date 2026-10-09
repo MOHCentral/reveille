@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! What Reveille installed from the catalogue, so a later removal can prove a file is its own.
+
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use tempfile::NamedTempFile;
+
+pub const FILENAME: &str = "installed-content.json";
+
+/// One package Reveille put in a game folder.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InstalledItem {
+    /// moh-db node identifier.
+    pub id: u64,
+    /// The package's file name, as installed.
+    pub filename: String,
+    /// Where it was written.
+    pub path: PathBuf,
+    /// SHA-256 of the bytes written, lowercase hex.
+    pub sha256: String,
+    /// Bytes written.
+    pub size: u64,
+    /// When it was installed, in Unix seconds.
+    pub installed_at: u64,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct RecordFile {
+    v: u32,
+    items: Vec<InstalledItem>,
+}
+
+/// The install record kept in the app data directory.
+#[derive(Clone, Debug)]
+pub struct InstallRecord {
+    path: PathBuf,
+}
+
+impl InstallRecord {
+    pub fn new(directory: &Path) -> Self {
+        Self {
+            path: directory.join(FILENAME),
+        }
+    }
+
+    /// Every recorded install. A missing or unreadable record reads as empty: it only ever adds
+    /// caution, since a package missing from it is treated as one Reveille did not install.
+    pub fn items(&self) -> Vec<InstalledItem> {
+        fs::read(&self.path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<RecordFile>(&bytes).ok())
+            .map(|file| file.items)
+            .unwrap_or_default()
+    }
+
+    /// Record `item`, replacing an earlier record of the same file.
+    pub fn add(&self, item: InstalledItem) -> io::Result<()> {
+        let mut items = self.items();
+        items.retain(|known| known.path != item.path);
+        items.push(item);
+        self.write(&RecordFile { v: 1, items })
+    }
+
+    /// The recorded install of `id` whose file is still where it was written, if any.
+    pub fn installed(items: &[InstalledItem], id: u64) -> Option<&InstalledItem> {
+        items
+            .iter()
+            .rev()
+            .find(|item| item.id == id && item.path.is_file())
+    }
+
+    fn write(&self, file: &RecordFile) -> io::Result<()> {
+        let directory = self
+            .path
+            .parent()
+            .ok_or_else(|| io::Error::other("the install record has no directory"))?;
+        fs::create_dir_all(directory)?;
+        let bytes = serde_json::to_vec_pretty(file).map_err(io::Error::other)?;
+        // Written beside the record and renamed over it, so a crash mid-write never leaves
+        // half a record that would read as empty.
+        let mut temporary = NamedTempFile::new_in(directory)?;
+        io::Write::write_all(&mut temporary, &bytes)?;
+        temporary.persist(&self.path).map_err(|error| error.error)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::TempDir;
+
+    use super::{FILENAME, InstallRecord, InstalledItem};
+
+    fn item(id: u64, path: std::path::PathBuf) -> InstalledItem {
+        InstalledItem {
+            id,
+            filename: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            path,
+            sha256: "00".repeat(32),
+            size: 3,
+            installed_at: 1_700_000_000,
+        }
+    }
+
+    #[test]
+    fn an_install_is_recorded_and_survives_a_reload() {
+        let data = TempDir::new().expect("data directory");
+        let game = TempDir::new().expect("game directory");
+        let package = game.path().join("snipertown.pk3");
+        fs::write(&package, b"pk3").expect("package");
+        let record = InstallRecord::new(&data.path().join("nested"));
+
+        record.add(item(4301, package.clone())).expect("recorded");
+        record
+            .add(item(4301, package.clone()))
+            .expect("recorded again");
+
+        let items = InstallRecord::new(&data.path().join("nested")).items();
+        assert_eq!(items.len(), 1, "the same file is recorded once");
+        assert_eq!(
+            InstallRecord::installed(&items, 4301).map(|item| &item.path),
+            Some(&package)
+        );
+        assert!(InstallRecord::installed(&items, 1).is_none());
+    }
+
+    #[test]
+    fn a_recorded_file_that_was_deleted_no_longer_counts_as_installed() {
+        let data = TempDir::new().expect("data directory");
+        let game = TempDir::new().expect("game directory");
+        let package = game.path().join("gone.pk3");
+        let record = InstallRecord::new(data.path());
+        record.add(item(7, package)).expect("recorded");
+
+        assert!(InstallRecord::installed(&record.items(), 7).is_none());
+    }
+
+    #[test]
+    fn a_corrupt_record_reads_as_empty_rather_than_failing() {
+        let data = TempDir::new().expect("data directory");
+        fs::write(data.path().join(FILENAME), b"{not json").expect("corrupt record");
+
+        assert!(InstallRecord::new(data.path()).items().is_empty());
+    }
+}
