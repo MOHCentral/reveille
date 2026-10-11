@@ -23,7 +23,9 @@ use super::preview::{
 };
 use super::{Shell, track_download};
 use crate::session::{Session, session_installation};
-use crate::telemetry::{DownloadSource, Event, MapFailureStage, Telemetry};
+use crate::telemetry::{
+    DownloadSource, Event, MapDownloadError, MapFailure, MapFailureStage, Telemetry,
+};
 use crate::{catalogue, servers};
 
 pub const EVENT: &str = "reveille://install";
@@ -65,6 +67,19 @@ pub struct InstallFailure {
     pub(super) reason: String,
     #[serde(skip)]
     pub(super) stage: MapFailureStage,
+    #[serde(skip)]
+    pub(super) error: MapDownloadError,
+}
+
+impl From<(String, MapFailure)> for InstallFailure {
+    fn from((map, failure): (String, MapFailure)) -> Self {
+        Self {
+            map,
+            reason: failure.reason,
+            stage: failure.stage,
+            error: failure.error,
+        }
+    }
 }
 
 /// Resolve where downloaded content goes for this session, and nothing else.
@@ -141,7 +156,7 @@ async fn apply_server_files(
                 &result,
                 pakradar.pending,
             );
-            result?
+            result.map_err(|failure| failure.reason)?
         }
         None => (
             Vec::new(),
@@ -153,6 +168,7 @@ async fn apply_server_files(
                         map: "Server download list".to_owned(),
                         reason: reason.clone(),
                         stage: MapFailureStage::Manifest,
+                        error: MapDownloadError::Unknown,
                     }]
                 })
                 .unwrap_or_default(),
@@ -179,13 +195,14 @@ async fn install_pakradar_manifest(
     search_path: &[PathBuf],
     game_directory: &Path,
     host: &impl ContentHost,
-) -> Result<(Vec<PathBuf>, Vec<InstallFailure>), String> {
+) -> Result<(Vec<PathBuf>, Vec<InstallFailure>), MapFailure> {
     let mut failures = Vec::new();
     if let Some(reason) = &pakradar.non_result {
         failures.push(InstallFailure {
             map: "Server download list".to_owned(),
             reason: reason.clone(),
             stage: MapFailureStage::Manifest,
+            error: MapDownloadError::Unknown,
         });
         return Ok((Vec::new(), failures));
     }
@@ -195,11 +212,10 @@ async fn install_pakradar_manifest(
         let filename = match entry.filename() {
             Ok(filename) => filename,
             Err(error) => {
-                failures.push(InstallFailure {
-                    map: entry.alias.clone(),
-                    reason: error.to_string(),
-                    stage: MapFailureStage::Manifest,
-                });
+                failures.push(InstallFailure::from((
+                    entry.alias.clone(),
+                    MapFailure::at(MapFailureStage::Manifest)(error),
+                )));
                 continue;
             }
         };
@@ -216,16 +232,15 @@ async fn install_pakradar_manifest(
                 filename,
                 platform::effective_package_install_directory(&path, game_directory, search_path),
             )),
-            Err(error) => failures.push(InstallFailure {
-                map: entry.alias.clone(),
-                reason: error.to_string(),
-                stage: MapFailureStage::LocalCopy,
-            }),
+            Err(error) => failures.push(InstallFailure::from((
+                entry.alias.clone(),
+                MapFailure::at(MapFailureStage::LocalCopy)(error),
+            ))),
         }
     }
-    let client =
-        content::pakradar_client(Duration::from_secs(30)).map_err(|error| error.to_string())?;
-    let staging = tempfile::TempDir::new().map_err(|error| error.to_string())?;
+    let client = content::pakradar_client(Duration::from_secs(30))
+        .map_err(MapFailure::at(MapFailureStage::Setup))?;
+    let staging = tempfile::TempDir::new().map_err(MapFailure::at(MapFailureStage::Setup))?;
     let planned = pending.len();
     let mut installed = Vec::new();
     for (position, (entry, filename, destination)) in pending.into_iter().enumerate() {
@@ -240,7 +255,7 @@ async fn install_pakradar_manifest(
             },
         };
         let mut announced = 0_u64;
-        let result: Result<PathBuf, (MapFailureStage, String)> = async {
+        let result: Result<PathBuf, MapFailure> = async {
             let archive = content::download_pakradar_archive_reporting(
                 &client,
                 entry,
@@ -260,10 +275,10 @@ async fn install_pakradar_manifest(
                 },
             )
             .await
-            .map_err(|error| (MapFailureStage::Download, error.to_string()))?;
+            .map_err(MapFailure::at(MapFailureStage::Download))?;
             host.report_install(&progress, InstallPhase::Confirming);
             content::install_verified_archive(&archive, destination)
-                .map_err(|error| (MapFailureStage::Install, error.to_string()))
+                .map_err(MapFailure::at(MapFailureStage::Install))
         }
         .await;
         match result {
@@ -272,18 +287,14 @@ async fn install_pakradar_manifest(
                 host.record_install(&entry.alias, &path);
                 installed.push(path);
             }
-            Err((stage, reason)) => {
+            Err(failure) => {
                 host.report_install(
                     &progress,
                     InstallPhase::Failed {
-                        reason: reason.clone(),
+                        reason: failure.reason.clone(),
                     },
                 );
-                failures.push(InstallFailure {
-                    map: entry.alias.clone(),
-                    reason,
-                    stage,
-                });
+                failures.push(InstallFailure::from((entry.alias.clone(), failure)));
             }
         }
     }
@@ -300,10 +311,10 @@ pub async fn install_shopping_list(
     server: &Server,
     game_directory: &Path,
     app: &tauri::AppHandle,
-) -> Result<(Vec<PathBuf>, Vec<InstallFailure>), String> {
-    let client =
-        content::MohDbClient::new(Duration::from_secs(30)).map_err(|error| error.to_string())?;
-    let staging = tempfile::TempDir::new().map_err(|error| error.to_string())?;
+) -> Result<(Vec<PathBuf>, Vec<InstallFailure>), MapFailure> {
+    let client = content::MohDbClient::new(Duration::from_secs(30))
+        .map_err(MapFailure::at(MapFailureStage::Setup))?;
+    let staging = tempfile::TempDir::new().map_err(MapFailure::at(MapFailureStage::Setup))?;
     let mut installed = Vec::new();
     let mut failures = Vec::new();
     let mut filenames = HashSet::new();
@@ -349,20 +360,19 @@ pub async fn install_shopping_list(
                 catalogue::record_join_install(app, candidate.id, &resolution.wanted.name, &path);
                 installed.push(path);
             }
-            Err((stage, reason)) => {
-                warn!(map = %resolution.wanted.name, %reason, "failed to install map candidate");
+            Err(failure) => {
+                warn!(map = %resolution.wanted.name, reason = %failure.reason, "failed to install map candidate");
                 emit_install(
                     app,
                     &progress,
                     InstallPhase::Failed {
-                        reason: reason.clone(),
+                        reason: failure.reason.clone(),
                     },
                 );
-                failures.push(InstallFailure {
-                    map: resolution.wanted.name.clone(),
-                    reason,
-                    stage,
-                });
+                failures.push(InstallFailure::from((
+                    resolution.wanted.name.clone(),
+                    failure,
+                )));
             }
         }
     }
@@ -370,6 +380,7 @@ pub async fn install_shopping_list(
         map: result.wanted.name.clone(),
         reason: catalogue_reason(&result.reason),
         stage: MapFailureStage::Lookup,
+        error: lookup_error(&result.reason),
     }));
     Ok((installed, failures))
 }
@@ -392,6 +403,15 @@ pub fn catalogue_reason(reason: &CatalogueNonResultReason) -> String {
         CatalogueNonResultReason::Malformed { message } => {
             format!("the map catalogue sent a reply Reveille could not read: {message}")
         }
+    }
+}
+
+fn lookup_error(reason: &CatalogueNonResultReason) -> MapDownloadError {
+    match reason {
+        CatalogueNonResultReason::Timeout => MapDownloadError::Timeout,
+        CatalogueNonResultReason::HttpStatus { status } => MapDownloadError::http(*status),
+        CatalogueNonResultReason::Network { .. } => MapDownloadError::Network,
+        CatalogueNonResultReason::Malformed { .. } => MapDownloadError::Malformed,
     }
 }
 
@@ -444,7 +464,7 @@ async fn install_candidate(
     game_directory: &Path,
     app: tauri::AppHandle,
     progress: &InstallProgress,
-) -> Result<PathBuf, (MapFailureStage, String)> {
+) -> Result<PathBuf, MapFailure> {
     info!(
         map = %wanted.name,
         candidate = %candidate.filename,
@@ -471,19 +491,19 @@ async fn install_candidate(
         },
     )
     .await
-    .map_err(|error| (MapFailureStage::Download, error.to_string()))?;
+    .map_err(MapFailure::at(MapFailureStage::Download))?;
     emit_install(&app, progress, InstallPhase::Confirming);
     let inspection = content::inspect_archive(&archive.path)
-        .map_err(|error| (MapFailureStage::Archive, error.to_string()))?;
+        .map_err(MapFailure::at(MapFailureStage::Archive))?;
     let checksum = server
         .current_map
         .as_deref()
         .filter(|current| MapKey::new(current) == Some(wanted.key.clone()))
         .and(server.map_checksum);
     content::confirm_map(&inspection, &wanted.name, checksum)
-        .map_err(|error| (MapFailureStage::Mismatch, error.to_string()))?;
+        .map_err(MapFailure::at(MapFailureStage::Mismatch))?;
     let installed = content::install_archive(&archive, game_directory)
-        .map_err(|error| (MapFailureStage::Install, error.to_string()))?;
+        .map_err(MapFailure::at(MapFailureStage::Install))?;
     info!(installed_path = %installed.display(), map = %wanted.name, "installed map candidate");
     Ok(installed)
 }

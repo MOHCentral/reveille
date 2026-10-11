@@ -23,7 +23,9 @@ use tauri::ipc::Channel;
 use tracing::info;
 
 use crate::session::{Session, installed_maps, session_search_path};
-use crate::telemetry::{DownloadSource, Event, JoinFailureReason, MapFailureStage, Telemetry};
+use crate::telemetry::{
+    DownloadSource, Event, JoinFailureReason, MapFailure, MapFailureStage, Telemetry,
+};
 use crate::{catalogue, servers};
 use content::{
     ContentHost, InstallFailure, InstallPhase, InstallProgress, emit_install, install_destination,
@@ -282,7 +284,7 @@ async fn join_and_launch(
             &result,
             selected.len(),
         );
-        result.map_err(failed(JoinFailureReason::DownloadFailed))?
+        result.map_err(|failure| failed(JoinFailureReason::DownloadFailed)(failure.reason))?
     } else {
         (Vec::new(), Vec::new())
     };
@@ -320,7 +322,7 @@ async fn join_and_launch(
 pub fn track_download(
     telemetry: &Telemetry,
     source: DownloadSource,
-    result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), String>,
+    result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), MapFailure>,
     attempted: usize,
 ) {
     telemetry.track(&download_outcome(source, result, attempted));
@@ -329,7 +331,7 @@ pub fn track_download(
 /// Maps the catalogue had no copy of were never part of the batch, so they never fail it.
 fn download_outcome(
     source: DownloadSource,
-    result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), String>,
+    result: &Result<(Vec<PathBuf>, Vec<InstallFailure>), MapFailure>,
     attempted: usize,
 ) -> Event {
     match result {
@@ -342,6 +344,7 @@ fn download_outcome(
                     source,
                     failed: 1 + failed.count(),
                     stage: first.stage,
+                    error: first.error,
                     kind: None,
                 },
                 None => Event::MapDownloadCompleted {
@@ -351,10 +354,11 @@ fn download_outcome(
                 },
             }
         }
-        Err(_) => Event::MapDownloadFailed {
+        Err(failure) => Event::MapDownloadFailed {
             source,
             failed: attempted,
-            stage: MapFailureStage::Setup,
+            stage: failure.stage,
+            error: failure.error,
             kind: None,
         },
     }
@@ -482,6 +486,7 @@ mod tests {
         DownloadSource, Event, InstallFailure, JoinFailureReason, MapFailureStage, failed,
         launch_refusal, refusal_reason,
     };
+    use crate::telemetry::MapDownloadError;
 
     fn assessment(
         state: CompatibilityState,
@@ -592,6 +597,7 @@ mod tests {
             map: "obj_team2".to_owned(),
             reason: String::new(),
             stage,
+            error: MapDownloadError::WrongMap,
         };
         let outcome = |failures| {
             super::download_outcome(
@@ -612,6 +618,7 @@ mod tests {
             Event::MapDownloadFailed {
                 failed: 1,
                 stage: MapFailureStage::Mismatch,
+                error: MapDownloadError::WrongMap,
                 ..
             }
         ));
