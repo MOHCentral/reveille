@@ -30,10 +30,10 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 md-5.workspace = true
-zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 keyring-core = "1.0"

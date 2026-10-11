@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use reveille_core::content::CatalogueKind;
+use reveille_core::bsp;
+use reveille_core::content::{ArchiveError, CatalogueKind, MohDbError, PakRadarError};
 use reveille_core::discovery::TargetGame;
 use reveille_core::engine::EngineChoice;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 use tracing::{debug, warn};
 use uuid::Uuid;
+use zip::result::ZipError;
 
 pub mod commands;
 
@@ -100,6 +102,170 @@ pub enum MapFailureStage {
     Install,
     /// The batch could not start: no HTTP client or staging folder.
     Setup,
+}
+
+/// Why the first map in a failed download batch stopped, as a category: enough to tell the
+/// network, the file host, the archive and the player's disk apart without sending error text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapDownloadError {
+    Timeout,
+    /// No HTTP response: DNS, refused or reset connection, TLS.
+    Network,
+    /// HTTP 404 or 410: the host no longer has the file.
+    HttpNotFound,
+    /// Any other 4xx.
+    HttpRefused,
+    /// Any 5xx.
+    HttpServer,
+    /// The bytes received disagree with the published size or digest.
+    Corrupt,
+    /// The file is not a readable ZIP.
+    InvalidArchive,
+    /// Refused for safety: an unsafe filename or entry path, or a program inside.
+    UnsafeArchive,
+    /// The archive holds no loadable copy of the map that was asked for.
+    WrongMap,
+    /// A file of that name is already in the game folder.
+    AlreadyExists,
+    DiskFull,
+    PermissionDenied,
+    /// Any other file-system failure.
+    FileSystem,
+    /// A server download list or catalogue reply that could not be read.
+    Malformed,
+    Unknown,
+}
+
+impl MapDownloadError {
+    pub fn http(status: u16) -> Self {
+        match status {
+            404 | 410 => Self::HttpNotFound,
+            500..=599 => Self::HttpServer,
+            _ => Self::HttpRefused,
+        }
+    }
+}
+
+impl From<&io::Error> for MapDownloadError {
+    fn from(error: &io::Error) -> Self {
+        match error.kind() {
+            io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded => Self::DiskFull,
+            io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
+                Self::PermissionDenied
+            }
+            io::ErrorKind::AlreadyExists => Self::AlreadyExists,
+            _ => Self::FileSystem,
+        }
+    }
+}
+
+/// A read error that comes from the disk rather than from the bytes. Truncated or undecodable
+/// data surfaces as `UnexpectedEof` or `InvalidData`, and that is a fault in the archive.
+fn local_read(error: &io::Error) -> Option<MapDownloadError> {
+    match error.kind() {
+        io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData => None,
+        _ => Some(error.into()),
+    }
+}
+
+impl From<&ArchiveError> for MapDownloadError {
+    fn from(error: &ArchiveError) -> Self {
+        match error {
+            ArchiveError::UnsafeFilename(_)
+            | ArchiveError::InvalidEntryPath { .. }
+            | ArchiveError::ForbiddenEntry { .. } => Self::UnsafeArchive,
+            ArchiveError::InvalidZip {
+                source: ZipError::Io(source),
+                ..
+            } => local_read(source).unwrap_or(Self::InvalidArchive),
+            ArchiveError::InvalidZip { .. } => Self::InvalidArchive,
+            ArchiveError::Bsp {
+                source: bsp::Error::Read(source),
+                ..
+            } => local_read(source).unwrap_or(Self::WrongMap),
+            ArchiveError::Bsp { .. }
+            | ArchiveError::InvalidWantedMap { .. }
+            | ArchiveError::WantedMapMissing { .. }
+            | ArchiveError::ChecksumMismatch { .. }
+            | ArchiveError::NoArchiveMatchedChecksum { .. } => Self::WrongMap,
+            ArchiveError::AlreadyExists(_) => Self::AlreadyExists,
+            ArchiveError::Open { source, .. } | ArchiveError::Install { source, .. } => {
+                source.into()
+            }
+        }
+    }
+}
+
+impl From<&MohDbError> for MapDownloadError {
+    fn from(error: &MohDbError) -> Self {
+        match error {
+            MohDbError::Timeout => Self::Timeout,
+            MohDbError::Network(source) if source.is_timeout() => Self::Timeout,
+            MohDbError::Network(_) => Self::Network,
+            MohDbError::Status(status) => Self::http(status.as_u16()),
+            MohDbError::Malformed(_) | MohDbError::NotAnImage | MohDbError::ImageTooLarge => {
+                Self::Malformed
+            }
+            MohDbError::SizeOverflow | MohDbError::SizeMismatch { .. } => Self::Corrupt,
+            MohDbError::Archive(error) => error.into(),
+            MohDbError::Staging { source, .. } => source.into(),
+            MohDbError::Client(_) => Self::Unknown,
+        }
+    }
+}
+
+impl From<&PakRadarError> for MapDownloadError {
+    fn from(error: &PakRadarError) -> Self {
+        match error {
+            PakRadarError::Network(source) if source.is_timeout() => Self::Timeout,
+            PakRadarError::Network(_) => Self::Network,
+            PakRadarError::HttpStatus(status) => Self::http(*status),
+            PakRadarError::Syntax { .. }
+            | PakRadarError::UnclosedBlock
+            | PakRadarError::MissingField { .. }
+            | PakRadarError::InvalidMd5(_)
+            | PakRadarError::UnsafeUrl(_) => Self::Malformed,
+            PakRadarError::DownloadTooLarge | PakRadarError::DigestMismatch { .. } => Self::Corrupt,
+            PakRadarError::Archive(error) => error.into(),
+            PakRadarError::Staging { source, .. } | PakRadarError::LocalPackage { source, .. } => {
+                source.into()
+            }
+        }
+    }
+}
+
+/// One map that stopped: the stage and category telemetry may send, and the message only the
+/// player sees.
+#[derive(Debug)]
+pub struct MapFailure {
+    pub stage: MapFailureStage,
+    pub error: MapDownloadError,
+    pub reason: String,
+}
+
+impl MapFailure {
+    /// Classify a typed error from `stage`, for use in `map_err`.
+    pub fn at<E>(stage: MapFailureStage) -> impl FnOnce(E) -> Self
+    where
+        E: std::fmt::Display,
+        for<'a> MapDownloadError: From<&'a E>,
+    {
+        move |error| Self {
+            stage,
+            error: MapDownloadError::from(&error),
+            reason: error.to_string(),
+        }
+    }
+
+    /// A failure that reached here only as text.
+    pub fn unclassified(stage: MapFailureStage, reason: String) -> Self {
+        Self {
+            stage,
+            error: MapDownloadError::Unknown,
+            reason,
+        }
+    }
 }
 
 /// How long a launched game ran, in buckets coarse enough to identify nobody.
@@ -331,6 +497,7 @@ pub enum Event {
         source: DownloadSource,
         failed: usize,
         stage: MapFailureStage,
+        error: MapDownloadError,
         #[serde(skip_serializing_if = "Option::is_none")]
         kind: Option<CatalogueKind>,
     },
@@ -855,17 +1022,21 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::atomic::Ordering;
     use std::time::{Duration, UNIX_EPOCH};
 
+    use reveille_core::bsp;
+    use reveille_core::content::{ArchiveError, MohDbError, PakRadarError};
     use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;
+    use zip::result::ZipError;
 
     use super::{
         AdminActionKind, CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, JoinFailureReason,
-        MapFailureStage, PanicReport, PlayTime, Section, Session, Sink, Telemetry, UiEvent,
-        payload, rfc3339, source_relative,
+        MapDownloadError, MapFailure, MapFailureStage, PanicReport, PlayTime, Section, Session,
+        Sink, Telemetry, UiEvent, payload, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -1038,13 +1209,14 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_download_names_its_stage() {
+    fn a_failed_download_names_its_stage_and_error() {
         let body = payload(
             &sink(),
             &Event::MapDownloadFailed {
                 source: DownloadSource::Catalogue,
                 failed: 1,
-                stage: MapFailureStage::Lookup,
+                stage: MapFailureStage::Download,
+                error: MapDownloadError::HttpNotFound,
                 kind: None,
             },
             Uuid::new_v4(),
@@ -1052,7 +1224,54 @@ mod tests {
             "0.4.0",
             UNIX_EPOCH,
         );
-        assert_eq!(body["properties"]["stage"], "lookup");
+        assert_eq!(body["properties"]["stage"], "download");
+        assert_eq!(body["properties"]["error"], "http_not_found");
+    }
+
+    #[test]
+    fn a_download_error_is_sent_as_its_category_not_its_text() {
+        let missing = MapFailure::at(MapFailureStage::Download)(PakRadarError::HttpStatus(404));
+        assert_eq!(missing.error, MapDownloadError::HttpNotFound);
+        assert!(missing.reason.contains("404"));
+        assert_eq!(
+            MapDownloadError::from(&PakRadarError::HttpStatus(503)),
+            MapDownloadError::HttpServer
+        );
+        assert_eq!(
+            MapDownloadError::from(&MohDbError::Timeout),
+            MapDownloadError::Timeout
+        );
+        let full = ArchiveError::Install {
+            path: PathBuf::from("main/zzz.pk3"),
+            source: std::io::Error::from(std::io::ErrorKind::StorageFull),
+        };
+        assert_eq!(MapDownloadError::from(&full), MapDownloadError::DiskFull);
+        assert_eq!(
+            MapDownloadError::from(&ArchiveError::ForbiddenEntry {
+                entry: "evil.dll".to_owned(),
+            }),
+            MapDownloadError::UnsafeArchive
+        );
+    }
+
+    #[test]
+    fn a_disk_fault_inside_an_archive_is_not_blamed_on_the_archive() {
+        let unreadable = ArchiveError::InvalidZip {
+            path: PathBuf::from("staging/zzz.pk3"),
+            source: ZipError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+        };
+        assert_eq!(
+            MapDownloadError::from(&unreadable),
+            MapDownloadError::PermissionDenied
+        );
+        let truncated = ArchiveError::Bsp {
+            entry: "maps/dm/zzz.bsp".to_owned(),
+            source: bsp::Error::Read(std::io::Error::from(std::io::ErrorKind::UnexpectedEof)),
+        };
+        assert_eq!(
+            MapDownloadError::from(&truncated),
+            MapDownloadError::WrongMap
+        );
     }
 
     #[test]
