@@ -54,6 +54,7 @@ import { state, update } from "../../lib/store.js";
 import { PING_LIMITS, SCOPES, saveFilters } from "./state.js";
 import {
   canRecheck,
+  joinsDirectly,
   recheckUnavailableReason,
   filtering,
   foldedEmpty,
@@ -874,7 +875,7 @@ function nameCell(hostname, address, note, remembered, join = null, found = []) 
  * fetching anything.
  */
 function inlineJoin(item, onActivate) {
-  const ready = ["compatible", "cant_tell"].includes(item.compatibility?.state?.state);
+  const ready = joinsDirectly(item);
   const downloads = item.compatibility?.state?.state === "needs_maps";
   return el(
     "button",
@@ -1754,7 +1755,7 @@ function onRowContextMenu(event, { onSelect, onActivate, onCheck, onToggleWatch,
   openMenu(
     [
       live && {
-        label: live.compatibility?.state?.state === "compatible" ? "Join" : "Join…",
+        label: joinsDirectly(live) ? "Join" : "Join…",
         hint: "Enter",
         onSelect: () => onActivate(address),
       },

@@ -6,7 +6,7 @@ import { recordLaunch } from "../../lib/bookmarks.js";
 import { generations, session } from "../../lib/session.js";
 import { errorText, trackEvent } from "../../lib/shell.js";
 import { state, update } from "../../lib/store.js";
-import { rememberReadyJoin, retainBackgroundRow, selectedRow } from "../servers/index.js";
+import { joinsDirectly, rememberReadyJoin, retainBackgroundRow, selectedRow } from "../servers/index.js";
 import {
   installAndLaunch,
   installServerFiles,
@@ -113,19 +113,19 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
   }
 
   /**
-   * A double-click or Enter on a row. A server with nothing to fetch joins at once; anything else
-   * stops on the priced Join button, so no download starts without its size on screen and a second
-   * Enter is the consent.
+   * A double-click or Enter on a row. A server whose pane would offer a plain Join joins at once;
+   * anything else stops on the priced Join button, so no download starts without its size on
+   * screen and a second Enter is the consent.
    */
   function activate(address, source = null) {
     if (state.selected !== address) select(address, source);
     else if (source) origin = { address, source };
     const row = selectedRow();
     if (!row) return;
-    const ready = row.compatibility.state.state === "compatible";
     const idle = !state.joining && state.checks.get(address)?.status !== "checking";
-    if (ready && idle) {
-      void getAndJoin(row, false);
+    if (joinsDirectly(row) && idle) {
+      // The pane's Join accepts an unproven map list the same way.
+      void getAndJoin(row, row.compatibility.state.state !== "compatible");
       return;
     }
     // The price and the consent live in the pane, so a hidden pane opens for them.
