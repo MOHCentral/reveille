@@ -4,10 +4,10 @@
 
 import { nonResultReason } from "./format.js";
 import { rememberReadyJoin, retainBackgroundRow } from "./reducers.js";
-import { canRecheck, recheckUnavailableReason, selectedRow } from "./selectors.js";
+import { canRecheck, joinsDirectly, recheckUnavailableReason, selectedRow } from "./selectors.js";
 import { initial } from "./state.js";
 
-export { canRecheck, initial, nonResultReason, recheckUnavailableReason, rememberReadyJoin, retainBackgroundRow, selectedRow };
+export { canRecheck, initial, joinsDirectly, nonResultReason, recheckUnavailableReason, rememberReadyJoin, retainBackgroundRow, selectedRow };
 
 /** @typedef {import("./api.js").Server} Server */
 /** @typedef {import("./api.js").CompatibilityAssessment} CompatibilityAssessment */

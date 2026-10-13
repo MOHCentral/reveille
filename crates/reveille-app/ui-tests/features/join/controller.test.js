@@ -186,6 +186,37 @@ test("a join completed during background refresh keeps its row and outcome", asy
   assert.equal(state.joinResult.outcome.launch, "launched");
 });
 
+test("activating a server that publishes no map list joins at once, accepting the unproven list", async () => {
+  reset([row("quiet:1", "cant_tell")]);
+  bridge.results.install_and_launch = launched();
+  pane.activate("quiet:1");
+  await settle();
+  const call = bridge.calls.find(({ command }) => command === "install_and_launch");
+  assert.equal(call.args.address, "quiet:1");
+  assert.equal(call.args.acceptIncomplete, true);
+  assert.deepEqual(focused, []);
+});
+
+test("activating a server with no map list whose current map is missing stops on the Join button", async () => {
+  const missing = row("quiet:1", "cant_tell");
+  missing.compatibility.current_map = { readiness: "missing" };
+  reset([missing]);
+  pane.activate("quiet:1");
+  await settle();
+  assert.deepEqual(asked("install_and_launch"), []);
+  assert.deepEqual(focused, ["quiet:1"]);
+});
+
+test("activating a server with no map list that lists server files stops on the Join button", async () => {
+  const files = row("quiet:1", "cant_tell");
+  files.server.pr_downloads = "https://example.invalid/pak.txt";
+  reset([files]);
+  pane.activate("quiet:1");
+  await settle();
+  assert.deepEqual(asked("install_and_launch"), []);
+  assert.deepEqual(focused, ["quiet:1"]);
+});
+
 test("activating a server that needs downloads stops on the Join button, opening a hidden pane", async () => {
   reset();
   state.detailCollapsed = true;

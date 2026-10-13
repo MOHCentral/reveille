@@ -84,6 +84,19 @@ export function readyToJoin(row) {
 }
 
 /**
+ * Whether a double-click or Enter may start the game without stopping on the pane's Join.
+ *
+ * A server that publishes no rotation cannot be priced, so its pane offers a plain Join with no
+ * consent to give: only a missing current map or PakRadar server files put something in front of
+ * the launch.
+ */
+export function joinsDirectly(row) {
+  const kind = row.compatibility?.state?.state;
+  if (kind === "compatible") return true;
+  return kind === "cant_tell" && row.compatibility.current_map?.readiness !== "missing" && !row.server.pr_downloads;
+}
+
+/**
  * The modes the servers in this list publish, busiest first, for the Mode chip. A mode kept by the
  * filter stays listed after the servers running it are gone, so it can still be unticked.
  */
