@@ -5,19 +5,19 @@
 import { el } from "../../lib/dom.js";
 import { preferences } from "../../lib/preferences.js";
 import { section, toggle } from "../settings/index.js";
-import { syncDiscordPresence } from "./presence.js";
+import { changeDiscordPresence } from "./presence.js";
 
 export const DISCORD_PRESENCE_LABEL = "Show the server I'm playing on in my Discord status";
-const DISCORD_PRESENCE_HINT =
-  "Your friends see the server's name and map, never its address. Needs the Discord app on this computer.";
+export const DISCORD_PRESENCE_HINT =
+  "Your Discord friends see the game and the server's name. Some servers put their address in that name. Needs the Discord app on this computer.";
 
 export function discordSettingsSection() {
-  return ({ change }) =>
+  return ({ redraw }) =>
     section(
       "Discord",
       toggle("settings-discord-presence", DISCORD_PRESENCE_LABEL, preferences().discordPresence, (on) => {
-        change("discordPresence", on);
-        void syncDiscordPresence();
+        void changeDiscordPresence(on);
+        redraw();
       }),
       el("p", { className: "settings__hint" }, DISCORD_PRESENCE_HINT),
     );

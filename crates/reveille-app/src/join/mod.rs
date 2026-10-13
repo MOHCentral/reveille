@@ -22,7 +22,7 @@ use tauri::Manager;
 use tauri::ipc::Channel;
 use tracing::info;
 
-use crate::presence::{self, Activity};
+use crate::presence::{self, Activity, MatchId};
 use crate::session::{Session, installed_maps, session_search_path};
 use crate::telemetry::{
     DownloadSource, Event, JoinFailureReason, JoinSource, MapFailure, MapFailureStage, Telemetry,
@@ -121,8 +121,9 @@ pub struct JoinResult {
     engine: EngineChoice,
     game: TargetGame,
     outcome: LaunchOutcome,
-    /// Whether Discord now shows the match to the player's friends.
-    presence_shown: bool,
+    /// Whether a Discord app was running when the game launched, so the page may offer to share
+    /// the match.
+    discord_running: bool,
 }
 
 /// Price a join, streaming each moh-db lookup over `on_progress`, which belongs to this call alone.
@@ -302,19 +303,10 @@ async fn join_and_launch(
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
         LaunchOutcome::Refused { reason }
     } else {
-        launch(&session, preview.address, app)?
+        launch(&session, preview.address, &server.hostname, app)?
     };
-    let presence_shown = matches!(outcome, LaunchOutcome::Launched { .. })
-        && presence::show(
-            app,
-            Activity {
-                game: session.game,
-                server: server.hostname.clone(),
-                map: server.current_map.clone(),
-                started: std::time::SystemTime::now(),
-            },
-        )
-        .await;
+    let discord_running =
+        matches!(outcome, LaunchOutcome::Launched { .. }) && presence::discord_running().await;
     let install_directories = unique_parent_directories(&installed);
     info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
     Ok(JoinResult {
@@ -331,7 +323,7 @@ async fn join_and_launch(
         engine: session.engine,
         game: session.game,
         outcome,
-        presence_shown,
+        discord_running,
     })
 }
 
@@ -385,6 +377,7 @@ fn download_outcome(
 fn launch(
     session: &Session,
     address: SocketAddrV4,
+    hostname: &str,
     app: &tauri::AppHandle,
 ) -> Result<LaunchOutcome, JoinFailure> {
     use JoinFailureReason as Reason;
@@ -412,11 +405,22 @@ fn launch(
     .map_err(failed(Reason::LaunchFailed))?;
     let child = platform::launch_client(&command, kind).map_err(failed(Reason::LaunchFailed))?;
     let process_id = child.id();
-    watch_game_exit(child, session.game, session.engine, app.clone());
+    // Begun before the watcher starts, so a game that closes at once still ends its own status.
+    let presence = presence::begin(
+        app,
+        Activity {
+            game: session.game,
+            server: hostname.to_owned(),
+            started: std::time::SystemTime::now(),
+        },
+    );
+    watch_game_exit(child, session.game, session.engine, presence, app.clone());
     Ok(LaunchOutcome::Launched { process_id })
 }
 
 const CLIENT_POLL: std::time::Duration = std::time::Duration::from_secs(15);
+/// Unreadable process lists in a row, once a client was seen, before the match counts as over.
+const UNKNOWN_POLLS: u32 = 3;
 
 /// Report how long the game ran once it closes. A thread rather than a task: `wait` blocks for the
 /// whole match.
@@ -424,17 +428,29 @@ fn watch_game_exit(
     mut child: std::process::Child,
     game: TargetGame,
     engine: EngineChoice,
+    presence: Option<MatchId>,
     app: tauri::AppHandle,
 ) {
     let started = Instant::now();
     std::thread::spawn(move || {
         if child.wait().is_ok() {
             // A store bootstrap or an already-open game takes over and the spawned program exits
-            // at once; the match lasts as long as any game client is still running.
-            while platform::game_client_running() == Some(true) {
+            // at once; the match lasts as long as any game client is still running. A list that
+            // cannot be read says nothing, so a running match survives a few of them, but a
+            // platform that can never read it ends the match when the program exits, as before.
+            let mut seen = false;
+            let mut unknown = 0;
+            loop {
+                match platform::game_client_running() {
+                    Some(true) => (seen, unknown) = (true, 0),
+                    None if seen && unknown < UNKNOWN_POLLS => unknown += 1,
+                    Some(false) | None => break,
+                }
                 std::thread::sleep(CLIENT_POLL);
             }
-            presence::clear(&app);
+            if let Some(id) = presence {
+                presence::end(&app, id);
+            }
             app.state::<Telemetry>().track(&Event::GameExited {
                 game,
                 engine,

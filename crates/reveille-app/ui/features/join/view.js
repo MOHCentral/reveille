@@ -39,7 +39,7 @@ import {
   shortVersion,
 } from "../../lib/format.js";
 import { stateExplanation, stateName } from "./format.js";
-import { answerDiscordNotice, discordNoticeDue } from "./presence.js";
+import { changeDiscordPresence, discordQuestionDue } from "./presence.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../../lib/bookmarks.js";
 import { icon } from "../../lib/icons.js";
 import { closePopover, openPopover } from "../../lib/popover.js";
@@ -854,20 +854,24 @@ function installItem(item) {
   );
 }
 
-function discordNotice() {
-  const answer = (keep) => () => {
-    void answerDiscordNotice(keep);
+function discordQuestion() {
+  const answer = (on) => () => {
+    void changeDiscordPresence(on);
     update(() => {});
   };
   return el(
     "div",
     { className: "note" },
-    el("p", null, "Your Discord friends can now see which server you're on: its name and map, never its address."),
+    el(
+      "p",
+      null,
+      "Show this match in your Discord status? Your Discord friends would see the game and the server's name. You can change this in Settings.",
+    ),
     el(
       "div",
       { className: "settings__row" },
-      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(true) }, "Keep"),
-      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(false) }, "Turn off"),
+      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(true) }, "Show it"),
+      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(false) }, "Don't show"),
     ),
   );
 }
@@ -894,7 +898,7 @@ function outcomeSection(result) {
         ? `${GAME_LABELS[result.game] ?? "The game"} is connecting. The server decides the rest: bans, a full server, and its own ping limits.`
         : result.outcome.reason,
     ),
-    launched && discordNoticeDue(result) ? discordNotice() : null,
+    launched && discordQuestionDue(result) ? discordQuestion() : null,
     installedLocations(result),
     result.used_home_fallback
       ? el(

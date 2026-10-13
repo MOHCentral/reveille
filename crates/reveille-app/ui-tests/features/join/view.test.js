@@ -382,9 +382,9 @@ test("the server refresh control explains its disabled state and restores after 
   assert.doesNotMatch(reload().title, /wait/iu);
 });
 
-/* The Discord notice ---------------------------------------------------------*/
+/* The Discord question -------------------------------------------------------*/
 
-function launchedResult(presenceShown) {
+function launchedResult(discordRunning) {
   return {
     address: ADDRESS,
     assessment: assessment("compatible"),
@@ -396,13 +396,13 @@ function launchedResult(presenceShown) {
     engine: "openmohaa",
     game: "allied_assault",
     outcome: { launch: "launched", process_id: 1 },
-    presence_shown: presenceShown,
+    discord_running: discordRunning,
   };
 }
 
-function renderOutcome(presenceShown) {
+function renderOutcome(discordRunning) {
   reset({ assessment: assessment("compatible") });
-  store.state.joinResult = launchedResult(presenceShown);
+  store.state.joinResult = launchedResult(discordRunning);
   const root = document.createElement("div");
   joinView(root, { onInstallServerFiles() {}, onJoin() {}, onRecheck() {}, onTogglePlayerAlert() {} }).render();
   return root;
@@ -418,21 +418,21 @@ function button(node, label) {
   return null;
 }
 
-test("a launch Discord did not show says nothing about Discord", () => {
+test("a launch without Discord running says nothing about Discord", () => {
   assert.doesNotMatch(textOf(renderOutcome(false)), /Discord/u);
 });
 
-test("the first launch Discord showed explains it once, and Turn off turns it off", async () => {
+test("the first launch with Discord running asks once, and Show it turns the status on", async () => {
   const root = renderOutcome(true);
-  assert.match(textOf(root), /Your Discord friends can now see which server you're on/u);
+  assert.match(textOf(root), /Show this match in your Discord status\?/u);
 
-  button(root, "Turn off").dispatch("click");
+  button(root, "Show it").dispatch("click");
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(preferences().discordPresence, false);
+  assert.equal(preferences().discordPresence, true);
   assert.deepEqual(
     bridge.calls.filter(({ command }) => command === "set_discord_presence").map(({ args }) => args.enabled),
-    [false],
+    [true],
   );
   assert.doesNotMatch(textOf(renderOutcome(true)), /Discord/u);
 });

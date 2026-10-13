@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The Discord status: on unless the player turns it off, and explained once, the first time
-// Discord actually shows a match, so no player learns of it from a friend.
+// The Discord status: off until the player chooses it, either in Settings or when asked once, the
+// first time a game launches while Discord is running. Nothing is shared before that answer.
 
 import { preferences, registerPreferences, setPreference } from "../../lib/preferences.js";
 import { setDiscordPresence } from "./api.js";
@@ -9,8 +9,8 @@ import { setDiscordPresence } from "./api.js";
 const isBoolean = (value) => typeof value === "boolean";
 
 registerPreferences(
-  { discordPresence: true, discordNoticeShown: false },
-  { discordPresence: isBoolean, discordNoticeShown: isBoolean },
+  { discordPresence: false, discordPresenceAsked: false },
+  { discordPresence: isBoolean, discordPresenceAsked: isBoolean },
 );
 
 /** Send the saved choice. The shell shares nothing until it has heard it. */
@@ -22,17 +22,13 @@ export async function syncDiscordPresence() {
   }
 }
 
+/** Save the player's choice, wherever it was made, and tell the shell. */
 export function changeDiscordPresence(on) {
+  setPreference("discordPresenceAsked", true);
   setPreference("discordPresence", on);
   return syncDiscordPresence();
 }
 
 /** @param {import("./api.js").JoinResult | null} result */
-export const discordNoticeDue = (result) =>
-  result?.presence_shown === true && !preferences().discordNoticeShown;
-
-/** Either answer retires the notice; turning it off also ends the status showing now. */
-export function answerDiscordNotice(keep) {
-  setPreference("discordNoticeShown", true);
-  return keep ? Promise.resolve() : changeDiscordPresence(false);
-}
+export const discordQuestionDue = (result) =>
+  result?.discord_running === true && !preferences().discordPresence && !preferences().discordPresenceAsked;

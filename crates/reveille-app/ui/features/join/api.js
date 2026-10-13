@@ -56,7 +56,7 @@ import { invoke, invokeWithChannel, listen } from "../../lib/bridge.js";
  * @property {EngineId} engine
  * @property {GameId} game
  * @property {{ launch: "launched", process_id: number } | { launch: "refused", reason: string }} outcome
- * @property {boolean} presence_shown Whether Discord now shows the match to the player's friends.
+ * @property {boolean} discord_running Whether a Discord app was running when the game launched.
  */
 
 /**
