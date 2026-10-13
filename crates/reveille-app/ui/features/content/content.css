@@ -111,7 +111,8 @@
 
 .catalogue--cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  /* At most four columns, so a wider window grows the cards instead of adding more. */
+  grid-template-columns: repeat(auto-fill, minmax(max(200px, calc((100% - 3 * var(--space-3)) / 4)), 1fr));
   gap: var(--space-3);
   padding: var(--space-4);
 }
