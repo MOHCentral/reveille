@@ -5,11 +5,14 @@ import assert from "node:assert/strict";
 
 import { installDom } from "../../fakes/dom.js";
 import { installStorage } from "../../fakes/storage.js";
+import { installTauri } from "../../fakes/tauri.js";
 
 const document = installDom();
 installStorage();
+const bridge = installTauri();
 const store = await import("../../../ui/lib/store.js");
 const { joinView } = await import("../../../ui/features/join/view.js");
+const { preferences } = await import("../../../ui/lib/preferences.js");
 const { initial: serversState } = await import("../../../ui/features/servers/index.js");
 const { initial: joinState } = await import("../../../ui/features/join/index.js");
 // The pane reads the server list's rows, selection and checks beside its own keys.
@@ -377,4 +380,59 @@ test("the server refresh control explains its disabled state and restores after 
   view.render();
   assert.notEqual(reload().getAttribute("aria-disabled"), "true");
   assert.doesNotMatch(reload().title, /wait/iu);
+});
+
+/* The Discord notice ---------------------------------------------------------*/
+
+function launchedResult(presenceShown) {
+  return {
+    address: ADDRESS,
+    assessment: assessment("compatible"),
+    installed: [],
+    install_directories: [],
+    failures: [],
+    game_directory: null,
+    used_home_fallback: false,
+    engine: "openmohaa",
+    game: "allied_assault",
+    outcome: { launch: "launched", process_id: 1 },
+    presence_shown: presenceShown,
+  };
+}
+
+function renderOutcome(presenceShown) {
+  reset({ assessment: assessment("compatible") });
+  store.state.joinResult = launchedResult(presenceShown);
+  const root = document.createElement("div");
+  joinView(root, { onInstallServerFiles() {}, onJoin() {}, onRecheck() {}, onTogglePlayerAlert() {} }).render();
+  return root;
+}
+
+function button(node, label) {
+  for (const child of node.children ?? []) {
+    if (typeof child !== "object") continue;
+    if (child.tagName?.toLowerCase() === "button" && textOf(child) === label) return child;
+    const found = button(child, label);
+    if (found) return found;
+  }
+  return null;
+}
+
+test("a launch Discord did not show says nothing about Discord", () => {
+  assert.doesNotMatch(textOf(renderOutcome(false)), /Discord/u);
+});
+
+test("the first launch Discord showed explains it once, and Turn off turns it off", async () => {
+  const root = renderOutcome(true);
+  assert.match(textOf(root), /Your Discord friends can now see which server you're on/u);
+
+  button(root, "Turn off").dispatch("click");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(preferences().discordPresence, false);
+  assert.deepEqual(
+    bridge.calls.filter(({ command }) => command === "set_discord_presence").map(({ args }) => args.enabled),
+    [false],
+  );
+  assert.doesNotMatch(textOf(renderOutcome(true)), /Discord/u);
 });

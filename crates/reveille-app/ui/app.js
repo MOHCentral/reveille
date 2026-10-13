@@ -31,7 +31,8 @@ import { initial as contentState, installShare } from "./features/content/index.
 import { contentController } from "./features/content/controller.js";
 import { contentView } from "./features/content/view.js";
 import { joinController } from "./features/join/controller.js";
-import { initial as joinState } from "./features/join/index.js";
+import { initial as joinState, syncDiscordPresence } from "./features/join/index.js";
+import { discordSettingsSection } from "./features/join/settings-section.js";
 import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
 import { aboutSettingsSection } from "./features/self-update/settings-section.js";
 import { initial as serversState } from "./features/servers/index.js";
@@ -306,6 +307,7 @@ async function openAppSettings() {
       },
     }),
     serverListSettingsSection(),
+    discordSettingsSection(),
     adminSettingsSection({ controller: admin, onAdded: () => showSection("admin") }),
     installSettingsSection({
       engine,
@@ -661,6 +663,7 @@ document.addEventListener("keydown", (event) => {
 
 notify();
 if (preferences().closeToTray) alerts.syncCloseToTray(true);
+void syncDiscordPresence();
 alerts.keepWatchingInBackground();
 setup.detect();
 void updates.find();

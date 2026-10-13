@@ -37,6 +37,7 @@ const MATRIX: &[(&str, Granted)] = &[
     ("preview_join", Main),
     ("install_server_files", Main),
     ("install_and_launch", Main),
+    ("set_discord_presence", Main),
     ("browse_catalogue", Main),
     ("catalogue_image", Main),
     ("install_catalogue_item", Main),

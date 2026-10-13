@@ -39,6 +39,7 @@ import {
   shortVersion,
 } from "../../lib/format.js";
 import { stateExplanation, stateName } from "./format.js";
+import { answerDiscordNotice, discordNoticeDue } from "./presence.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../../lib/bookmarks.js";
 import { icon } from "../../lib/icons.js";
 import { closePopover, openPopover } from "../../lib/popover.js";
@@ -853,6 +854,24 @@ function installItem(item) {
   );
 }
 
+function discordNotice() {
+  const answer = (keep) => () => {
+    void answerDiscordNotice(keep);
+    update(() => {});
+  };
+  return el(
+    "div",
+    { className: "note" },
+    el("p", null, "Your Discord friends can now see which server you're on: its name and map, never its address."),
+    el(
+      "div",
+      { className: "settings__row" },
+      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(true) }, "Keep"),
+      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(false) }, "Turn off"),
+    ),
+  );
+}
+
 function outcomeSection(result) {
   const launched = result.outcome.launch === "launched";
   return el(
@@ -875,6 +894,7 @@ function outcomeSection(result) {
         ? `${GAME_LABELS[result.game] ?? "The game"} is connecting. The server decides the rest: bans, a full server, and its own ping limits.`
         : result.outcome.reason,
     ),
+    launched && discordNoticeDue(result) ? discordNotice() : null,
     installedLocations(result),
     result.used_home_fallback
       ? el(

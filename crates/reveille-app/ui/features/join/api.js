@@ -56,6 +56,7 @@ import { invoke, invokeWithChannel, listen } from "../../lib/bridge.js";
  * @property {EngineId} engine
  * @property {GameId} game
  * @property {{ launch: "launched", process_id: number } | { launch: "refused", reason: string }} outcome
+ * @property {boolean} presence_shown Whether Discord now shows the match to the player's friends.
  */
 
 /**
@@ -107,3 +108,6 @@ export const installAndLaunch = (session, address, selectedCandidateIds, acceptI
 
 /** @param {(progress: InstallProgress) => void} handler */
 export const onInstallProgress = (handler) => listen("reveille://install", handler);
+
+/** @param {boolean} enabled */
+export const setDiscordPresence = (enabled) => invoke("set_discord_presence", { enabled });

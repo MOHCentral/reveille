@@ -22,6 +22,7 @@ use tauri::Manager;
 use tauri::ipc::Channel;
 use tracing::info;
 
+use crate::presence::{self, Activity};
 use crate::session::{Session, installed_maps, session_search_path};
 use crate::telemetry::{
     DownloadSource, Event, JoinFailureReason, JoinSource, MapFailure, MapFailureStage, Telemetry,
@@ -120,6 +121,8 @@ pub struct JoinResult {
     engine: EngineChoice,
     game: TargetGame,
     outcome: LaunchOutcome,
+    /// Whether Discord now shows the match to the player's friends.
+    presence_shown: bool,
 }
 
 /// Price a join, streaming each moh-db lookup over `on_progress`, which belongs to this call alone.
@@ -301,6 +304,17 @@ async fn join_and_launch(
     } else {
         launch(&session, preview.address, app)?
     };
+    let presence_shown = matches!(outcome, LaunchOutcome::Launched { .. })
+        && presence::show(
+            app,
+            Activity {
+                game: session.game,
+                server: server.hostname.clone(),
+                map: server.current_map.clone(),
+                started: std::time::SystemTime::now(),
+            },
+        )
+        .await;
     let install_directories = unique_parent_directories(&installed);
     info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
     Ok(JoinResult {
@@ -317,6 +331,7 @@ async fn join_and_launch(
         engine: session.engine,
         game: session.game,
         outcome,
+        presence_shown,
     })
 }
 
@@ -419,6 +434,7 @@ fn watch_game_exit(
             while platform::game_client_running() == Some(true) {
                 std::thread::sleep(CLIENT_POLL);
             }
+            presence::clear(&app);
             app.state::<Telemetry>().track(&Event::GameExited {
                 game,
                 engine,

@@ -30,6 +30,8 @@ const COMMANDS: &[&str] = &[
     "preview_join",
     "install_server_files",
     "install_and_launch",
+    // presence
+    "set_discord_presence",
     // catalogue
     "browse_catalogue",
     "catalogue_image",
