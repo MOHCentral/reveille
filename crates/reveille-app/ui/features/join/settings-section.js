@@ -9,7 +9,7 @@ import { changeDiscordPresence } from "./presence.js";
 
 export const DISCORD_PRESENCE_LABEL = "Show the server I'm playing on in my Discord status";
 export const DISCORD_PRESENCE_HINT =
-  "Your Discord friends see the game and the server's name. Some servers put their address in that name. Needs the Discord app on this computer.";
+  "Your Discord friends see the game and the server's name. Needs the Discord app on this computer.";
 
 export function discordSettingsSection() {
   return ({ redraw }) =>
