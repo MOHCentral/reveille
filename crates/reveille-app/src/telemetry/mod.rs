@@ -29,6 +29,8 @@ pub mod commands;
 
 const CHOICE_FILENAME: &str = "telemetry.json";
 const CRASH_FILENAME: &str = "telemetry-crash.json";
+/// The version of the last run that shared statistics, so the first run of a new one is noticed.
+const VERSION_FILENAME: &str = "telemetry-version.txt";
 /// The EU region of `PostHog`, so events stay under EU data-protection law.
 const DEFAULT_HOST: &str = "https://eu.i.posthog.com";
 const CAPTURE_PATH: &str = "/i/v0/e/";
@@ -341,10 +343,106 @@ pub enum JoinFailureReason {
     Unknown,
 }
 
+/// Where the player started the join from: a scope of the server list, an alert, or a map's
+/// Running now list in Maps & mods.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinSource {
+    ServerList,
+    Favorites,
+    Watching,
+    History,
+    /// A notification, a pop-up or the bell.
+    Alert,
+    MapsAndMods,
+}
+
+/// What a finished engine install did to the game folder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineInstallOutcome {
+    Installed,
+    Updated,
+    /// Replacing the files had to wait for the running game to close; nothing was written.
+    Deferred,
+}
+
+/// Which step of a Reveille self-update stopped.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateStage {
+    Check,
+    Download,
+    Install,
+}
+
+/// How an alert reached the player.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertVia {
+    Popup,
+    Notification,
+}
+
+/// What the player did with an alert.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertActionKind {
+    Open,
+    Join,
+    Snooze,
+}
+
+/// A watch rule's player count, limited to the steps the Watch rule popover offers.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(try_from = "u8", into = "u8")]
+pub struct AlertThreshold(u8);
+
+impl TryFrom<u8> for AlertThreshold {
+    type Error = String;
+
+    /// The steps of `THRESHOLDS` in `ui/features/alerts/player-alerts.js`.
+    fn try_from(players: u8) -> Result<Self, Self::Error> {
+        if [1, 2, 4, 8, 12].contains(&players) {
+            Ok(Self(players))
+        } else {
+            Err(format!("{players} is not an alert threshold"))
+        }
+    }
+}
+
+impl From<AlertThreshold> for u8 {
+    fn from(threshold: AlertThreshold) -> Self {
+        threshold.0
+    }
+}
+
+/// How the first-run setup came to a game folder.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderMethod {
+    /// Found by detection without the player's help.
+    Automatic,
+    /// Chosen in the folder picker.
+    Browsed,
+    /// Typed or pasted into the path field.
+    Typed,
+}
+
+/// Why the first-run setup turned down a folder the player chose.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderRejection {
+    /// The folder holds no Medal of Honor game files.
+    NotAGame,
+    /// The folder could not be read.
+    Unreadable,
+}
+
 /// Why the server list could not be built, classified once here rather than by matching message
 /// text in JavaScript.
 ///
-/// The same argument as `OpenMohaaFailureKind`, applied to the other command that talks to the
+/// The same argument as `EngineFailureKind`, applied to the other command that talks to the
 /// network. A local routing or socket-permission failure, a community master that refuses or
 /// resets its TCP connection, and a master whose reply is truncated are different observations,
 /// and all three used to reach the status bar as one raw
@@ -520,6 +618,8 @@ pub enum Event {
         game: TargetGame,
         engine: EngineChoice,
         accept_incomplete: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<JoinSource>,
     },
     GameLaunched {
         game: TargetGame,
@@ -536,6 +636,59 @@ pub enum Event {
         engine: EngineChoice,
         played: PlayTime,
     },
+    /// Sent from both setup and the change dialog, and for an update as well as a first install.
+    EngineInstallStarted {
+        engine: EngineChoice,
+    },
+    EngineInstallCompleted {
+        engine: EngineChoice,
+        outcome: EngineInstallOutcome,
+    },
+    EngineInstallFailed {
+        engine: EngineChoice,
+        reason: crate::engines::EngineFailureKind,
+    },
+    /// Once per run: the launch check and Settings' Check now find the same release.
+    UpdateOffered {
+        version: String,
+    },
+    UpdateStarted {
+        version: String,
+    },
+    UpdateFailed {
+        stage: UpdateStage,
+    },
+    UpdateCancelled,
+    /// The first start of a new version. A successful update ends the process before it can be
+    /// reported, so the next run reports it; installs made outside Reveille count as well.
+    AppUpdated {
+        previous_version: String,
+    },
+    /// A watched server's alert reached the screen. The test alert is not counted.
+    AlertShown {
+        via: AlertVia,
+    },
+    AlertAction {
+        via: AlertVia,
+        action: AlertActionKind,
+    },
+    AlertWatchAdded {
+        threshold: AlertThreshold,
+    },
+    AlertWatchRemoved,
+    AlertThresholdChanged {
+        threshold: AlertThreshold,
+    },
+    SetupFolderFound {
+        method: FolderMethod,
+    },
+    SetupFolderRejected {
+        method: FolderMethod,
+        reason: FolderRejection,
+    },
+    /// The folder is under a protected location such as Program Files, so setup asks for a
+    /// writable copy before it can install anything.
+    SetupFolderProtected,
 }
 
 /// The events the frontend may ask for. Everything else is sent from the command that observes
@@ -553,6 +706,21 @@ pub enum UiEvent {
     SectionOpened {
         section: Section,
     },
+    AlertWatchAdded {
+        threshold: AlertThreshold,
+    },
+    AlertWatchRemoved,
+    AlertThresholdChanged {
+        threshold: AlertThreshold,
+    },
+    SetupFolderFound {
+        method: FolderMethod,
+    },
+    SetupFolderRejected {
+        method: FolderMethod,
+        reason: FolderRejection,
+    },
+    SetupFolderProtected,
 }
 
 /// Whether this installation shares statistics.
@@ -598,6 +766,7 @@ pub struct Telemetry {
     sharing: Arc<AtomicBool>,
     server_selected_sent: AtomicBool,
     install_not_found_sent: AtomicBool,
+    update_offered_sent: AtomicBool,
     sections_opened: [AtomicBool; 2],
     /// The games last reported found, so a re-detection of the same folder is not sent again.
     detected_games: Mutex<Option<Vec<reveille_core::install::Product>>>,
@@ -652,6 +821,7 @@ impl Telemetry {
             sharing,
             server_selected_sent: AtomicBool::new(false),
             install_not_found_sent: AtomicBool::new(false),
+            update_offered_sent: AtomicBool::new(false),
             sections_opened: [AtomicBool::new(false), AtomicBool::new(false)],
             detected_games: Mutex::new(None),
             client,
@@ -690,6 +860,7 @@ impl Telemetry {
         self.sharing.store(shared, Ordering::SeqCst);
         if !shared {
             remove_if_present(&self.directory.join(CRASH_FILENAME));
+            remove_if_present(&self.directory.join(VERSION_FILENAME));
         }
         if newly_shared {
             self.track(&Event::AppStarted);
@@ -710,7 +881,25 @@ impl Telemetry {
             });
         }
         remove_if_present(&marker);
+        self.track_version_change();
         self.track(&Event::AppStarted);
+    }
+
+    fn track_version_change(&self) {
+        if !self.would_send() {
+            return;
+        }
+        let path = self.directory.join(VERSION_FILENAME);
+        if let Some(previous) = read_last_version(&path)
+            && previous != self.app_version
+        {
+            self.track(&Event::AppUpdated {
+                previous_version: previous,
+            });
+        }
+        if let Err(error) = fs::write(&path, &self.app_version) {
+            warn!(%error, "could not save this run's version");
+        }
     }
 
     pub fn track_ui(&self, event: UiEvent) {
@@ -731,6 +920,27 @@ impl Telemetry {
                     self.track(&Event::SectionOpened { section });
                 }
             }
+            UiEvent::AlertWatchAdded { threshold } => {
+                self.track(&Event::AlertWatchAdded { threshold });
+            }
+            UiEvent::AlertWatchRemoved => self.track(&Event::AlertWatchRemoved),
+            UiEvent::AlertThresholdChanged { threshold } => {
+                self.track(&Event::AlertThresholdChanged { threshold });
+            }
+            UiEvent::SetupFolderFound { method } => {
+                self.track(&Event::SetupFolderFound { method });
+            }
+            UiEvent::SetupFolderRejected { method, reason } => {
+                self.track(&Event::SetupFolderRejected { method, reason });
+            }
+            UiEvent::SetupFolderProtected => self.track(&Event::SetupFolderProtected),
+        }
+    }
+
+    /// Once per run, so a launch check and a later Check now count one offer.
+    pub fn track_update_offered(&self, version: String) {
+        if self.first_this_run(&self.update_offered_sent) {
+            self.track(&Event::UpdateOffered { version });
         }
     }
 
@@ -801,6 +1011,14 @@ impl Telemetry {
                 Err(error) => debug!(%error, "telemetry event was not delivered"),
             }
         });
+    }
+
+    /// For code that holds an app handle rather than the managed state.
+    pub fn track_from<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &Event) {
+        use tauri::Manager as _;
+        if let Some(telemetry) = app.try_state::<Self>() {
+            telemetry.track(event);
+        }
     }
 
     /// Leave a marker for the next run when the process panics, if the player shares.
@@ -962,6 +1180,18 @@ fn write_crash(path: &Path, version: &str, info: &PanicHookInfo<'_>) {
     }
 }
 
+/// `None` when there is no readable version, or the file holds something no build wrote.
+fn read_last_version(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let version = text.trim();
+    let plausible = !version.is_empty()
+        && version.len() <= 32
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
+    plausible.then(|| version.to_owned())
+}
+
 fn read_crash(path: &Path) -> Option<CrashMarker> {
     serde_json::from_slice(&fs::read(path).ok()?).ok()
 }
@@ -1034,9 +1264,10 @@ mod tests {
     use zip::result::ZipError;
 
     use super::{
-        AdminActionKind, CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, JoinFailureReason,
-        MapDownloadError, MapFailure, MapFailureStage, PanicReport, PlayTime, Section, Session,
-        Sink, Telemetry, UiEvent, payload, rfc3339, source_relative,
+        AdminActionKind, CHOICE_FILENAME, CRASH_FILENAME, DownloadSource, Event, FolderMethod,
+        FolderRejection, JoinFailureReason, JoinSource, MapDownloadError, MapFailure,
+        MapFailureStage, PanicReport, PlayTime, Section, Session, Sink, Telemetry, UiEvent,
+        VERSION_FILENAME, payload, read_last_version, rfc3339, source_relative,
     };
     use reveille_core::discovery::TargetGame;
     use reveille_core::engine::EngineChoice;
@@ -1408,6 +1639,110 @@ mod tests {
         assert_eq!(parsed, UiEvent::ServerSelected { ready: true });
         assert!(serde_json::from_value::<UiEvent>(json!({ "event": "game_launched" })).is_err());
         assert!(serde_json::from_value::<UiEvent>(json!({ "event": "anything" })).is_err());
+    }
+
+    #[test]
+    fn a_join_names_where_it_started_only_when_the_shell_said() {
+        let sent = |source| {
+            payload(
+                &sink(),
+                &Event::JoinClicked {
+                    game: TargetGame::AlliedAssault,
+                    engine: EngineChoice::Openmohaa,
+                    accept_incomplete: false,
+                    source,
+                },
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "0.4.0",
+                UNIX_EPOCH,
+            )["properties"]
+                .clone()
+        };
+        assert_eq!(
+            sent(Some(JoinSource::MapsAndMods))["source"],
+            "maps_and_mods"
+        );
+        assert!(sent(None).get("source").is_none());
+    }
+
+    #[test]
+    fn an_alert_threshold_is_one_of_the_offered_steps() {
+        let parsed: UiEvent =
+            serde_json::from_value(json!({ "event": "alert_watch_added", "threshold": 4 }))
+                .expect("offered step");
+        let UiEvent::AlertWatchAdded { threshold } = parsed else {
+            panic!("parsed {parsed:?}");
+        };
+        assert_eq!(serde_json::to_value(threshold).expect("json"), json!(4));
+        for players in [0, 3, 13, 255] {
+            assert!(
+                serde_json::from_value::<UiEvent>(
+                    json!({ "event": "alert_threshold_changed", "threshold": players })
+                )
+                .is_err(),
+                "{players} accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn setup_can_report_only_its_named_folder_outcomes() {
+        let parsed: UiEvent = serde_json::from_value(json!({
+            "event": "setup_folder_rejected",
+            "method": "typed",
+            "reason": "not_a_game",
+        }))
+        .expect("known outcome");
+        assert_eq!(
+            parsed,
+            UiEvent::SetupFolderRejected {
+                method: FolderMethod::Typed,
+                reason: FolderRejection::NotAGame,
+            }
+        );
+        assert!(
+            serde_json::from_value::<UiEvent>(json!({
+                "event": "setup_folder_found",
+                "method": r"C:\Games\MOHAA",
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn an_engine_failure_is_sent_as_its_kind() {
+        let body = payload(
+            &sink(),
+            &Event::EngineInstallFailed {
+                engine: EngineChoice::Reborn,
+                reason: crate::engines::EngineFailureKind::CorruptDownload,
+            },
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "0.4.0",
+            UNIX_EPOCH,
+        );
+        assert_eq!(body["event"], "engine_install_failed");
+        assert_eq!(body["properties"]["engine"], "reborn");
+        assert_eq!(body["properties"]["reason"], "corrupt_download");
+    }
+
+    #[test]
+    fn only_a_version_a_build_could_have_written_counts_as_the_last_run() {
+        let directory = TempDir::new().expect("directory");
+        let path = directory.path().join(VERSION_FILENAME);
+        assert_eq!(read_last_version(&path), None);
+        std::fs::write(
+            &path, "0.6.1
+",
+        )
+        .expect("write");
+        assert_eq!(read_last_version(&path).as_deref(), Some("0.6.1"));
+        std::fs::write(&path, r"C:\Users\someone").expect("write");
+        assert_eq!(read_last_version(&path), None);
+        std::fs::write(&path, "").expect("write");
+        assert_eq!(read_last_version(&path), None);
     }
 
     #[test]

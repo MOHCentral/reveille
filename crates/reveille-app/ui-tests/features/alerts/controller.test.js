@@ -62,7 +62,14 @@ test("starting it mounts the bell and opens a clicked notification's server thro
   bridge.emit("reveille://player-alert-open", { eventId: event.id, join: true });
   bridge.emit("reveille://player-alert-open", { eventId: "forgotten", join: true });
   assert.deepEqual(opened, [
-    { game: "spearhead", address: "10.0.0.1:12203", queryPort: 12300, hostname: "Old Bridge", join: true },
+    {
+      game: "spearhead",
+      address: "10.0.0.1:12203",
+      queryPort: 12300,
+      hostname: "Old Bridge",
+      join: true,
+      source: "alert",
+    },
   ]);
 });
 
@@ -76,4 +83,8 @@ test("watching a server saves it, explains alerts once, and a second toggle forg
   await alerts.togglePlayerAlert(row);
   assert.equal(hasPlayerAlert("allied_assault", row.address), false);
   assert.equal(state.watchReadings.has(`allied_assault|${row.address}`), false);
+  assert.deepEqual(
+    bridge.calls.filter(({ command }) => command === "track_event").map(({ args }) => args.event),
+    [{ event: "alert_watch_added", threshold: 1 }, { event: "alert_watch_removed" }],
+  );
 });

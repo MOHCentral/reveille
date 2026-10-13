@@ -22,6 +22,37 @@ impl InstallGate {
     }
 }
 
+/// Why an engine step stopped, classified once beside the errors it names rather than by matching
+/// message text.
+///
+/// The interface has to say what actually happened — a release that published no digest is not
+/// a corrupted download, and neither is a release that has no build for this machine. Reading
+/// that distinction out of a formatted error string in JavaScript is how the two got merged.
+/// `detail` carries the original message for diagnosis; the shell chooses its own wording from
+/// `kind`. Telemetry sends only the kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineFailureKind {
+    /// The download host could not be reached or refused the request.
+    Unreachable,
+    /// The release exists but publishes nothing for this machine.
+    NoAssetForHost,
+    /// The release metadata is unusable — no digest, an ambiguous asset, no dev identity.
+    /// Nothing was downloaded, so retrying changes nothing.
+    ReleaseMetadata,
+    /// Bytes arrived but did not match the published size or digest.
+    CorruptDownload,
+    /// The archive itself was rejected before any file was written.
+    ArchiveRejected,
+    /// The player pressed Stop.
+    Cancelled,
+    /// Writing into the game folder failed; existing files were restored.
+    Filesystem,
+    /// A failure outside the release pipeline, carried through with its own message rather than
+    /// dressed up as one of the causes above.
+    Internal,
+}
+
 #[derive(Clone, Serialize)]
 pub struct DownloadProgress {
     pub received: u64,

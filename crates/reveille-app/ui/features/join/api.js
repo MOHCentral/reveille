@@ -35,6 +35,11 @@ import { invoke, invokeWithChannel, listen } from "../../lib/bridge.js";
 /** @typedef {{ map: string, reason: string }} InstallFailure */
 
 /**
+ * Where a join started, matching `JoinSource` in src/telemetry/mod.rs.
+ * @typedef {"server_list" | "favorites" | "watching" | "history" | "alert" | "maps_and_mods"} JoinSource
+ */
+
+/**
  * @typedef {object} ServerFilesResult
  * @property {JoinPreview} preview Taken again after the packages were installed.
  * @property {InstallFailure[]} failures
@@ -94,10 +99,11 @@ export const installServerFiles = (session, address, onPreviewProgress) =>
  * @param {string} address
  * @param {number[]} selectedCandidateIds
  * @param {boolean} acceptIncomplete
+ * @param {JoinSource | null} [source] Where the join started, for telemetry only.
  * @returns {Promise<JoinResult>}
  */
-export const installAndLaunch = (session, address, selectedCandidateIds, acceptIncomplete) =>
-  invoke("install_and_launch", { session, address, selectedCandidateIds, acceptIncomplete });
+export const installAndLaunch = (session, address, selectedCandidateIds, acceptIncomplete, source = null) =>
+  invoke("install_and_launch", { session, address, selectedCandidateIds, acceptIncomplete, source });
 
 /** @param {(progress: InstallProgress) => void} handler */
 export const onInstallProgress = (handler) => listen("reveille://install", handler);

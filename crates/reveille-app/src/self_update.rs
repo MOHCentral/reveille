@@ -12,6 +12,8 @@ use tauri_plugin_updater::{Update, UpdaterExt as _};
 use thiserror::Error;
 use tokio::sync::Notify;
 
+use crate::telemetry::{Event, Telemetry, UpdateStage};
+
 pub const EVENT: &str = "reveille://self-update";
 pub const PUBLIC_KEY: &str = match option_env!("REVEILLE_UPDATER_PUBKEY") {
     Some(key) => key,
@@ -79,6 +81,7 @@ impl Serialize for SelfUpdateError {
 pub async fn check_reveille_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, SelfUpdateState>,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<Option<Offer>, SelfUpdateError> {
     if PUBLIC_KEY.trim().is_empty() {
         return Ok(None);
@@ -88,6 +91,21 @@ pub async fn check_reveille_update(
         .operation
         .try_lock()
         .map_err(|_| SelfUpdateError::Busy)?;
+    let checked = check(&app, &state).await;
+    match &checked {
+        Ok(Some(offer)) => telemetry.track_update_offered(offer.version.clone()),
+        Ok(None) => {}
+        Err(_) => telemetry.track(&Event::UpdateFailed {
+            stage: UpdateStage::Check,
+        }),
+    }
+    checked
+}
+
+async fn check(
+    app: &tauri::AppHandle,
+    state: &SelfUpdateState,
+) -> Result<Option<Offer>, SelfUpdateError> {
     let endpoint = ENDPOINT
         .parse::<tauri::Url>()
         .map_err(|error| SelfUpdateError::InvalidEndpoint(error.to_string()))?;
@@ -122,6 +140,7 @@ pub async fn check_reveille_update(
 pub async fn install_reveille_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, SelfUpdateState>,
+    telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<(), SelfUpdateError> {
     let _operation = state
         .operation
@@ -133,6 +152,24 @@ pub async fn install_reveille_update(
         .map_err(|_| SelfUpdateError::StateUnavailable)?
         .clone()
         .ok_or(SelfUpdateError::NoPendingUpdate)?;
+    telemetry.track(&Event::UpdateStarted {
+        version: update.version.clone(),
+    });
+    let installed = download_and_install(&app, &state, &update).await;
+    match &installed {
+        Ok(()) => {}
+        Err((_, SelfUpdateError::Cancelled)) => telemetry.track(&Event::UpdateCancelled),
+        Err((failed, _)) => telemetry.track(&Event::UpdateFailed { stage: *failed }),
+    }
+    installed.map_err(|(_, error)| error)
+}
+
+/// `Err` names the step that stopped, for telemetry.
+async fn download_and_install(
+    app: &tauri::AppHandle,
+    state: &SelfUpdateState,
+    update: &Update,
+) -> Result<(), (UpdateStage, SelfUpdateError)> {
     let cancel_generation = state.cancel_generation.load(Ordering::Acquire);
 
     let progress_app = app.clone();
@@ -167,19 +204,22 @@ pub async fn install_reveille_update(
     let bytes = tokio::select! {
         biased;
         () = &mut cancelled => None,
-        result = &mut download => Some(result?),
+        result = &mut download => Some(result.map_err(|error| (UpdateStage::Download, error.into()))?),
     };
+    let stopped = (UpdateStage::Download, SelfUpdateError::Cancelled);
     let Some(bytes) = bytes else {
         drop(app.emit(EVENT, Progress::Cancelled));
-        return Err(SelfUpdateError::Cancelled);
+        return Err(stopped);
     };
     if state.cancel_generation.load(Ordering::Acquire) != cancel_generation {
         drop(app.emit(EVENT, Progress::Cancelled));
-        return Err(SelfUpdateError::Cancelled);
+        return Err(stopped);
     }
 
     drop(app.emit(EVENT, Progress::Installing));
-    update.install(bytes)?;
+    update
+        .install(bytes)
+        .map_err(|error| (UpdateStage::Install, error.into()))?;
     Ok(())
 }
 
@@ -208,6 +248,6 @@ mod tests {
 
         assert!(updater.contains("pending: Mutex<Option<Update>>"));
         assert!(updater.contains("let update = state"));
-        assert!(updater.contains("update.install(bytes)?;"));
+        assert!(updater.contains(".install(bytes)"));
     }
 }

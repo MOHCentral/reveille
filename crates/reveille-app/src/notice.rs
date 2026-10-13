@@ -8,6 +8,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter as _};
 
+use crate::telemetry::{AlertActionKind, AlertVia, Event, Telemetry};
 use crate::tray;
 
 pub const PLAYER_ALERT_OPEN_EVENT: &str = "reveille://player-alert-open";
@@ -51,7 +52,7 @@ pub async fn send_player_notification(
     );
     let body = detail.unwrap_or_else(|| "A server you follow is no longer empty.".into());
     show(
-        app,
+        app.clone(),
         Notice {
             title,
             body,
@@ -59,7 +60,14 @@ pub async fn send_player_notification(
             alert: Some(event_id),
         },
     )
-    .await
+    .await?;
+    Telemetry::track_from(
+        &app,
+        &Event::AlertShown {
+            via: AlertVia::Notification,
+        },
+    );
+    Ok(())
 }
 
 /// A notice that is not about one arrival: the test alert, the first close to the tray, a
@@ -100,7 +108,13 @@ pub fn open_notification_settings() -> Result<(), String> {
     tauri_plugin_opener::open_url(target, None::<&str>).map_err(|error| error.to_string())
 }
 
-pub fn opened(app: &AppHandle, event_id: String, join: bool) {
+pub fn opened(app: &AppHandle, event_id: String, join: bool, via: AlertVia) {
+    let action = if join {
+        AlertActionKind::Join
+    } else {
+        AlertActionKind::Open
+    };
+    Telemetry::track_from(app, &Event::AlertAction { via, action });
     tray::show_main(app);
     let _ = app.emit(PLAYER_ALERT_OPEN_EVENT, PlayerAlertOpen { event_id, join });
 }
@@ -125,6 +139,7 @@ async fn show(app: AppHandle, notice: Notice) -> Result<(), String> {
                         &handle,
                         event_id.clone(),
                         action.as_deref() == Some(JOIN_ACTION),
+                        AlertVia::Notification,
                     );
                     Ok(())
                 }),
@@ -199,7 +214,7 @@ async fn show(app: AppHandle, notice: Notice) -> Result<(), String> {
                     _ => return,
                 };
                 match notice.alert.clone() {
-                    Some(event_id) => opened(&app, event_id, join),
+                    Some(event_id) => opened(&app, event_id, join, AlertVia::Notification),
                     None => tray::show_main(&app),
                 }
             });

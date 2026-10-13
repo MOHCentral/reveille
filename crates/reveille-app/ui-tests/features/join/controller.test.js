@@ -170,6 +170,26 @@ test("activating a ready server joins at once", async () => {
   assert.deepEqual(focused, []);
 });
 
+test("a join reports the list scope it started from, or where the server was opened from", async () => {
+  const sources = () =>
+    bridge.calls.filter(({ command }) => command === "install_and_launch").map(({ args }) => args.source);
+  reset();
+  bridge.results.install_and_launch = launched();
+  state.scope = "favorites";
+  pane.activate("ready:1");
+  await settle();
+  // Opened from an alert: a refresh reselecting the same server keeps that origin.
+  pane.activate("b:1");
+  pane.activate("ready:1", "alert");
+  pane.select("ready:1");
+  await pane.getAndJoin(row("ready:1", "compatible"), false);
+  // Picking another server in the list forgets it.
+  pane.select("a:1");
+  await pane.getAndJoin(row("a:1"), false);
+  state.scope = "all";
+  assert.deepEqual(sources(), ["favorites", "alert", "alert", "favorites"]);
+});
+
 test("a join completed during background refresh keeps its row and outcome", async () => {
   const { adoptBackgroundSweep } = await import("../../../ui/features/servers/reducers.js");
   reset();

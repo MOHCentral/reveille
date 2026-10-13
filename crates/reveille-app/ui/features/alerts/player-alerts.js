@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 import { GAMES as CATALOG_GAMES } from "../../lib/catalog.js";
+import { trackEvent } from "../../lib/shell.js";
 import { registerSavedScope, state } from "../../lib/store.js";
 
 const KEY = "reveille.player-alerts";
@@ -81,11 +82,14 @@ export function addPlayerAlert(row, game, threshold = 1) {
 
 export function setAlertThreshold(game, address, threshold) {
   if (!THRESHOLDS.includes(threshold)) return false;
-  return save(
+  const changed = playerAlert(game, address)?.threshold !== threshold;
+  const saved = save(
     playerAlerts().map((entry) =>
       entry.game === game && entry.address === address ? { ...entry, threshold } : entry,
     ),
   );
+  if (saved && changed) trackEvent({ event: "alert_threshold_changed", threshold });
+  return saved;
 }
 
 export function removePlayerAlert(game, address) {

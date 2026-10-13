@@ -131,7 +131,7 @@ export function bell({ onOpenWatching, onNotificationSettings, onBadge }) {
       className: join ? "btn btn--sm btn--primary" : "btn btn--sm",
       onclick: () => {
         if (openServerUnavailableReason(event.game)) return;
-        intents.openServer({ ...arrivalTarget(event), join });
+        intents.openServer({ ...arrivalTarget(event), join, source: "alert" });
       },
     }, join ? "Join" : "Show");
     actionButtons.push({ button, game: event.game });

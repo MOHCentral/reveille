@@ -12,7 +12,11 @@ export { appVersion, errorText };
 
 /** Fire and forget: a lost event must never surface as an error in the player's way. */
 export const trackEvent = (event) => {
-  invoke("track_event", { event }).catch(() => {});
+  try {
+    invoke("track_event", { event }).catch(() => {});
+  } catch {
+    // No bridge outside the app window, as in the unit tests of a feature that reports.
+  }
 };
 
 export const openExternalUrl = (url) => openUrl(url);

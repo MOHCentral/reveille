@@ -402,6 +402,7 @@ function joinServer(row) {
     queryPort: Number(row.server.endpoint.query_port),
     hostname: row.server.hostname,
     join: true,
+    source: "maps_and_mods",
   });
 }
 
