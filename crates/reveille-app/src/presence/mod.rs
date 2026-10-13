@@ -18,9 +18,8 @@ use serde_json::{Value, json};
 use tauri::Manager;
 use tracing::debug;
 
-/// The Reveille application in the Discord Developer Portal; an application ID is public. Discord
-/// refuses the placeholder `0`, so no status is shown until the real ID is set.
-const CLIENT_ID: &str = "0";
+/// The Reveille application in the Discord Developer Portal. An application ID is public.
+const CLIENT_ID: &str = "1559612097757839461";
 /// The logo uploaded to that application's art assets.
 const LOGO_ASSET: &str = "reveille";
 /// discord.com/developers/docs/events/gateway-events#activity-object: `details` and `state` are
