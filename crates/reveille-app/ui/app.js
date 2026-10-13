@@ -82,7 +82,7 @@ state.rememberedInstall = recallInstall();
 // A remembered folder means setup finished on an earlier run, so its automatic Continue is not one.
 let firstRun = !state.rememberedInstall;
 
-const { select, activate, getServerFiles, getAndJoin } = joinController({
+const { select, activate, getServerFiles, getAndJoin, checkDiscord } = joinController({
   showPane: toggleDetail,
   focusJoin: (address) => join.focusJoin(address),
   onFilesChanged: () => catalogue.forget(),
@@ -230,6 +230,9 @@ $("#info-dialog-close").addEventListener("click", closeDialog);
 alerts.start(intents);
 subscribe(render);
 window.addEventListener("focus", refreshOnReturn);
+// A selection restored at start, or Discord opened while Reveille was in the background, would
+// otherwise wait for the next selection to offer sharing.
+window.addEventListener("focus", () => void checkDiscord());
 
 /* Titlebar menus ------------------------------------------------------------ */
 
@@ -664,6 +667,7 @@ document.addEventListener("keydown", (event) => {
 notify();
 if (preferences().closeToTray) alerts.syncCloseToTray(true);
 void syncDiscordPresence();
+void checkDiscord();
 alerts.keepWatchingInBackground();
 setup.detect();
 void updates.find();

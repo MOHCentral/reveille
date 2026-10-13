@@ -126,6 +126,7 @@ fn main() {
             join::install_and_launch,
             // presence
             presence::set_discord_presence,
+            presence::discord_running,
             // catalogue
             catalogue::browse_catalogue,
             catalogue::catalogue_image,

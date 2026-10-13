@@ -8,6 +8,7 @@ permissions = [
   "allow-set-start-at-login",
   "allow-set-close-to-tray",
   "allow-set-discord-presence",
+  "allow-discord-running",
   "allow-set-tray-tooltip",
   "allow-app-log-files",
 ]

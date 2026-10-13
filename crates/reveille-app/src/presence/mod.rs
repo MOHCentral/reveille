@@ -211,8 +211,9 @@ pub fn end(app: &tauri::AppHandle, id: MatchId) {
     }
 }
 
-/// Whether a Discord app is listening on this computer. Opening the endpoint is enough; nothing is
-/// sent.
+/// Whether a Discord app is listening on this computer, so the page may offer to share the match.
+/// Opening the endpoint is enough; nothing is sent.
+#[tauri::command]
 pub async fn discord_running() -> bool {
     match tokio::time::timeout(DEADLINE, connect()).await {
         Ok(Ok(_)) => true,

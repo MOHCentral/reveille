@@ -121,9 +121,6 @@ pub struct JoinResult {
     engine: EngineChoice,
     game: TargetGame,
     outcome: LaunchOutcome,
-    /// Whether a Discord app was running when the game launched, so the page may offer to share
-    /// the match.
-    discord_running: bool,
 }
 
 /// Price a join, streaming each moh-db lookup over `on_progress`, which belongs to this call alone.
@@ -305,8 +302,6 @@ async fn join_and_launch(
     } else {
         launch(&session, preview.address, &server.hostname, app)?
     };
-    let discord_running =
-        matches!(outcome, LaunchOutcome::Launched { .. }) && presence::discord_running().await;
     let install_directories = unique_parent_directories(&installed);
     info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
     Ok(JoinResult {
@@ -323,7 +318,6 @@ async fn join_and_launch(
         engine: session.engine,
         game: session.game,
         outcome,
-        discord_running,
     })
 }
 

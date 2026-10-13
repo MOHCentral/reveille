@@ -29,5 +29,8 @@ export function initial() {
     joining: false,
     joinResult: null,
     joinError: null,
+
+    /** Whether a Discord app answered the last check, which decides whether Join offers to share. */
+    discordRunning: false,
   };
 }

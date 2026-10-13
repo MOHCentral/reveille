@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // `features/join/presence.js` and the Discord section of Settings: the status is off until the
-// player chooses it, the shell hears every change, and the question comes once.
+// player turns it on, and the shell hears every change.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +21,7 @@ const elements = {
 document.querySelector = (selector) => elements[selector] ?? null;
 
 const { preferences, reloadPreferences } = await import("../../../ui/lib/preferences.js");
-const { changeDiscordPresence, discordQuestionDue, syncDiscordPresence } = await import(
+const { changeDiscordPresence, syncDiscordPresence } = await import(
   "../../../ui/features/join/presence.js"
 );
 const { openSettings } = await import("../../../ui/features/settings/dialog.js");
@@ -30,7 +30,6 @@ const { discordSettingsSection } = await import("../../../ui/features/join/setti
 const sent = () =>
   bridge.calls.filter(({ command }) => command === "set_discord_presence").map(({ args }) => args.enabled);
 const settle = () => new Promise((resolve) => setImmediate(resolve));
-const RUNNING = { outcome: { launch: "launched" }, discord_running: true };
 
 test.beforeEach(() => {
   localStorage.clear();
@@ -44,26 +43,13 @@ test("nothing is shared until the player chooses, and the shell hears the saved 
   assert.deepEqual(sent(), [false]);
 });
 
-test("the question is due only while Discord runs and the player has not answered", () => {
-  assert.equal(discordQuestionDue(RUNNING), true);
-  assert.equal(discordQuestionDue({ ...RUNNING, discord_running: false }), false);
-  assert.equal(discordQuestionDue(null), false);
-});
-
-test("showing it from the question turns the status on and retires the question", async () => {
+test("turning it on saves the choice and tells the shell", async () => {
   await changeDiscordPresence(true);
-  assert.equal(discordQuestionDue(RUNNING), false);
   assert.equal(preferences().discordPresence, true);
   assert.deepEqual(sent(), [true]);
 });
 
-test("declining retires the question and leaves the status off", async () => {
-  await changeDiscordPresence(false);
-  assert.equal(discordQuestionDue(RUNNING), false);
-  assert.equal(preferences().discordPresence, false);
-});
-
-test("the Settings toggle saves the choice, tells the shell, and answers the question", async () => {
+test("the Settings toggle saves the choice and tells the shell", async () => {
   openSettings([discordSettingsSection()]);
   const body = elements["#info-dialog-body"];
   const find = (node) => {
@@ -83,7 +69,6 @@ test("the Settings toggle saves the choice, tells the shell, and answers the que
   assert.equal(preferences().discordPresence, true);
   assert.deepEqual(sent(), [true]);
   assert.equal(find(body).checked, true);
-  assert.equal(discordQuestionDue(RUNNING), false);
 });
 
 test("without the shell, syncing the choice fails quietly", async () => {

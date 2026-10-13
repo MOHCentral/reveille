@@ -353,3 +353,29 @@ test("install progress gathers per file while a run is open, and is ignored othe
   held.get("install_server_files").resolve({ preview: null, failures: [] });
   await done;
 });
+
+test("a selection checks for Discord, at most once every ten seconds", async () => {
+  reset();
+  mock.timers.reset();
+  mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() + 60_000 });
+  const checks = () => bridge.calls.filter(({ command }) => command === "discord_running").length;
+  bridge.results.discord_running = true;
+
+  pane.select("ready:1");
+  await settle();
+  assert.equal(state.discordRunning, true);
+  assert.equal(checks(), 1);
+
+  bridge.results.discord_running = false;
+  mock.timers.tick(9_999);
+  pane.select("a:1");
+  await settle();
+  assert.equal(checks(), 1, "too soon to ask again");
+  assert.equal(state.discordRunning, true);
+
+  mock.timers.tick(1);
+  pane.select("b:1");
+  await settle();
+  assert.equal(checks(), 2);
+  assert.equal(state.discordRunning, false);
+});

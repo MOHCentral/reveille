@@ -32,6 +32,7 @@ const COMMANDS: &[&str] = &[
     "install_and_launch",
     // presence
     "set_discord_presence",
+    "discord_running",
     // catalogue
     "browse_catalogue",
     "catalogue_image",

@@ -382,51 +382,50 @@ test("the server refresh control explains its disabled state and restores after 
   assert.doesNotMatch(reload().title, /wait/iu);
 });
 
-/* The Discord question -------------------------------------------------------*/
+/* Sharing on Discord ---------------------------------------------------------*/
 
-function launchedResult(discordRunning) {
-  return {
-    address: ADDRESS,
-    assessment: assessment("compatible"),
-    installed: [],
-    install_directories: [],
-    failures: [],
-    game_directory: null,
-    used_home_fallback: false,
-    engine: "openmohaa",
-    game: "allied_assault",
-    outcome: { launch: "launched", process_id: 1 },
-    discord_running: discordRunning,
-  };
-}
-
-function renderOutcome(discordRunning) {
+function renderJoin({ discordRunning, launched = false }) {
   reset({ assessment: assessment("compatible") });
-  store.state.joinResult = launchedResult(discordRunning);
+  store.state.discordRunning = discordRunning;
+  store.state.joinResult = launched
+    ? {
+        address: ADDRESS,
+        assessment: assessment("compatible"),
+        installed: [],
+        install_directories: [],
+        failures: [],
+        game_directory: null,
+        used_home_fallback: false,
+        engine: "openmohaa",
+        game: "allied_assault",
+        outcome: { launch: "launched", process_id: 1 },
+      }
+    : null;
   const root = document.createElement("div");
   joinView(root, { onInstallServerFiles() {}, onJoin() {}, onRecheck() {}, onTogglePlayerAlert() {} }).render();
   return root;
 }
 
-function button(node, label) {
+function byId(node, id) {
   for (const child of node.children ?? []) {
     if (typeof child !== "object") continue;
-    if (child.tagName?.toLowerCase() === "button" && textOf(child) === label) return child;
-    const found = button(child, label);
+    if (child.id === id) return child;
+    const found = byId(child, id);
     if (found) return found;
   }
   return null;
 }
 
-test("a launch without Discord running says nothing about Discord", () => {
-  assert.doesNotMatch(textOf(renderOutcome(false)), /Discord/u);
+test("without Discord running, Join offers nothing about Discord", () => {
+  assert.doesNotMatch(textOf(renderJoin({ discordRunning: false })), /Discord/u);
 });
 
-test("the first launch with Discord running asks once, and Show it turns the status on", async () => {
-  const root = renderOutcome(true);
-  assert.match(textOf(root), /Show this match in your Discord status\?/u);
+test("with Discord running, an unchecked toggle under Join shares once turned on", async () => {
+  const root = renderJoin({ discordRunning: true });
+  const control = byId(root, "join-discord-presence");
+  assert.equal(control.checked, false);
 
-  button(root, "Show it").dispatch("click");
+  control.dispatch("change", { target: { checked: true } });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(preferences().discordPresence, true);
@@ -434,5 +433,22 @@ test("the first launch with Discord running asks once, and Show it turns the sta
     bridge.calls.filter(({ command }) => command === "set_discord_presence").map(({ args }) => args.enabled),
     [true],
   );
-  assert.doesNotMatch(textOf(renderOutcome(true)), /Discord/u);
+  assert.equal(byId(renderJoin({ discordRunning: true }), "join-discord-presence").checked, true);
+});
+
+test("after launch, the toggle stays so the match already running can be shared", () => {
+  assert.ok(byId(renderJoin({ discordRunning: true, launched: true }), "join-discord-presence"));
+});
+
+test("Discord found after the pane drew still brings the toggle in", () => {
+  reset({ assessment: assessment("compatible") });
+  store.state.discordRunning = false;
+  const root = document.createElement("div");
+  const view = joinView(root, { onInstallServerFiles() {}, onJoin() {}, onRecheck() {}, onTogglePlayerAlert() {} });
+  view.render();
+  assert.equal(byId(root, "join-discord-presence"), null);
+
+  store.state.discordRunning = true;
+  view.render();
+  assert.ok(byId(root, "join-discord-presence"));
 });

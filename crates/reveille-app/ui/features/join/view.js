@@ -39,7 +39,9 @@ import {
   shortVersion,
 } from "../../lib/format.js";
 import { stateExplanation, stateName } from "./format.js";
-import { changeDiscordPresence, discordQuestionDue } from "./presence.js";
+import { changeDiscordPresence } from "./presence.js";
+import { preferences } from "../../lib/preferences.js";
+import { toggle } from "../settings/index.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../../lib/bookmarks.js";
 import { icon } from "../../lib/icons.js";
 import { closePopover, openPopover } from "../../lib/popover.js";
@@ -140,6 +142,8 @@ function paneSnapshot(row) {
       launchedLabel(historyByAddress().get(address)),
       allPlayersShown,
       moreOpen,
+      state.discordRunning,
+      preferences().discordPresence,
     ],
     (_key, value) => (value instanceof Map ? [...value] : value),
   );
@@ -854,26 +858,23 @@ function installItem(item) {
   );
 }
 
-function discordQuestion() {
-  const answer = (on) => () => {
-    void changeDiscordPresence(on);
-    update(() => {});
-  };
-  return el(
-    "div",
-    { className: "note" },
-    el(
-      "p",
-      null,
-      "Show this match in your Discord status? Your Discord friends would see the game and the server's name. You can change this in Settings.",
-    ),
-    el(
-      "div",
-      { className: "settings__row" },
-      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(true) }, "Show it"),
-      el("button", { type: "button", className: "btn btn--sm btn--utility", onclick: answer(false) }, "Don't show"),
-    ),
+/**
+ * Offered only while Discord runs, where the player decides to play. Shown after launch too, so
+ * the match already running can be shared.
+ */
+function discordToggle() {
+  if (!state.discordRunning) return null;
+  const control = toggle(
+    "join-discord-presence",
+    "Show in my Discord status",
+    preferences().discordPresence,
+    (on) => {
+      void changeDiscordPresence(on);
+      update(() => {});
+    },
   );
+  control.title = "Your Discord friends see the game and the server's name.";
+  return control;
 }
 
 function outcomeSection(result) {
@@ -898,7 +899,6 @@ function outcomeSection(result) {
         ? `${GAME_LABELS[result.game] ?? "The game"} is connecting. The server decides the rest: bans, a full server, and its own ping limits.`
         : result.outcome.reason,
     ),
-    launched && discordQuestionDue(result) ? discordQuestion() : null,
     installedLocations(result),
     result.used_home_fallback
       ? el(
@@ -1029,6 +1029,7 @@ function actionBar(row, onInstallServerFiles, onJoin) {
         { type: "button", className: "btn btn--block", onclick: () => update((next) => (next.joinResult = null)) },
         "Back to server details",
       ),
+      discordToggle(),
     ];
   }
 
@@ -1102,6 +1103,7 @@ function actionBar(row, onInstallServerFiles, onJoin) {
         busy ? "Working…" : joinLabel(kind, totals),
       ),
     ),
+    discordToggle(),
   );
   if (state.joinError) {
     rows.push(el("p", { className: "error", role: "alert" }, state.joinError));
