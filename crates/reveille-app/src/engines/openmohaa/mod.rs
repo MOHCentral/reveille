@@ -20,7 +20,8 @@ use reveille_platform as platform;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
-use super::{DownloadProgress, InstallGate};
+use super::{DownloadProgress, EngineFailureKind, InstallGate};
+use crate::telemetry::{EngineInstallOutcome, Event, Telemetry};
 use receipt::{installed_openmohaa_build, record_openmohaa_install};
 
 pub const EVENT: &str = "reveille://openmohaa-install";
@@ -133,45 +134,15 @@ pub enum OpenMohaaRunningProgram {
     Launcher,
 }
 
-/// Why an engine step stopped, classified once here rather than by matching message text.
-///
-/// The interface has to say what actually happened — a release that published no digest is not
-/// a corrupted download, and neither is a release that has no build for this machine. Reading
-/// that distinction out of a formatted `OpenMohaaError` string in JavaScript is how the two got
-/// merged, so the classification lives beside the errors it names. `detail` carries the original
-/// message for diagnosis; the shell chooses its own wording from `kind`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OpenMohaaFailureKind {
-    /// GitHub could not be reached or refused the request.
-    Unreachable,
-    /// The release exists but publishes nothing for this machine.
-    NoAssetForHost,
-    /// The release metadata is unusable — no digest, an ambiguous asset, no dev identity.
-    /// Nothing was downloaded, so retrying changes nothing.
-    ReleaseMetadata,
-    /// Bytes arrived but did not match the published size or digest.
-    CorruptDownload,
-    /// The archive itself was rejected before any file was written.
-    ArchiveRejected,
-    /// The player pressed Stop.
-    Cancelled,
-    /// Writing into the game folder failed; existing files were restored.
-    Filesystem,
-    /// A failure outside the release pipeline, carried through with its own message rather than
-    /// dressed up as one of the causes above.
-    Internal,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct OpenMohaaFailure {
-    kind: OpenMohaaFailureKind,
+    kind: EngineFailureKind,
     detail: String,
 }
 
 impl From<OpenMohaaError> for OpenMohaaFailure {
     fn from(error: OpenMohaaError) -> Self {
-        use OpenMohaaFailureKind as Kind;
+        use EngineFailureKind as Kind;
 
         let detail = match &error {
             OpenMohaaError::Filesystem { path, source }
@@ -218,14 +189,14 @@ impl OpenMohaaFailure {
     /// A failure outside the release pipeline: an unreadable folder, or a busy install lock.
     fn other(detail: &impl ToString) -> Self {
         Self {
-            kind: OpenMohaaFailureKind::Internal,
+            kind: EngineFailureKind::Internal,
             detail: detail.to_string(),
         }
     }
 
     fn no_asset_for_host(detail: &impl ToString) -> Self {
         Self {
-            kind: OpenMohaaFailureKind::NoAssetForHost,
+            kind: EngineFailureKind::NoAssetForHost,
             detail: detail.to_string(),
         }
     }
@@ -268,6 +239,38 @@ pub async fn install_openmohaa(
     app: tauri::AppHandle,
     gate: tauri::State<'_, InstallGate>,
     state: tauri::State<'_, OpenMohaaState>,
+    telemetry: tauri::State<'_, Telemetry>,
+) -> Result<OpenMohaaInstallResult, OpenMohaaFailure> {
+    let engine = EngineChoice::Openmohaa;
+    telemetry.track(&Event::EngineInstallStarted { engine });
+    let result = install_offer(&path, offer_id, &app, &gate, &state).await;
+    telemetry.track(&match &result {
+        Ok(installed) => Event::EngineInstallCompleted {
+            engine,
+            outcome: install_outcome(&installed.outcome),
+        },
+        Err(failure) => Event::EngineInstallFailed {
+            engine,
+            reason: failure.kind,
+        },
+    });
+    result
+}
+
+fn install_outcome(outcome: &UpdateOutcome) -> EngineInstallOutcome {
+    match outcome {
+        UpdateOutcome::Installed { .. } => EngineInstallOutcome::Installed,
+        UpdateOutcome::Updated { .. } => EngineInstallOutcome::Updated,
+        UpdateOutcome::Deferred { .. } => EngineInstallOutcome::Deferred,
+    }
+}
+
+async fn install_offer(
+    path: &str,
+    offer_id: OpenMohaaOfferId,
+    app: &tauri::AppHandle,
+    gate: &InstallGate,
+    state: &OpenMohaaState,
 ) -> Result<OpenMohaaInstallResult, OpenMohaaFailure> {
     platform::HostCapabilities::current()
         .require(EngineChoice::Openmohaa)
@@ -279,10 +282,10 @@ pub async fn install_openmohaa(
 
     // Re-identification prevents a stale or forged frontend path from becoming an arbitrary
     // archive extraction destination.
-    let installation = install::identify(&path).map_err(|error| OpenMohaaFailure::other(&error))?;
+    let installation = install::identify(path).map_err(|error| OpenMohaaFailure::other(&error))?;
     let target =
         ReleaseTarget::for_host().map_err(|error| OpenMohaaFailure::no_asset_for_host(&error))?;
-    let offer = cached_openmohaa_offer(&state, offer_id)?;
+    let offer = cached_openmohaa_offer(state, offer_id)?;
     if offer.installation_root != installation.root || offer.target != target {
         return Err(OpenMohaaFailure::other(
             &"the displayed OpenMoHAA offer does not belong to this game folder",
@@ -438,7 +441,7 @@ mod tests {
     };
 
     use super::{
-        OpenMohaaFailure, OpenMohaaFailureKind, OpenMohaaState, cache_openmohaa_offer,
+        EngineFailureKind, OpenMohaaFailure, OpenMohaaState, cache_openmohaa_offer,
         cached_openmohaa_offer,
     };
 
@@ -451,45 +454,45 @@ mod tests {
         let cases = [
             (
                 OpenMohaaError::MissingDigest("openmohaa.zip".to_owned()),
-                OpenMohaaFailureKind::ReleaseMetadata,
+                EngineFailureKind::ReleaseMetadata,
             ),
             (
                 OpenMohaaError::UnsupportedDigest("md5:00".to_owned()),
-                OpenMohaaFailureKind::ReleaseMetadata,
+                EngineFailureKind::ReleaseMetadata,
             ),
             (
                 OpenMohaaError::InvalidDigest("sha256:zz".to_owned()),
-                OpenMohaaFailureKind::ReleaseMetadata,
+                EngineFailureKind::ReleaseMetadata,
             ),
             (
                 OpenMohaaError::AmbiguousAsset(ReleaseSelector::stable(ReleaseTarget::WindowsX64)),
-                OpenMohaaFailureKind::ReleaseMetadata,
+                EngineFailureKind::ReleaseMetadata,
             ),
             (
                 OpenMohaaError::MissingAsset(ReleaseSelector::stable(ReleaseTarget::WindowsX64)),
-                OpenMohaaFailureKind::NoAssetForHost,
+                EngineFailureKind::NoAssetForHost,
             ),
             (
                 OpenMohaaError::DigestMismatch {
                     expected: digest,
                     actual: digest,
                 },
-                OpenMohaaFailureKind::CorruptDownload,
+                EngineFailureKind::CorruptDownload,
             ),
             (
                 OpenMohaaError::SizeMismatch {
                     expected: 1,
                     actual: 2,
                 },
-                OpenMohaaFailureKind::CorruptDownload,
+                EngineFailureKind::CorruptDownload,
             ),
             (
                 OpenMohaaError::DownloadCancelled,
-                OpenMohaaFailureKind::Cancelled,
+                EngineFailureKind::Cancelled,
             ),
             (
                 OpenMohaaError::EmptyArchive,
-                OpenMohaaFailureKind::ArchiveRejected,
+                EngineFailureKind::ArchiveRejected,
             ),
         ];
 

@@ -149,21 +149,33 @@ never sends anything.
 While it is on, Reveille sends these events to PostHog's EU region:
 
 - the app started, and the previous run crashed (with the Reveille version and a source file and
-  line, never the error text);
+  line, never the error text), and the first start after Reveille changed version (the previous
+  version);
+- a Reveille update was offered (once per run, with its version), started, cancelled or failed
+  (whether checking, downloading or installing failed);
 - a game folder was found (which games it holds), or the automatic search found none (once per
   run), and first-time setup finished (game and engine);
+- during first-time setup, a game folder was accepted or turned down (whether it was found
+  automatically, browsed to or typed, and for a refusal whether it held no game or could not be
+  read), and the folder needed a writable copy first;
+- installing OpenMoHAA or Reborn started, finished (installed, updated or postponed while the game
+  ran) or failed (the kind of failure, such as `unreachable` or `corrupt_download`);
 - the server list loaded (how many servers) or failed (the kind of failure);
 - a server was selected (once per run), and whether it was ready to join;
 - Maps & mods or Admin was opened (once per run each);
 - a map or mod download started, finished or failed (which kind of download, map or mod, how
   many, and for a failure the step that failed, such as `download` or `install`), and a package
   was removed (map or mod);
-- Join was pressed, the game started, or the join failed (with a short reason code such as
+- Join was pressed (and where from: a server list tab such as Favorites, an alert, or Maps &
+  mods), the game started, or the join failed (with a short reason code such as
   `engine_missing` or `download_failed`), and the game closed (whether it ran under a minute, up
   to ten minutes, or longer);
 - in Admin, a server was added or could not be (with the kind of failure, such as
   `bad_password`), and a command was sent (which kind, such as `kick` or `change_map`, and the
-  kind of failure if it failed) — never the command line, message, map, player or password.
+  kind of failure if it failed) — never the command line, message, map, player or password;
+- a server was watched or unwatched, or its alert's player count changed (the count only), and an
+  alert was shown or used (pop-up or system notification, and whether it was opened, joined or
+  snoozed).
 
 Every event carries a random installation ID, a random session ID (new for each launch, and after 30 idle minutes), the Reveille
 version, the operating system (`windows` or `macos`) and a timestamp. The installation ID is

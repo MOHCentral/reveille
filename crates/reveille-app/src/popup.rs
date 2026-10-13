@@ -16,6 +16,7 @@ use tauri::{
     WebviewWindow, WebviewWindowBuilder,
 };
 
+use crate::telemetry::{AlertActionKind, AlertVia, Event, Telemetry};
 use crate::{notice, tray};
 
 pub(crate) const LABEL: &str = "alert-popup";
@@ -97,6 +98,15 @@ pub async fn show_alert_popup(app: AppHandle, mut card: Card, sound: bool) -> Re
     };
     tracing::debug!(event_id = %card.event_id, sound, "showing an alert pop-up");
     let state = app.state::<PopupState>();
+    // The test alert is the only card with a title of its own.
+    if card.title.is_none() {
+        Telemetry::track_from(
+            &app,
+            &Event::AlertShown {
+                via: AlertVia::Popup,
+            },
+        );
+    }
     // One sound per batch: a card joining pop-ups already on screen stays quiet.
     card.chime = sound && !state.sounded.swap(true, Ordering::SeqCst);
     // `ready` is read under the queue's lock, so a card cannot be queued after the page drained it.
@@ -168,9 +178,16 @@ pub fn fit_alert_popup(app: AppHandle, height: f64) -> Result<(), String> {
 )]
 pub fn alert_popup_action(app: AppHandle, action: String, event_id: String) -> Result<(), String> {
     match action.as_str() {
-        "open" => notice::opened(&app, event_id, false),
-        "join" => notice::opened(&app, event_id, true),
+        "open" => notice::opened(&app, event_id, false, AlertVia::Popup),
+        "join" => notice::opened(&app, event_id, true, AlertVia::Popup),
         "snooze" => {
+            Telemetry::track_from(
+                &app,
+                &Event::AlertAction {
+                    via: AlertVia::Popup,
+                    action: AlertActionKind::Snooze,
+                },
+            );
             let _ = app.emit_to("main", SNOOZE_EVENT, ());
         }
         "more" => {

@@ -26,6 +26,14 @@ import { shoppingTotals } from "./view.js";
  */
 export const PREVIEW_SETTLE_MS = 220;
 
+/** The `JoinSource` a join started from the list reports, by the scope on screen. */
+const SCOPE_SOURCES = {
+  all: "server_list",
+  favorites: "favorites",
+  watching: "watching",
+  history: "history",
+};
+
 /**
  * Listen for install progress and return the join pane's controls.
  *
@@ -35,6 +43,8 @@ export const PREVIEW_SETTLE_MS = 220;
  */
 export function joinController({ showPane, focusJoin, onFilesChanged = () => {} }) {
   let previewTimer = null;
+  /** Where the selected server was opened from outside the list: `{ address, source }` or null. */
+  let origin = null;
 
   /** Preview progress for as long as `token` is the current selection. */
   const showPreviewProgress = (token) => (progress) => {
@@ -64,7 +74,13 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
     });
   });
 
-  function select(address) {
+  /**
+   * `source` names where a selection made outside the list came from. A reselection without one,
+   * as a refresh makes, keeps the origin of the same server.
+   */
+  function select(address, source = null) {
+    if (source) origin = { address, source };
+    else if (origin?.address !== address) origin = null;
     const token = generations.preview.next();
     if (previewTimer !== null) {
       clearTimeout(previewTimer);
@@ -101,8 +117,9 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
    * stops on the priced Join button, so no download starts without its size on screen and a second
    * Enter is the consent.
    */
-  function activate(address) {
-    if (state.selected !== address) select(address);
+  function activate(address, source = null) {
+    if (state.selected !== address) select(address, source);
+    else if (source) origin = { address, source };
     const row = selectedRow();
     if (!row) return;
     const ready = row.compatibility.state.state === "compatible";
@@ -194,6 +211,7 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
         row.address,
         selectedCandidateIds,
         acceptIncomplete,
+        joinSource(row.address),
       );
       // Only a launched outcome is remembered. A refusal means Reveille did not start the game,
       // so there is nothing that happened to record. The launch is recorded even
@@ -216,6 +234,11 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
         next.joinError = errorText(error);
       });
     }
+  }
+
+  function joinSource(address) {
+    if (origin?.address === address) return origin.source;
+    return SCOPE_SOURCES[state.scope] ?? "server_list";
   }
 
   return { select, activate, getServerFiles, getAndJoin };

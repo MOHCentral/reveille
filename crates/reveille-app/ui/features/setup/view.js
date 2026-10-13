@@ -9,6 +9,7 @@ import {
 } from "./api.js";
 import { ENGINE_LABELS, GAME_LABELS } from "../../lib/catalog.js";
 import { bytes, displayPath } from "../../lib/format.js";
+import { trackEvent } from "../../lib/shell.js";
 import { notify, state } from "../../lib/store.js";
 import {
   defaultGame, migrateInstallationPreferences, playableGames, recallEngine,
@@ -291,7 +292,7 @@ function copyProgress(storage, render) {
  */
 function manualBlock(render) {
   const use = el("button", { type: "button", className: "btn", disabled: view.manualPath.trim() === "",
-    onclick: () => void check(view.manualPath, render) }, "Use");
+    onclick: () => void check(view.manualPath, render, "typed") }, "Use");
   return el("div", { className: "stack" },
     el("p", { className: "setup__needs" },
       "Reveille needs the game files from your own copy of Medal of Honor: a disc install, GOG or the EA App. Pick the folder that contains a ",
@@ -302,7 +303,7 @@ function manualBlock(render) {
         el("span", { className: "sr-only" }, "Game folder path"),
         el("input", { id: "install-path", type: "text", autocomplete: "off", spellcheck: false, placeholder: "or paste its path here", value: view.manualPath,
           oninput: (event) => { view.manualPath = event.target.value; use.disabled = view.manualPath.trim() === ""; },
-          onkeydown: (event) => { if (event.key === "Enter" && view.manualPath.trim()) void check(view.manualPath, render); } })),
+          onkeydown: (event) => { if (event.key === "Enter" && view.manualPath.trim()) void check(view.manualPath, render, "typed"); } })),
       use));
 }
 
@@ -551,6 +552,7 @@ async function loadStorage(install, render) {
     if (token !== loadToken) return;
     view.storage = storage;
     view.copyDestination = storage.suggested_destination ?? null;
+    if (storage.status === "protected") trackSetup({ event: "setup_folder_protected" });
   } catch (error) {
     if (token !== loadToken) return;
     view.storage = { status: "unavailable" };
@@ -688,12 +690,15 @@ async function stopInstall(render) {
 
 async function browse(render) {
   view.error = null; render();
-  try { const folder = await pickInstallFolder(); if (folder) { view.manualPath = folder; await check(folder, render); } }
+  try { const folder = await pickInstallFolder(); if (folder) { view.manualPath = folder; await check(folder, render, "browsed"); } }
   catch (error) { view.error = errorText(error); render(); }
 }
 
-/** Read a folder the player chose. One that is not a game leaves any folder already found in place. */
-async function check(path, render) {
+/**
+ * Read a folder the player chose, `method` being "browsed" or "typed". One that is not a game
+ * leaves any folder already found in place.
+ */
+async function check(path, render, method) {
   const previous = view.candidate;
   view.busy = true; view.error = null; render();
   try {
@@ -702,13 +707,23 @@ async function check(path, render) {
       resetCandidate(); adoptCandidate(install); view.found = false;
       view.message = "Check the folder and pick how to run the game.";
       view.busy = false;
+      trackSetup({ event: "setup_folder_found", method });
       await Promise.all([loadOverview(install, render), loadStorage(install, render)]);
-    } else if (previous) view.error = "That folder holds no Medal of Honor game files.";
-    else view.message = "That folder holds no Medal of Honor game files.";
+    } else {
+      trackSetup({ event: "setup_folder_rejected", method, reason: "not_a_game" });
+      if (previous) view.error = "That folder holds no Medal of Honor game files.";
+      else view.message = "That folder holds no Medal of Honor game files.";
+    }
   } catch (error) {
+    trackSetup({ event: "setup_folder_rejected", method, reason: "unreadable" });
     view.error = errorText(error);
     if (!previous) view.message = "That folder could not be read.";
   } finally { view.busy = false; render(); }
+}
+
+/** The setup funnel counts first runs only; the change dialog is a later, different task. */
+function trackSetup(event) {
+  if (view.mode === "first-run" && !state.rememberedInstall) trackEvent(event);
 }
 
 /**
@@ -723,6 +738,7 @@ async function autoDetect(render) {
     install ??= await detectInstall(null);
     if (install) {
       adoptCandidate(install); view.found = true; view.manualPath = displayPath(install.root);
+      trackSetup({ event: "setup_folder_found", method: "automatic" });
       view.message = "Reveille found your game. Check the folder and pick how to run it.";
       await Promise.all([loadOverview(install, render), loadStorage(install, render)]);
       if (remembered && install.root === remembered && selectedAvailable() && view.storage?.status === "writable") await accept(render);

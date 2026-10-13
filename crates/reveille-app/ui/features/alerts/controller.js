@@ -7,6 +7,7 @@ import { $, el } from "../../lib/dom.js";
 import { openDialog } from "../../lib/dialog.js";
 import { popoverAnchor } from "../../lib/popover.js";
 import { preferences, setPreference } from "../../lib/preferences.js";
+import { trackEvent } from "../../lib/shell.js";
 import { state, subscribe, update } from "../../lib/store.js";
 import {
   clearPlayerAlertAttention,
@@ -29,7 +30,9 @@ import { arrivalTarget, bell } from "./bell.js";
 import { alertDetail } from "./format.js";
 import { openAlertsIntro } from "./intro.js";
 import { startPlayerAlertMonitor } from "./monitor.js";
-import { addPlayerAlert, alertId, hasPlayerAlert, playerAlerts, removePlayerAlert } from "./player-alerts.js";
+import {
+  addPlayerAlert, alertId, hasPlayerAlert, playerAlert, playerAlerts, removePlayerAlert,
+} from "./player-alerts.js";
 import { catchUpNotice, hiddenNotice, needsBackgroundWatching, trayTooltip } from "./reach.js";
 import { setCloseToTray, startAtLogin } from "../settings/index.js";
 
@@ -71,7 +74,7 @@ export function playerAlertsController({ onOpenWatching, changeStartAtLogin }) {
     });
     void onPlayerNotificationClick(({ eventId, join }) => {
       const event = arrivalById(eventId);
-      if (event) intents.openServer({ ...arrivalTarget(event), join: join === true });
+      if (event) intents.openServer({ ...arrivalTarget(event), join: join === true, source: "alert" });
     });
     void onPopupSnooze(() => {
       snoozedUntil = Date.now() + SNOOZE_MS;
@@ -184,6 +187,7 @@ export function playerAlertsController({ onOpenWatching, changeStartAtLogin }) {
     const game = state.game;
     if (hasPlayerAlert(game, row.address)) {
       forgetWatch(game, row.address);
+      trackEvent({ event: "alert_watch_removed" });
       return;
     }
     if (!addPlayerAlert(row, game, preferences().defaultThreshold)) {
@@ -191,6 +195,7 @@ export function playerAlertsController({ onOpenWatching, changeStartAtLogin }) {
         "Reveille could not save this server's alert. Try again after restarting the app."));
       return;
     }
+    trackEvent({ event: "alert_watch_added", threshold: playerAlert(game, row.address).threshold });
     keepWatchingInBackground();
     update(() => {});
     alertMonitor.checkNow();

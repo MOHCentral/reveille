@@ -33,8 +33,8 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
    * A background refresh can continue alongside the check and join. A second request made while
    * one is under way replaces it.
    */
-  function openServer({ game, address, queryPort, hostname, join = false }) {
-    pendingOpen = { game, address, queryPort, hostname, join };
+  function openServer({ game, address, queryPort, hostname, join = false, source = null }) {
+    pendingOpen = { game, address, queryPort, hostname, join, source };
     closeDialog();
     closePopover();
     // A refresh behind the list keeps its rows usable while the new readings arrive.
@@ -44,7 +44,7 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
       state.servers.some((row) => row.address === address)
     ) {
       reveal(address);
-      select(address);
+      select(address, source);
     }
     void focus().catch(() => {});
     void openPending();
@@ -54,7 +54,7 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
     if (opening || !pendingOpen || openServerUnavailableReason(pendingOpen.game)) return;
     opening = true;
     const pending = pendingOpen;
-    const { game, address, queryPort, hostname } = pending;
+    const { game, address, queryPort, hostname, source } = pending;
     pendingOpen = null;
     try {
       if (!state.install || !playableGames(state.install).includes(game)) {
@@ -72,14 +72,14 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
       if (pendingOpen) return;
       if (checked?.address === address && state.game === game) {
         reveal(address);
-        select(address);
+        select(address, source);
         if (pending.join && occupancy(checked.server).clients === 0) {
           openDialog("No players right now", el("p", null,
             `${hostname} has no players right now. It is selected in the list if you still want to join.`));
         } else if (pending.join) {
           // Join goes through the same path as a double-click, so a server that needs downloads
           // stops on its priced button rather than fetching anything.
-          activate(address);
+          activate(address, source);
         }
       } else {
         openDialog("Server unavailable", el("p", null,

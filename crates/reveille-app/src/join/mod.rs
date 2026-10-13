@@ -24,7 +24,7 @@ use tracing::info;
 
 use crate::session::{Session, installed_maps, session_search_path};
 use crate::telemetry::{
-    DownloadSource, Event, JoinFailureReason, MapFailure, MapFailureStage, Telemetry,
+    DownloadSource, Event, JoinFailureReason, JoinSource, MapFailure, MapFailureStage, Telemetry,
 };
 use crate::{catalogue, servers};
 use content::{
@@ -154,6 +154,7 @@ pub async fn install_and_launch(
     address: String,
     selected_candidate_ids: Vec<u64>,
     accept_incomplete: bool,
+    source: Option<JoinSource>,
     app: tauri::AppHandle,
     cache: tauri::State<'_, PreviewCache>,
     listing: tauri::State<'_, servers::Listing>,
@@ -164,6 +165,7 @@ pub async fn install_and_launch(
         game,
         engine,
         accept_incomplete,
+        source,
     });
     let result = join_and_launch(
         session,
