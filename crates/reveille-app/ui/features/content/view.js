@@ -30,6 +30,7 @@ import {
 } from "./format.js";
 import { fileKey, liveSummary, runningOn, selectedInstalled, selectedItem, visibleItems } from "./selectors.js";
 import { MODES, PLAYED_SORTS, SORTS, TABS } from "./state.js";
+import { screenshotViewer } from "./viewer.js";
 
 const MOH_DB = { maps: "https://www.moh-db.com/maps", mods: "https://www.moh-db.com/mods" };
 const SEARCH_DELAY_MS = 350;
@@ -41,6 +42,7 @@ const PLACEHOLDERS = {
 
 export function contentView({ controller, onShowServer, onJoinServer, onToggleDetail }) {
   let searchTimer = null;
+  const viewer = screenshotViewer({ controller });
   const search = el("input", {
     id: "content-search",
     type: "search",
@@ -669,6 +671,27 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
   function detailBody(item, index, running) {
     const preview = el("div", { className: "preview thumb" });
     paintThumb(preview, item, index);
+    if (item.image_count > 0) {
+      preview.classList.add("preview--openable");
+      // The whole picture opens the viewer for a pointer; the button is the keyboard's way in.
+      preview.addEventListener("click", (event) => {
+        if (!event.target.closest("button")) viewer.open(item);
+      });
+      preview.append(
+        el(
+          "button",
+          {
+            type: "button",
+            className: "preview__open",
+            "aria-label": "View screenshots full size",
+            title: "View full size (Space)",
+            dataset: { focusKey: "shot-open" },
+            onclick: () => viewer.open(item),
+          },
+          icon("expand", { outline: true }),
+        ),
+      );
+    }
     if (item.image_count > 1) {
       preview.append(
         el(
@@ -950,11 +973,12 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
     paintList();
     if (!state.detailCollapsed) paintDetail();
     paintStatus();
+    viewer.render();
   }
 
   /**
-   * Arrow keys move the selection; in cards, up and down move by a row of cards. Enter installs.
-   * One tab stop for the whole set, like the server table.
+   * Arrow keys move the selection; in cards, up and down move by a row of cards. Enter installs and
+   * Space shows the screenshots full size, as Quick Look does. One tab stop for the whole set, like the server table.
    */
   function onItemsKey(event) {
     const children = [...items.children];
@@ -978,6 +1002,10 @@ export function contentView({ controller, onShowServer, onJoinServer, onToggleDe
       event.preventDefault();
       const item = selectedItem();
       if (item) void controller.install(item);
+      return;
+    } else if (event.key === " " && at !== -1 && !installed) {
+      event.preventDefault();
+      viewer.open(selectedItem());
       return;
     } else if (event.key === "Delete" && at !== -1) {
       event.preventDefault();

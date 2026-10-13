@@ -312,8 +312,51 @@
 /* Detail pane -------------------------------------------------------------- */
 
 .preview {
-  height: 170px;
+  /* moh-db's screenshots are mostly 4:3; the pane shows them whole rather than a cropped strip. */
+  aspect-ratio: 4 / 3;
   background: linear-gradient(170deg, #3a4542 0 40%, #232b28 41%);
+}
+
+.preview:not(.thumb--empty) {
+  background: var(--void);
+}
+
+.preview img {
+  object-fit: contain;
+}
+
+.preview--openable {
+  cursor: zoom-in;
+}
+
+.preview__open {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgb(9 11 14 / 55%);
+  color: var(--ink);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.preview__open .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.preview:hover .preview__open,
+.preview__open:focus-visible {
+  opacity: 1;
+}
+
+.preview__open:hover {
+  background: rgb(9 11 14 / 85%);
 }
 
 .preview .thumb__name {
@@ -437,4 +480,161 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   vertical-align: 1px;
+}
+
+/* Screenshot viewer -------------------------------------------------------- */
+
+.viewer[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.viewer {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgb(6 8 11 / 97%);
+  box-shadow: none;
+}
+
+.viewer::backdrop {
+  background: transparent;
+}
+
+.viewer__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-5);
+}
+
+.viewer__title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer__count {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+
+.viewer__tools {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.viewer__close {
+  width: 32px;
+  height: 32px;
+}
+
+.viewer__body {
+  position: relative;
+  min-height: 0;
+}
+
+.viewer__stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  padding: var(--space-2) 64px;
+  overflow: hidden;
+}
+
+/* Auto margins centre the screenshot and, unlike centring the flex box, still let the scroll reach
+   its top-left corner once it is larger than the window. */
+.viewer__image {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  user-select: none;
+}
+
+.viewer__stage--zoomable .viewer__image {
+  cursor: zoom-in;
+}
+
+.viewer--actual .viewer__stage {
+  overflow: auto;
+  cursor: grab;
+}
+
+.viewer--actual .viewer__image {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+.viewer--actual .viewer__stage--dragging,
+.viewer--actual .viewer__stage--dragging .viewer__image {
+  cursor: grabbing;
+}
+
+.viewer__note {
+  margin: auto;
+  color: var(--faint);
+}
+
+.viewer__step {
+  position: absolute;
+  top: 50%;
+  width: 40px;
+  height: 56px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: rgb(26 31 38 / 80%);
+  color: var(--ink);
+  font-size: 26px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.viewer__step:hover {
+  background: var(--rise);
+}
+
+.viewer__step--previous {
+  left: var(--space-3);
+}
+
+.viewer__step--next {
+  right: var(--space-3);
+}
+
+.viewer__strip {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow-x: auto;
+}
+
+.viewer__pick {
+  flex: none;
+  width: 96px;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  opacity: 0.6;
+}
+
+.viewer__pick:hover {
+  opacity: 1;
+}
+
+.viewer__pick[aria-current="true"] {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 1px var(--brass);
+  opacity: 1;
 }

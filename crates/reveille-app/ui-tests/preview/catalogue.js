@@ -89,9 +89,10 @@ function slug(title) {
 
 const svg = ([top, bottom], index) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" fill="${bottom}"/>` +
-      `<path d="M0 0H320V${70 + index * 14}L0 ${100 - index * 10}Z" fill="${top}"/>` +
-      `<ellipse cx="${90 + index * 50}" cy="140" rx="60" ry="16" fill="rgba(0,0,0,0.18)"/></svg>`,
+    // 1024×768, the size most moh-db screenshots are, so the viewer's Actual size has pixels to show.
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 320 240"><rect width="320" height="240" fill="${bottom}"/>` +
+      `<path d="M0 0H320V${100 + index * 14}L0 ${130 - index * 10}Z" fill="${top}"/>` +
+      `<ellipse cx="${90 + index * 50}" cy="185" rx="60" ry="16" fill="rgba(0,0,0,0.18)"/></svg>`,
   )}`;
 
 const plain = ({ colours, ...item }) => structuredClone(item);
