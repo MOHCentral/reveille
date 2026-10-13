@@ -15,7 +15,8 @@ use reveille_core::discovery::TargetGame;
 use serde_json::{Value, json};
 use tauri::Manager;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tracing::debug;
+use tokio::sync::oneshot;
+use tracing::{debug, info, warn};
 
 /// The Reveille application in the Discord Developer Portal. An application ID is public.
 const CLIENT_ID: &str = "1559612097757839461";
@@ -49,8 +50,11 @@ pub struct MatchId(u64);
 /// its status. Off until the player says otherwise.
 #[derive(Default)]
 pub struct Presence {
-    state: Mutex<State<Pipe>>,
+    state: Mutex<State<Hold>>,
 }
+
+/// Holds a status open: dropping it stops the task that owns Discord's connection, which closes it.
+type Hold = oneshot::Sender<()>;
 
 /// An exchange to start with Discord: show `activity`, keeping the connection only if `attempt`
 /// is still the latest when it answers.
@@ -236,20 +240,57 @@ fn busy(_: &io::Error) -> bool {
 fn publish(app: &tauri::AppHandle, Publish { attempt, activity }: Publish) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let exchange = async {
-            let mut pipe = connect().await?;
-            set_activity(&mut pipe, &activity, &uuid::Uuid::new_v4().to_string()).await?;
-            io::Result::Ok(pipe)
-        };
-        let pipe = match tokio::time::timeout(DEADLINE, exchange).await {
+        let mut pipe = match tokio::time::timeout(DEADLINE, connect()).await {
             Ok(Ok(pipe)) => pipe,
-            Ok(Err(error)) => return debug!(%error, "Discord did not take the activity"),
-            Err(_) => return debug!("Discord did not answer in time"),
+            // Discord not running here is the ordinary case, not a fault.
+            Ok(Err(error)) => return debug!(%error, "Discord is not listening"),
+            Err(_) => return warn!("Discord did not accept the connection in time"),
         };
-        if let Ok(mut state) = app.state::<Presence>().state.lock() {
-            state.keep(attempt, pipe);
+        let nonce = uuid::Uuid::new_v4().to_string();
+        match tokio::time::timeout(DEADLINE, set_activity(&mut pipe, &activity, &nonce)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return warn!(%error, "Discord refused the activity"),
+            Err(_) => return warn!("Discord did not answer the activity in time"),
+        }
+        let (hold, stop) = oneshot::channel();
+        let kept = app
+            .state::<Presence>()
+            .state
+            .lock()
+            .is_ok_and(|mut state| state.keep(attempt, hold));
+        if kept && serve(&mut pipe, stop).await == Served::Closed {
+            info!("Discord closed the status connection");
         }
     });
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Served {
+    /// The status was ended from this side.
+    Stopped,
+    /// Discord closed or broke the connection.
+    Closed,
+}
+
+/// Keep the connection that holds the status: answer Discord's pings, and notice when it goes.
+async fn serve(
+    stream: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    mut stop: oneshot::Receiver<()>,
+) -> Served {
+    loop {
+        tokio::select! {
+            _ = &mut stop => return Served::Stopped,
+            frame = read_frame(stream) => match frame {
+                Ok((PING, body)) => {
+                    if write_frame(stream, PONG, &body).await.is_err() {
+                        return Served::Closed;
+                    }
+                }
+                Ok((FRAME, _)) => {}
+                Ok(_) | Err(_) => return Served::Closed,
+            },
+        }
+    }
 }
 
 async fn set_activity(
@@ -472,6 +513,31 @@ mod tests {
         assert!(state.keep(next.attempt, "pipe"));
         state.end(first);
         assert_eq!(state.connection, Some("pipe"));
+    }
+
+    #[tokio::test]
+    async fn a_held_status_answers_pings_until_it_is_dropped() {
+        let (mut ours, mut discord) = tokio::io::duplex(1024);
+        let (hold, stop) = oneshot::channel();
+        let served = tokio::spawn(async move { serve(&mut ours, stop).await });
+
+        write_frame(&mut discord, PING, &json!({ "n": 1 }))
+            .await
+            .expect("ping");
+        assert_eq!(
+            read_frame(&mut discord).await.expect("pong"),
+            (PONG, json!({ "n": 1 }))
+        );
+        drop(hold);
+        assert_eq!(served.await.expect("served"), Served::Stopped);
+    }
+
+    #[tokio::test]
+    async fn a_held_status_notices_discord_leaving() {
+        let (mut ours, discord) = tokio::io::duplex(1024);
+        let (_hold, stop) = oneshot::channel();
+        drop(discord);
+        assert_eq!(serve(&mut ours, stop).await, Served::Closed);
     }
 
     #[tokio::test]

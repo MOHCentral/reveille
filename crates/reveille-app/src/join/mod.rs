@@ -416,6 +416,43 @@ const CLIENT_POLL: std::time::Duration = std::time::Duration::from_secs(15);
 /// Unreadable process lists in a row, once a client was seen, before the match counts as over.
 const UNKNOWN_POLLS: u32 = 3;
 
+/// What one reading of the process list says about the match.
+#[derive(Debug, PartialEq, Eq)]
+enum Reading {
+    Playing,
+    /// No client runs: the match ended at this reading.
+    Ended,
+    /// The list stayed unreadable: the match ended at the last reading that saw a client.
+    Lost,
+}
+
+/// Follows the process list after the spawned program exits. A store bootstrap or an already-open
+/// game takes over and the program exits at once; the match lasts as long as any game client is
+/// still running. A list that cannot be read says nothing, so a running match survives a few of
+/// them, but a platform that can never read it ends the match when the program exits, as before.
+#[derive(Default)]
+struct ClientWatch {
+    seen: bool,
+    unknown: u32,
+}
+
+impl ClientWatch {
+    fn read(&mut self, running: Option<bool>) -> Reading {
+        match running {
+            Some(true) => {
+                (self.seen, self.unknown) = (true, 0);
+                Reading::Playing
+            }
+            None if self.seen && self.unknown < UNKNOWN_POLLS => {
+                self.unknown += 1;
+                Reading::Playing
+            }
+            None if self.seen => Reading::Lost,
+            Some(false) | None => Reading::Ended,
+        }
+    }
+}
+
 /// Report how long the game ran once it closes. A thread rather than a task: `wait` blocks for the
 /// whole match.
 fn watch_game_exit(
@@ -428,27 +465,26 @@ fn watch_game_exit(
     let started = Instant::now();
     std::thread::spawn(move || {
         if child.wait().is_ok() {
-            // A store bootstrap or an already-open game takes over and the spawned program exits
-            // at once; the match lasts as long as any game client is still running. A list that
-            // cannot be read says nothing, so a running match survives a few of them, but a
-            // platform that can never read it ends the match when the program exits, as before.
-            let mut seen = false;
-            let mut unknown = 0;
-            loop {
-                match platform::game_client_running() {
-                    Some(true) => (seen, unknown) = (true, 0),
-                    None if seen && unknown < UNKNOWN_POLLS => unknown += 1,
-                    Some(false) | None => break,
+            let mut watch = ClientWatch::default();
+            let mut last_seen = Instant::now();
+            let ended = loop {
+                let running = platform::game_client_running();
+                match watch.read(running) {
+                    Reading::Playing if running == Some(true) => last_seen = Instant::now(),
+                    Reading::Playing => {}
+                    Reading::Ended => break Instant::now(),
+                    // The unreadable polls are not play time.
+                    Reading::Lost => break last_seen,
                 }
                 std::thread::sleep(CLIENT_POLL);
-            }
+            };
             if let Some(id) = presence {
                 presence::end(&app, id);
             }
             app.state::<Telemetry>().track(&Event::GameExited {
                 game,
                 engine,
-                played: started.elapsed().into(),
+                played: ended.duration_since(started).into(),
             });
         }
     });
@@ -511,10 +547,41 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        DownloadSource, Event, InstallFailure, JoinFailureReason, MapFailureStage, failed,
-        launch_refusal, refusal_reason,
+        ClientWatch, DownloadSource, Event, InstallFailure, JoinFailureReason, MapFailureStage,
+        Reading, UNKNOWN_POLLS, failed, launch_refusal, refusal_reason,
     };
     use crate::telemetry::MapDownloadError;
+
+    #[test]
+    fn a_game_that_closes_ends_the_match_at_once() {
+        let mut watch = ClientWatch::default();
+        assert_eq!(watch.read(Some(true)), Reading::Playing);
+        assert_eq!(watch.read(Some(false)), Reading::Ended);
+    }
+
+    #[test]
+    fn a_launcher_that_exits_before_its_game_starts_ends_the_match() {
+        assert_eq!(ClientWatch::default().read(Some(false)), Reading::Ended);
+    }
+
+    #[test]
+    fn a_platform_that_cannot_read_the_list_ends_the_match_when_the_program_exits() {
+        assert_eq!(ClientWatch::default().read(None), Reading::Ended);
+    }
+
+    #[test]
+    fn a_running_match_survives_a_few_unreadable_lists() {
+        let mut watch = ClientWatch::default();
+        watch.read(Some(true));
+        for _ in 0..UNKNOWN_POLLS {
+            assert_eq!(watch.read(None), Reading::Playing);
+        }
+        assert_eq!(watch.read(Some(true)), Reading::Playing);
+        for _ in 0..UNKNOWN_POLLS {
+            assert_eq!(watch.read(None), Reading::Playing);
+        }
+        assert_eq!(watch.read(None), Reading::Lost);
+    }
 
     fn assessment(
         state: CompatibilityState,
