@@ -107,3 +107,9 @@ export const installAndLaunch = (session, address, selectedCandidateIds, acceptI
 
 /** @param {(progress: InstallProgress) => void} handler */
 export const onInstallProgress = (handler) => listen("reveille://install", handler);
+
+/** @returns {Promise<boolean>} */
+export const discordRunning = () => invoke("discord_running");
+
+/** @param {boolean} enabled */
+export const setDiscordPresence = (enabled) => invoke("set_discord_presence", { enabled });

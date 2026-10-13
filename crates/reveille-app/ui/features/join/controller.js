@@ -10,6 +10,7 @@ import { joinsDirectly, rememberReadyJoin, retainBackgroundRow, selectedRow } fr
 import {
   installAndLaunch,
   installServerFiles,
+  discordRunning,
   onInstallProgress,
   previewJoin,
 } from "./api.js";
@@ -25,6 +26,9 @@ import { shoppingTotals } from "./view.js";
  * deliberate selection does not feel delayed.
  */
 export const PREVIEW_SETTLE_MS = 220;
+
+/** Discord can start or quit at any time; rechecking more often than this on selection buys nothing. */
+const DISCORD_CHECK_MS = 10_000;
 
 /** The `JoinSource` a join started from the list reports, by the scope on screen. */
 const SCOPE_SOURCES = {
@@ -45,6 +49,20 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
   let previewTimer = null;
   /** Where the selected server was opened from outside the list: `{ address, source }` or null. */
   let origin = null;
+  let discordCheckedAt = -Infinity;
+
+  async function checkDiscord() {
+    const now = Date.now();
+    if (now - discordCheckedAt < DISCORD_CHECK_MS) return;
+    discordCheckedAt = now;
+    let running = false;
+    try {
+      running = (await discordRunning()) === true;
+    } catch {
+      // Without the shell there is no Discord to offer.
+    }
+    if (state.discordRunning !== running) update((next) => (next.discordRunning = running));
+  }
 
   /** Preview progress for as long as `token` is the current selection. */
   const showPreviewProgress = (token) => (progress) => {
@@ -97,6 +115,7 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
       next.joinError = null;
     });
 
+    void checkDiscord();
     const row = selectedRow();
     if (row) trackEvent({ event: "server_selected", ready: row.compatibility.state.state === "compatible" });
     // Nothing to resolve: the map list is already satisfied, or there is none.
@@ -241,5 +260,5 @@ export function joinController({ showPane, focusJoin, onFilesChanged = () => {} 
     return SCOPE_SOURCES[state.scope] ?? "server_list";
   }
 
-  return { select, activate, getServerFiles, getAndJoin };
+  return { select, activate, getServerFiles, getAndJoin, checkDiscord };
 }

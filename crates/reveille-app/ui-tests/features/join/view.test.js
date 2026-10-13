@@ -5,11 +5,14 @@ import assert from "node:assert/strict";
 
 import { installDom } from "../../fakes/dom.js";
 import { installStorage } from "../../fakes/storage.js";
+import { installTauri } from "../../fakes/tauri.js";
 
 const document = installDom();
 installStorage();
+const bridge = installTauri();
 const store = await import("../../../ui/lib/store.js");
 const { joinView } = await import("../../../ui/features/join/view.js");
+const { preferences } = await import("../../../ui/lib/preferences.js");
 const { initial: serversState } = await import("../../../ui/features/servers/index.js");
 const { initial: joinState } = await import("../../../ui/features/join/index.js");
 // The pane reads the server list's rows, selection and checks beside its own keys.
@@ -377,4 +380,75 @@ test("the server refresh control explains its disabled state and restores after 
   view.render();
   assert.notEqual(reload().getAttribute("aria-disabled"), "true");
   assert.doesNotMatch(reload().title, /wait/iu);
+});
+
+/* Sharing on Discord ---------------------------------------------------------*/
+
+function renderJoin({ discordRunning, launched = false }) {
+  reset({ assessment: assessment("compatible") });
+  store.state.discordRunning = discordRunning;
+  store.state.joinResult = launched
+    ? {
+        address: ADDRESS,
+        assessment: assessment("compatible"),
+        installed: [],
+        install_directories: [],
+        failures: [],
+        game_directory: null,
+        used_home_fallback: false,
+        engine: "openmohaa",
+        game: "allied_assault",
+        outcome: { launch: "launched", process_id: 1 },
+      }
+    : null;
+  const root = document.createElement("div");
+  joinView(root, { onInstallServerFiles() {}, onJoin() {}, onRecheck() {}, onTogglePlayerAlert() {} }).render();
+  return root;
+}
+
+function byId(node, id) {
+  for (const child of node.children ?? []) {
+    if (typeof child !== "object") continue;
+    if (child.id === id) return child;
+    const found = byId(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+test("without Discord running, Join offers nothing about Discord", () => {
+  assert.doesNotMatch(textOf(renderJoin({ discordRunning: false })), /Discord/u);
+});
+
+test("with Discord running, an unchecked toggle under Join shares once turned on", async () => {
+  const root = renderJoin({ discordRunning: true });
+  const control = byId(root, "join-discord-presence");
+  assert.equal(control.checked, false);
+
+  control.dispatch("change", { target: { checked: true } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(preferences().discordPresence, true);
+  assert.deepEqual(
+    bridge.calls.filter(({ command }) => command === "set_discord_presence").map(({ args }) => args.enabled),
+    [true],
+  );
+  assert.equal(byId(renderJoin({ discordRunning: true }), "join-discord-presence").checked, true);
+});
+
+test("after launch, the toggle stays so the match already running can be shared", () => {
+  assert.ok(byId(renderJoin({ discordRunning: true, launched: true }), "join-discord-presence"));
+});
+
+test("Discord found after the pane drew still brings the toggle in", () => {
+  reset({ assessment: assessment("compatible") });
+  store.state.discordRunning = false;
+  const root = document.createElement("div");
+  const view = joinView(root, { onInstallServerFiles() {}, onJoin() {}, onRecheck() {}, onTogglePlayerAlert() {} });
+  view.render();
+  assert.equal(byId(root, "join-discord-presence"), null);
+
+  store.state.discordRunning = true;
+  view.render();
+  assert.ok(byId(root, "join-discord-presence"));
 });

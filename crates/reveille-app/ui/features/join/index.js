@@ -2,6 +2,7 @@
 
 // The detail pane: previewing the selected server's join, fetching what it needs, and starting it.
 
+import { syncDiscordPresence } from "./presence.js";
 import { initial } from "./state.js";
 
-export { initial };
+export { initial, syncDiscordPresence };

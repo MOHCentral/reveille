@@ -22,6 +22,7 @@ use tauri::Manager;
 use tauri::ipc::Channel;
 use tracing::info;
 
+use crate::presence::{self, Activity, MatchId};
 use crate::session::{Session, installed_maps, session_search_path};
 use crate::telemetry::{
     DownloadSource, Event, JoinFailureReason, JoinSource, MapFailure, MapFailureStage, Telemetry,
@@ -299,7 +300,7 @@ async fn join_and_launch(
     let outcome = if let Some(reason) = launch_refusal(&assessment, accept_incomplete) {
         LaunchOutcome::Refused { reason }
     } else {
-        launch(&session, preview.address, app)?
+        launch(&session, preview.address, &server.hostname, app)?
     };
     let install_directories = unique_parent_directories(&installed);
     info!(assessment_state = ?assessment.state, "install-and-launch flow completed");
@@ -370,6 +371,7 @@ fn download_outcome(
 fn launch(
     session: &Session,
     address: SocketAddrV4,
+    hostname: &str,
     app: &tauri::AppHandle,
 ) -> Result<LaunchOutcome, JoinFailure> {
     use JoinFailureReason as Reason;
@@ -397,11 +399,59 @@ fn launch(
     .map_err(failed(Reason::LaunchFailed))?;
     let child = platform::launch_client(&command, kind).map_err(failed(Reason::LaunchFailed))?;
     let process_id = child.id();
-    watch_game_exit(child, session.game, session.engine, app.clone());
+    // Begun before the watcher starts, so a game that closes at once still ends its own status.
+    let presence = presence::begin(
+        app,
+        Activity {
+            game: session.game,
+            server: hostname.to_owned(),
+            started: std::time::SystemTime::now(),
+        },
+    );
+    watch_game_exit(child, session.game, session.engine, presence, app.clone());
     Ok(LaunchOutcome::Launched { process_id })
 }
 
 const CLIENT_POLL: std::time::Duration = std::time::Duration::from_secs(15);
+/// Unreadable process lists in a row, once a client was seen, before the match counts as over.
+const UNKNOWN_POLLS: u32 = 3;
+
+/// What one reading of the process list says about the match.
+#[derive(Debug, PartialEq, Eq)]
+enum Reading {
+    Playing,
+    /// No client runs: the match ended at this reading.
+    Ended,
+    /// The list stayed unreadable: the match ended at the last reading that saw a client.
+    Lost,
+}
+
+/// Follows the process list after the spawned program exits. A store bootstrap or an already-open
+/// game takes over and the program exits at once; the match lasts as long as any game client is
+/// still running. A list that cannot be read says nothing, so a running match survives a few of
+/// them, but a platform that can never read it ends the match when the program exits, as before.
+#[derive(Default)]
+struct ClientWatch {
+    seen: bool,
+    unknown: u32,
+}
+
+impl ClientWatch {
+    fn read(&mut self, running: Option<bool>) -> Reading {
+        match running {
+            Some(true) => {
+                (self.seen, self.unknown) = (true, 0);
+                Reading::Playing
+            }
+            None if self.seen && self.unknown < UNKNOWN_POLLS => {
+                self.unknown += 1;
+                Reading::Playing
+            }
+            None if self.seen => Reading::Lost,
+            Some(false) | None => Reading::Ended,
+        }
+    }
+}
 
 /// Report how long the game ran once it closes. A thread rather than a task: `wait` blocks for the
 /// whole match.
@@ -409,20 +459,32 @@ fn watch_game_exit(
     mut child: std::process::Child,
     game: TargetGame,
     engine: EngineChoice,
+    presence: Option<MatchId>,
     app: tauri::AppHandle,
 ) {
     let started = Instant::now();
     std::thread::spawn(move || {
         if child.wait().is_ok() {
-            // A store bootstrap or an already-open game takes over and the spawned program exits
-            // at once; the match lasts as long as any game client is still running.
-            while platform::game_client_running() == Some(true) {
+            let mut watch = ClientWatch::default();
+            let mut last_seen = Instant::now();
+            let ended = loop {
+                let running = platform::game_client_running();
+                match watch.read(running) {
+                    Reading::Playing if running == Some(true) => last_seen = Instant::now(),
+                    Reading::Playing => {}
+                    Reading::Ended => break Instant::now(),
+                    // The unreadable polls are not play time.
+                    Reading::Lost => break last_seen,
+                }
                 std::thread::sleep(CLIENT_POLL);
+            };
+            if let Some(id) = presence {
+                presence::end(&app, id);
             }
             app.state::<Telemetry>().track(&Event::GameExited {
                 game,
                 engine,
-                played: started.elapsed().into(),
+                played: ended.duration_since(started).into(),
             });
         }
     });
@@ -485,10 +547,41 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        DownloadSource, Event, InstallFailure, JoinFailureReason, MapFailureStage, failed,
-        launch_refusal, refusal_reason,
+        ClientWatch, DownloadSource, Event, InstallFailure, JoinFailureReason, MapFailureStage,
+        Reading, UNKNOWN_POLLS, failed, launch_refusal, refusal_reason,
     };
     use crate::telemetry::MapDownloadError;
+
+    #[test]
+    fn a_game_that_closes_ends_the_match_at_once() {
+        let mut watch = ClientWatch::default();
+        assert_eq!(watch.read(Some(true)), Reading::Playing);
+        assert_eq!(watch.read(Some(false)), Reading::Ended);
+    }
+
+    #[test]
+    fn a_launcher_that_exits_before_its_game_starts_ends_the_match() {
+        assert_eq!(ClientWatch::default().read(Some(false)), Reading::Ended);
+    }
+
+    #[test]
+    fn a_platform_that_cannot_read_the_list_ends_the_match_when_the_program_exits() {
+        assert_eq!(ClientWatch::default().read(None), Reading::Ended);
+    }
+
+    #[test]
+    fn a_running_match_survives_a_few_unreadable_lists() {
+        let mut watch = ClientWatch::default();
+        watch.read(Some(true));
+        for _ in 0..UNKNOWN_POLLS {
+            assert_eq!(watch.read(None), Reading::Playing);
+        }
+        assert_eq!(watch.read(Some(true)), Reading::Playing);
+        for _ in 0..UNKNOWN_POLLS {
+            assert_eq!(watch.read(None), Reading::Playing);
+        }
+        assert_eq!(watch.read(None), Reading::Lost);
+    }
 
     fn assessment(
         state: CompatibilityState,

@@ -39,6 +39,9 @@ import {
   shortVersion,
 } from "../../lib/format.js";
 import { stateExplanation, stateName } from "./format.js";
+import { changeDiscordPresence } from "./presence.js";
+import { preferences } from "../../lib/preferences.js";
+import { toggle } from "../settings/index.js";
 import { historyByAddress, isFavorite, toggleFavorite } from "../../lib/bookmarks.js";
 import { icon } from "../../lib/icons.js";
 import { closePopover, openPopover } from "../../lib/popover.js";
@@ -139,6 +142,8 @@ function paneSnapshot(row) {
       launchedLabel(historyByAddress().get(address)),
       allPlayersShown,
       moreOpen,
+      state.discordRunning,
+      preferences().discordPresence,
     ],
     (_key, value) => (value instanceof Map ? [...value] : value),
   );
@@ -853,6 +858,25 @@ function installItem(item) {
   );
 }
 
+/**
+ * Offered only while Discord runs, where the player decides to play. Shown after launch too, so
+ * the match already running can be shared.
+ */
+function discordToggle() {
+  if (!state.discordRunning) return null;
+  const control = toggle(
+    "join-discord-presence",
+    "Show in my Discord status",
+    preferences().discordPresence,
+    (on) => {
+      void changeDiscordPresence(on);
+      update(() => {});
+    },
+  );
+  control.title = "Your Discord friends see the game and the server's name.";
+  return control;
+}
+
 function outcomeSection(result) {
   const launched = result.outcome.launch === "launched";
   return el(
@@ -1005,6 +1029,7 @@ function actionBar(row, onInstallServerFiles, onJoin) {
         { type: "button", className: "btn btn--block", onclick: () => update((next) => (next.joinResult = null)) },
         "Back to server details",
       ),
+      discordToggle(),
     ];
   }
 
@@ -1078,6 +1103,7 @@ function actionBar(row, onInstallServerFiles, onJoin) {
         busy ? "Working…" : joinLabel(kind, totals),
       ),
     ),
+    discordToggle(),
   );
   if (state.joinError) {
     rows.push(el("p", { className: "error", role: "alert" }, state.joinError));

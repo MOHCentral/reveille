@@ -31,7 +31,8 @@ import { initial as contentState, installShare } from "./features/content/index.
 import { contentController } from "./features/content/controller.js";
 import { contentView } from "./features/content/view.js";
 import { joinController } from "./features/join/controller.js";
-import { initial as joinState } from "./features/join/index.js";
+import { initial as joinState, syncDiscordPresence } from "./features/join/index.js";
+import { discordSettingsSection } from "./features/join/settings-section.js";
 import { initial as selfUpdateState, selfUpdate } from "./features/self-update/index.js";
 import { aboutSettingsSection } from "./features/self-update/settings-section.js";
 import { initial as serversState } from "./features/servers/index.js";
@@ -81,7 +82,7 @@ state.rememberedInstall = recallInstall();
 // A remembered folder means setup finished on an earlier run, so its automatic Continue is not one.
 let firstRun = !state.rememberedInstall;
 
-const { select, activate, getServerFiles, getAndJoin } = joinController({
+const { select, activate, getServerFiles, getAndJoin, checkDiscord } = joinController({
   showPane: toggleDetail,
   focusJoin: (address) => join.focusJoin(address),
   onFilesChanged: () => catalogue.forget(),
@@ -229,6 +230,9 @@ $("#info-dialog-close").addEventListener("click", closeDialog);
 alerts.start(intents);
 subscribe(render);
 window.addEventListener("focus", refreshOnReturn);
+// A selection restored at start, or Discord opened while Reveille was in the background, would
+// otherwise wait for the next selection to offer sharing.
+window.addEventListener("focus", () => void checkDiscord());
 
 /* Titlebar menus ------------------------------------------------------------ */
 
@@ -306,6 +310,7 @@ async function openAppSettings() {
       },
     }),
     serverListSettingsSection(),
+    discordSettingsSection(),
     adminSettingsSection({ controller: admin, onAdded: () => showSection("admin") }),
     installSettingsSection({
       engine,
@@ -661,6 +666,8 @@ document.addEventListener("keydown", (event) => {
 
 notify();
 if (preferences().closeToTray) alerts.syncCloseToTray(true);
+void syncDiscordPresence();
+void checkDiscord();
 alerts.keepWatchingInBackground();
 setup.detect();
 void updates.find();

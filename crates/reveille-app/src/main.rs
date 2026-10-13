@@ -38,6 +38,7 @@ mod join;
 mod logs;
 mod notice;
 mod popup;
+mod presence;
 mod self_update;
 mod servers;
 mod session;
@@ -91,6 +92,7 @@ fn main() {
             engines::register(app);
             servers::register(app);
             join::register(app);
+            presence::register(app);
             catalogue::register(app);
             admin::register(app);
             self_update::register(app);
@@ -122,6 +124,9 @@ fn main() {
             join::preview_join,
             join::content::install_server_files,
             join::install_and_launch,
+            // presence
+            presence::set_discord_presence,
+            presence::discord_running,
             // catalogue
             catalogue::browse_catalogue,
             catalogue::catalogue_image,

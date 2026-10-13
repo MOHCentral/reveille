@@ -2,11 +2,13 @@
 
 [[set]]
 identifier = "shell"
-description = "Start at sign-in, the tray and the log files."
+description = "Start at sign-in, the tray, the Discord status and the log files."
 permissions = [
   "allow-start-at-login",
   "allow-set-start-at-login",
   "allow-set-close-to-tray",
+  "allow-set-discord-presence",
+  "allow-discord-running",
   "allow-set-tray-tooltip",
   "allow-app-log-files",
 ]
