@@ -299,11 +299,17 @@ export function contentController() {
     }
   }
 
-  /** Step the detail pane's screenshot by `delta`, wrapping at either end. */
+  /** Step the shown screenshot by `delta`, wrapping at either end. */
   function showImage(item, delta) {
     if (!item || item.image_count < 2) return;
     const current = state.content.shown.get(item.id) ?? 0;
-    const index = (current + delta + item.image_count) % item.image_count;
+    showImageAt(item, (current + delta + item.image_count) % item.image_count);
+  }
+
+  /** Show screenshot `index` of `item`, in the detail pane and the viewer alike. */
+  function showImageAt(item, index) {
+    if (!item || index < 0 || index >= item.image_count) return;
+    if ((state.content.shown.get(item.id) ?? 0) === index) return;
     update((next) => next.content.shown.set(item.id, index));
   }
 
@@ -328,6 +334,7 @@ export function contentController() {
     remove,
     requestImage,
     showImage,
+    showImageAt,
     openLink,
   };
 }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The shortcut sheet behind `?` and the titlebar's More menu. Every key here must also be handled
-// by the keydown listener in app.js or the grid in features/servers/view.js.
+// by the keydown listener in app.js, the grid in features/servers/view.js, or the catalogue in
+// features/content/view.js.
 
 import { openDialog } from "../../lib/dialog.js";
 import { el } from "../../lib/dom.js";
@@ -25,6 +26,14 @@ export const SHORTCUTS = [
       [["Ctrl", "F"], "Search (or /)"],
       [["Esc"], "Clear the search"],
       [["F5"], "Refresh the list (or Ctrl+R)"],
+    ],
+  },
+  {
+    heading: "Selected map or mod",
+    keys: [
+      [["Enter"], "Install"],
+      [["Space"], "View its screenshots full size"],
+      [["Delete"], "Remove what Reveille installed"],
     ],
   },
   {

@@ -280,3 +280,17 @@ test("Install and join joins once the map is installed, and not when the install
   await controller.installAndJoin(item(3), row, (target) => joined.push(target.address));
   assert.equal(joined.length, 2);
 });
+
+test("the shown screenshot steps with wrapping, or jumps to one that exists", () => {
+  reset();
+  const shots = item(1, { image_count: 3 });
+  controller.showImage(shots, -1);
+  assert.equal(state.content.shown.get(1), 2, "back from the first wraps to the last");
+  controller.showImage(shots, 1);
+  assert.equal(state.content.shown.get(1), 0);
+  controller.showImageAt(shots, 1);
+  assert.equal(state.content.shown.get(1), 1);
+  controller.showImageAt(shots, 3);
+  controller.showImageAt(shots, -1);
+  assert.equal(state.content.shown.get(1), 1, "an index past either end is ignored");
+});

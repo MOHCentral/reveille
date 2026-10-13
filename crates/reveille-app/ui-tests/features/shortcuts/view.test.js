@@ -23,7 +23,7 @@ test("the sheet opens in the shared dialog with one section per group, in order"
   assert.equal(grid.className, "shortcuts-grid");
   assert.deepEqual(
     grid.children.map((section) => section.children[0].text),
-    ["Selected server", "Server list", "Window"],
+    ["Selected server", "Server list", "Selected map or mod", "Window"],
   );
 });
 
