@@ -373,6 +373,9 @@ pub struct BrowseReport {
     pub registered: usize,
     /// Inspected outcomes in address/query-port order.
     pub outcomes: Vec<ProbeOutcome>,
+    /// Why the master could not be asked, when the sweep probed remembered registrations instead.
+    /// The servers in such a report answered live; only the list of whom to ask is older.
+    pub master_unavailable: Option<String>,
 }
 
 impl BrowseReport {

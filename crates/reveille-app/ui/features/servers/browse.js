@@ -121,6 +121,8 @@ export function browse({ onReselect }) {
         next.servers = payload.servers;
         next.summary = payload.summary;
         next.nonResults = payload.non_results;
+        next.masterUnavailable = payload.master_unavailable ?? null;
+        next.skippedPackages = payload.skipped_packages ?? [];
         next.browse.running = false;
         next.browse.cancelled = payload.cancelled;
         next.browse.completedAt = clockTime();

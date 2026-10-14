@@ -714,6 +714,10 @@
   font-weight: 600;
 }
 
+.statusbar__warning {
+  color: var(--warn-text);
+}
+
 .statusbar__spacer {
   flex: 1;
 }

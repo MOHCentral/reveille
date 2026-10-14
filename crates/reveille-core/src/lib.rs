@@ -31,3 +31,4 @@ pub mod mapindex;
 pub mod platform;
 pub mod preflight;
 pub mod rcon;
+pub mod retry;

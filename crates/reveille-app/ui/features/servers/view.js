@@ -1433,6 +1433,25 @@ function statusbarContents(onShowNonResults, onCheck) {
     summary &&
       summary.bots_reported > 0 &&
       el("span", null, el("strong", null, String(summary.bots_reported)), " bots"),
+    summary && state.masterUnavailable && el(
+      "span",
+      {
+        className: "statusbar__warning",
+        title: `The master server could not be reached (${state.masterUnavailable}). These are the servers it listed last time, checked just now; new ones may be missing.`,
+      },
+      "Master server down: last known servers",
+    ),
+    summary && state.skippedPackages.length > 0 && el(
+      "span",
+      {
+        className: "statusbar__warning",
+        title: [
+          "These map files could not be read and were left out. Delete or re-download them:",
+          ...state.skippedPackages.map((item) => `${item.path}: ${item.reason}`),
+        ].join("\n"),
+      },
+      `${state.skippedPackages.length} unreadable map ${state.skippedPackages.length === 1 ? "file" : "files"} skipped`,
+    ),
     skipped > 0 &&
       el(
         "button",

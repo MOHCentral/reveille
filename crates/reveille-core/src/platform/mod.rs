@@ -5,6 +5,7 @@
 //! Live registry enumeration is compiled only on Windows. Process inspection, client launch, and
 //! install-target policy belong to callers; client log tailing is explicitly outside v1.
 
+pub mod folders;
 pub mod gog;
 pub mod openmohaa;
 pub mod package;

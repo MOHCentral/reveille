@@ -9,9 +9,10 @@ use reveille_core::mapindex::MapIndex;
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::failure::BrowseFailure;
+use super::remembered::Remembered;
 use super::{BrowserServer, ListTicket, Listing, PROBE_TIMEOUT, classified};
 use crate::session::{Session, installed_maps};
 use crate::telemetry::{Event, Telemetry};
@@ -22,6 +23,16 @@ pub struct BrowserPayload {
     summary: BrowseSummary,
     non_results: Vec<NonResultGroup>,
     cancelled: bool,
+    /// Set when the master could not be asked and the servers it last listed were probed instead.
+    master_unavailable: Option<String>,
+    /// Map packages on disk that could not be read and were left out of the index.
+    skipped_packages: Vec<SkippedPackageRow>,
+}
+
+#[derive(Serialize)]
+pub struct SkippedPackageRow {
+    path: String,
+    reason: String,
 }
 
 /// Recorded non-results grouped for display. Individual reasons stay distinguishable; only the
@@ -67,16 +78,26 @@ pub async fn browse_servers(
     background: Option<bool>,
     on_progress: Channel<BrowseProgress>,
     state: tauri::State<'_, Listing>,
+    remembered: tauri::State<'_, Remembered>,
     telemetry: tauri::State<'_, Telemetry>,
 ) -> Result<BrowserPayload, BrowseFailure> {
     let (game, engine) = (session.game, session.engine);
-    let result = sweep_servers(session, background.unwrap_or(false), &on_progress, state).await;
+    let result = sweep_servers(
+        session,
+        background.unwrap_or(false),
+        &on_progress,
+        state,
+        &remembered,
+    )
+    .await;
     telemetry.track(&match &result {
         Ok(payload) => Event::ServerListLoaded {
             game,
             engine,
             server_count: payload.servers.len(),
             cancelled: payload.cancelled,
+            remembered: payload.master_unavailable.is_some(),
+            skipped_packages: payload.skipped_packages.len(),
         },
         Err(failure) => Event::ServerListFailed {
             game,
@@ -92,6 +113,7 @@ async fn sweep_servers(
     background: bool,
     on_progress: &Channel<BrowseProgress>,
     state: tauri::State<'_, Listing>,
+    remembered: &Remembered,
 ) -> Result<BrowserPayload, BrowseFailure> {
     info!(game = ?session.game, "starting server browse");
     let index = installed_maps(&session)?;
@@ -109,16 +131,22 @@ async fn sweep_servers(
     };
 
     let (sink, mut events) = mpsc::channel(64);
-    let sweep = tokio::spawn(discovery::browse_streaming(
-        BrowseConfig {
-            target: session.game,
-            limit: None,
-            concurrency: 16,
-            master_timeout: Duration::from_secs(15),
-            probe_timeout: PROBE_TIMEOUT,
-        },
-        sink,
-    ));
+    let (target, known) = (session.game, remembered.endpoints(session.game));
+    let sweep = tokio::spawn(async move {
+        discovery::browse_streaming_remembering(
+            BrowseConfig {
+                target,
+                limit: None,
+                concurrency: 16,
+                master_timeout: Duration::from_secs(15),
+                probe_timeout: PROBE_TIMEOUT,
+                ..BrowseConfig::default()
+            },
+            &known,
+            sink,
+        )
+        .await
+    });
 
     let cancelled = stream_sweep(on_progress, &state, ticket, &index, &mut events).await?;
     // Dropping the receiver is what stops the sweep. It returns what it already inspected.
@@ -135,6 +163,18 @@ async fn sweep_servers(
         cancelled,
         "server browse finished"
     );
+    if let Some(reason) = &report.master_unavailable {
+        warn!(%reason, remembered = report.registered, "master unavailable; probed the servers it last listed");
+    } else if !cancelled {
+        let endpoints = report
+            .outcomes
+            .iter()
+            .map(|outcome| outcome.endpoint)
+            .collect::<Vec<_>>();
+        if let Err(error) = remembered.remember(session.game, &endpoints) {
+            warn!(%error, "could not keep the master list for a later outage");
+        }
+    }
     let servers = report
         .outcomes
         .iter()
@@ -170,6 +210,15 @@ async fn sweep_servers(
                 .filter_map(|outcome| outcome.non_result.as_ref()),
         ),
         cancelled,
+        master_unavailable: report.master_unavailable.clone(),
+        skipped_packages: index
+            .skipped_packages()
+            .iter()
+            .map(|package| SkippedPackageRow {
+                path: package.path.display().to_string(),
+                reason: package.message.clone(),
+            })
+            .collect(),
     })
 }
 

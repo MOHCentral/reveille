@@ -17,6 +17,7 @@ use tokio::io::AsyncWriteExt;
 use super::WantedMap;
 use super::archive::{DownloadedArchive, MohDbIntegrity, validate_package_filename};
 use crate::mapindex::MapKey;
+use crate::retry::{RetryPolicy, transient_status};
 
 // Public endpoint documented by moh-db; gameType is intentionally not sent because it is ignored.
 // The current public MapDto also omits gameType, so no reliable pre-download local filter exists.
@@ -173,6 +174,7 @@ pub struct CatalogueProgress<'a> {
 #[derive(Clone, Debug)]
 pub struct MohDbClient {
     client: Client,
+    retry: RetryPolicy,
 }
 
 impl MohDbClient {
@@ -187,7 +189,17 @@ impl MohDbClient {
             .timeout(timeout)
             .build()
             .map_err(MohDbError::Client)?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            retry: RetryPolicy::DOWNLOAD,
+        })
+    }
+
+    /// Use `retry` for lookups and downloads instead of [`RetryPolicy::DOWNLOAD`].
+    #[must_use]
+    pub const fn with_retry(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
     }
 
     pub(super) const fn http(&self) -> &Client {
@@ -200,29 +212,24 @@ impl MohDbClient {
     ///
     /// Returns a per-map catalogue error. Call [`Self::resolve_all`] to retain these as data.
     pub async fn lookup(&self, map_name: &str) -> Result<CataloguePage, MohDbError> {
+        self.lookup_from(MAPS_ENDPOINT, map_name).await
+    }
+
+    async fn lookup_from(
+        &self,
+        endpoint: &str,
+        map_name: &str,
+    ) -> Result<CataloguePage, MohDbError> {
         let mut page_number = 0_usize;
         let mut records = Vec::new();
         let mut records_seen = 0_usize;
         let total_elements = loop {
-            let response = self
-                .client
-                .get(MAPS_ENDPOINT)
-                .query(&[
-                    ("size", PAGE_SIZE.to_string()),
-                    ("page", page_number.to_string()),
-                    ("mapName", map_name.to_owned()),
-                ])
-                .send()
-                .await
-                .map_err(classify_request_error)?;
-            let status = response.status();
-            if !status.is_success() {
-                return Err(MohDbError::Status(status));
-            }
-            let page = response
-                .json::<PageWire>()
-                .await
-                .map_err(MohDbError::Malformed)?;
+            let page = self
+                .retry
+                .run(MohDbError::is_transient, |_| {
+                    self.lookup_page(endpoint, map_name, page_number)
+                })
+                .await?;
             let total = page.total_elements;
             records_seen += page.content.len();
             records.extend(
@@ -238,6 +245,39 @@ impl MohDbClient {
         Ok(CataloguePage {
             content: records,
             total_elements,
+        })
+    }
+
+    async fn lookup_page(
+        &self,
+        endpoint: &str,
+        map_name: &str,
+        page_number: usize,
+    ) -> Result<PageWire, MohDbError> {
+        let response = self
+            .client
+            .get(endpoint)
+            .query(&[
+                ("size", PAGE_SIZE.to_string()),
+                ("page", page_number.to_string()),
+                ("mapName", map_name.to_owned()),
+            ])
+            .send()
+            .await
+            .map_err(classify_request_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(MohDbError::Status(status));
+        }
+        response.json::<PageWire>().await.map_err(|error| {
+            // reqwest labels both body I/O and JSON/schema failures as decode errors.
+            if std::error::Error::source(&error)
+                .is_some_and(<dyn std::error::Error>::is::<serde_json::Error>)
+            {
+                MohDbError::Malformed(error)
+            } else {
+                classify_request_error(error)
+            }
         })
     }
 
@@ -403,11 +443,38 @@ pub struct MohDbFile {
 /// # Errors
 ///
 /// Same as [`download_mohdb_archive`].
+///
+/// A dropped connection, a timeout, a truncated body or a status the host may clear by itself is
+/// retried under the client's [`RetryPolicy`]; progress starts again from zero on each attempt.
 pub async fn download_mohdb_file_reporting(
     client: &MohDbClient,
     candidate: &MohDbFile,
     staging_directory: &Path,
     mut report: impl FnMut(DownloadProgress),
+) -> Result<DownloadedArchive<MohDbIntegrity>, MohDbError> {
+    let mut attempt = 0;
+    loop {
+        match download_mohdb_file_once(client, candidate, staging_directory, &mut report).await {
+            Ok(archive) => return Ok(archive),
+            Err(error) => {
+                if !client
+                    .retry
+                    .wait_before_retry(attempt, error.is_transient())
+                    .await
+                {
+                    return Err(error);
+                }
+                attempt += 1;
+            }
+        }
+    }
+}
+
+async fn download_mohdb_file_once(
+    client: &MohDbClient,
+    candidate: &MohDbFile,
+    staging_directory: &Path,
+    report: &mut impl FnMut(DownloadProgress),
 ) -> Result<DownloadedArchive<MohDbIntegrity>, MohDbError> {
     validate_package_filename(&candidate.filename).map_err(MohDbError::Archive)?;
     fs::create_dir_all(staging_directory)
@@ -532,6 +599,19 @@ pub enum MohDbError {
     },
 }
 
+impl MohDbError {
+    /// Whether the same request may succeed if it is simply made again shortly.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Self::Timeout | Self::Network(_) => true,
+            Self::Status(status) => transient_status(status.as_u16()),
+            Self::SizeMismatch { published, actual } => actual.get() < published.get(),
+            _ => false,
+        }
+    }
+}
+
 impl From<MohDbError> for CatalogueNonResultReason {
     fn from(error: MohDbError) -> Self {
         match error {
@@ -652,12 +732,112 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::net::TcpListener;
+
     use super::{
-        CatalogueCandidate, FileSize, PageWire, ResolutionOutcome, is_narrow_choice_candidate,
-        resolve_candidates,
+        CatalogueCandidate, FileSize, MohDbClient, MohDbError, PageWire, ResolutionOutcome,
+        is_narrow_choice_candidate, resolve_candidates,
     };
     use crate::content::WantedMap;
     use crate::mapindex::MapKey;
+    use crate::retry::RetryPolicy;
+
+    const PAGE_BODY: &[u8] = br#"{"content":[],"totalElements":0}"#;
+    const LOOKUP_RETRY: RetryPolicy = RetryPolicy::new(&[Duration::ZERO]);
+
+    enum LookupReply {
+        CutOff,
+        Stall,
+        Body(&'static [u8]),
+    }
+
+    async fn lookup_host(replies: Vec<LookupReply>) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("lookup host");
+        let url = format!("http://{}/maps", listener.local_addr().expect("address"));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&requests);
+        tokio::spawn(async move {
+            for reply in replies {
+                let (mut stream, _) = listener.accept().await.expect("lookup connection");
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).await.expect("request headers");
+                    request.push(byte[0]);
+                }
+                counted.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let (body, declared) = match reply {
+                        LookupReply::Body(body) => (body, body.len()),
+                        LookupReply::CutOff => (&PAGE_BODY[..PAGE_BODY.len() / 2], PAGE_BODY.len()),
+                        LookupReply::Stall => (&[][..], PAGE_BODY.len()),
+                    };
+                    let headers = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n"
+                    );
+                    stream.write_all(headers.as_bytes()).await.expect("headers");
+                    stream.write_all(body).await.expect("body");
+                    if matches!(reply, LookupReply::Stall) {
+                        let mut byte = [0];
+                        let _ = stream.read(&mut byte).await;
+                    }
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+        (url, requests)
+    }
+
+    async fn lookup_with_replies(
+        replies: Vec<LookupReply>,
+    ) -> (Result<super::CataloguePage, MohDbError>, usize) {
+        let (url, requests) = lookup_host(replies).await;
+        let client = MohDbClient::new(Duration::from_secs(1))
+            .expect("client")
+            .with_retry(LOOKUP_RETRY);
+        let result = client.lookup_from(&url, "obj_test").await;
+        (result, requests.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test]
+    async fn a_lookup_retries_a_cut_json_body() {
+        let (result, requests) =
+            lookup_with_replies(vec![LookupReply::CutOff, LookupReply::Body(PAGE_BODY)]).await;
+        assert_eq!(result.expect("second lookup succeeds").total_elements, 0);
+        assert_eq!(requests, 2);
+    }
+
+    #[tokio::test]
+    async fn a_lookup_retries_a_body_timeout() {
+        let (result, requests) =
+            lookup_with_replies(vec![LookupReply::Stall, LookupReply::Body(PAGE_BODY)]).await;
+        assert_eq!(result.expect("second lookup succeeds").total_elements, 0);
+        assert_eq!(requests, 2);
+    }
+
+    #[tokio::test]
+    async fn a_lookup_does_not_retry_invalid_json() {
+        let (result, requests) = lookup_with_replies(vec![
+            LookupReply::Body(b"{ not json"),
+            LookupReply::Body(PAGE_BODY),
+        ])
+        .await;
+        assert!(matches!(result, Err(MohDbError::Malformed(_))));
+        assert_eq!(requests, 1);
+    }
+
+    #[tokio::test]
+    async fn a_lookup_does_not_retry_an_invalid_page_schema() {
+        let (result, requests) =
+            lookup_with_replies(vec![LookupReply::Body(b"{}"), LookupReply::Body(PAGE_BODY)]).await;
+        assert!(matches!(result, Err(MohDbError::Malformed(_))));
+        assert_eq!(requests, 1);
+    }
 
     fn candidate(id: u64, map: &str, tested: bool, downloads: u64) -> CatalogueCandidate {
         CatalogueCandidate {
