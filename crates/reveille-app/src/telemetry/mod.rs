@@ -569,6 +569,10 @@ pub enum Event {
         engine: EngineChoice,
         server_count: usize,
         cancelled: bool,
+        /// The master was down and the servers it last listed were probed instead.
+        remembered: bool,
+        /// Map packages left out of the index because they could not be read.
+        skipped_packages: usize,
     },
     ServerListFailed {
         game: TargetGame,

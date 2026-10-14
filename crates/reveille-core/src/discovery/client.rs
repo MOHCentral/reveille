@@ -27,6 +27,7 @@ use super::protocol::{
     parse_oob_getinfo, parse_oob_getstatus,
 };
 use crate::bsp::Checksum;
+use crate::retry::RetryPolicy;
 
 // spike_masterlist.py, originally master constants in the GameSpy integration.
 const MASTER_HOST: &str = "master.333networks.com";
@@ -35,6 +36,23 @@ const MASTER_PORT: u16 = 28_900;
 const GAMESPY_STATUS_REQUEST: &[u8] = b"\\status\\";
 const MAX_UDP_PACKET: usize = 65_535;
 const MAX_MASTER_RESPONSE: usize = 4 * 1024 * 1024;
+
+/// The `GameSpy` master a sweep asks for its list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MasterAddress {
+    /// Host name or IPv4 address.
+    pub host: &'static str,
+    /// TCP port.
+    pub port: u16,
+}
+
+impl MasterAddress {
+    /// The community master every MOHAA server registers with.
+    pub const PUBLIC: Self = Self {
+        host: MASTER_HOST,
+        port: MASTER_PORT,
+    };
+}
 
 /// Runtime limits and target for one browse sweep.
 #[derive(Clone, Copy, Debug)]
@@ -49,6 +67,10 @@ pub struct BrowseConfig {
     pub master_timeout: Duration,
     /// Deadline for each per-server UDP request.
     pub probe_timeout: Duration,
+    /// Where the list comes from.
+    pub master: MasterAddress,
+    /// Retries for a master that refuses or drops the connection.
+    pub master_retry: RetryPolicy,
 }
 
 impl Default for BrowseConfig {
@@ -59,6 +81,8 @@ impl Default for BrowseConfig {
             concurrency: 16,
             master_timeout: Duration::from_secs(15),
             probe_timeout: Duration::from_millis(2_500),
+            master: MasterAddress::PUBLIC,
+            master_retry: RetryPolicy::MASTER,
         }
     }
 }
@@ -130,7 +154,7 @@ pub enum BrowseEvent {
 /// Returns an error only when the master list cannot be obtained or an internal task panics.
 /// Unreachable, malformed, and duplicate individual registrations are retained in the report.
 pub async fn browse(config: BrowseConfig) -> Result<BrowseReport, DiscoveryError> {
-    sweep(config, None).await
+    sweep(config, &[], None).await
 }
 
 /// Run a sweep, reporting progress on `sink` as it happens.
@@ -146,19 +170,48 @@ pub async fn browse_streaming(
     config: BrowseConfig,
     sink: mpsc::Sender<BrowseEvent>,
 ) -> Result<BrowseReport, DiscoveryError> {
-    sweep(config, Some(&sink)).await
+    sweep(config, &[], Some(&sink)).await
+}
+
+/// [`browse_streaming`], probing `remembered` when the master cannot be asked.
+///
+/// `remembered` is what an earlier sweep's master returned. Servers rarely change address, so
+/// probing them gives a live, if possibly incomplete, list while the master is down; the report's
+/// [`BrowseReport::master_unavailable`] says that happened.
+///
+/// # Errors
+///
+/// Same as [`browse`], and only when `remembered` is empty.
+pub async fn browse_streaming_remembering(
+    config: BrowseConfig,
+    remembered: &[MasterEndpoint],
+    sink: mpsc::Sender<BrowseEvent>,
+) -> Result<BrowseReport, DiscoveryError> {
+    sweep(config, remembered, Some(&sink)).await
 }
 
 async fn sweep(
     config: BrowseConfig,
+    remembered: &[MasterEndpoint],
     sink: Option<&mpsc::Sender<BrowseEvent>>,
 ) -> Result<BrowseReport, DiscoveryError> {
-    let endpoints = fetch_master(config.target, config.master_timeout)
-        .await
-        .map_err(|source| DiscoveryError::Master {
-            target: config.target,
-            source,
-        })?;
+    let (endpoints, master_unavailable) = match fetch_master_retrying(
+        config.master,
+        config.target,
+        config.master_timeout,
+        config.master_retry,
+    )
+    .await
+    {
+        Ok(endpoints) => (endpoints, None),
+        Err(source) if !remembered.is_empty() => (remembered.to_vec(), Some(source.to_string())),
+        Err(source) => {
+            return Err(DiscoveryError::Master {
+                target: config.target,
+                source,
+            });
+        }
+    };
     let registered = endpoints.len();
     let limit = config.limit.unwrap_or(registered).min(registered);
     let mut endpoints = endpoints.into_iter().take(limit);
@@ -196,6 +249,7 @@ async fn sweep(
         target: config.target,
         registered,
         outcomes,
+        master_unavailable,
     })
 }
 
@@ -289,11 +343,34 @@ pub async fn query_getinfo(
     parse_oob_getinfo(&response).map_err(RequestError::from)
 }
 
+/// A refused or reset connection and a master that hangs up before its greeting are usually a
+/// restart or an overloaded moment. A timeout is not retried: the player has already waited the
+/// whole deadline once.
+async fn fetch_master_retrying(
+    master: MasterAddress,
+    target: TargetGame,
+    deadline: Duration,
+    retry: RetryPolicy,
+) -> Result<Vec<MasterEndpoint>, RequestError> {
+    retry
+        .run(
+            |error| {
+                matches!(
+                    error,
+                    RequestError::Network(_) | RequestError::EmptyMasterGreeting
+                )
+            },
+            |_| fetch_master(master, target, deadline),
+        )
+        .await
+}
+
 async fn fetch_master(
+    master: MasterAddress,
     target: TargetGame,
     deadline: Duration,
 ) -> Result<Vec<MasterEndpoint>, RequestError> {
-    let mut stream = timeout(deadline, TcpStream::connect((MASTER_HOST, MASTER_PORT)))
+    let mut stream = timeout(deadline, TcpStream::connect((master.host, master.port)))
         .await
         .map_err(|_| RequestError::Timeout)?
         .map_err(RequestError::Network)?;
@@ -655,6 +732,7 @@ mod tests {
             target: TargetGame::AlliedAssault,
             registered: 2,
             outcomes,
+            master_unavailable: None,
         };
         let summary = report.summary();
 

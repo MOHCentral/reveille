@@ -71,6 +71,10 @@ import { errorText, invoke, invokeWithChannel } from "../../lib/bridge.js";
  * @property {object} summary `BrowseSummary` from `reveille-core/src/discovery/model.rs`.
  * @property {NonResultGroup[]} non_results
  * @property {boolean} cancelled
+ * @property {string | null} master_unavailable Why the master could not be asked, when the
+ *   servers it last listed were probed instead.
+ * @property {{ path: string, reason: string }[]} skipped_packages Map packages left out of the
+ *   index because they could not be read.
  */
 
 /**

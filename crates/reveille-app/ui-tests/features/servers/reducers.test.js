@@ -307,6 +307,29 @@ test("a refresh behind the list drops the selection when the server is gone", ()
   assert.equal(next.joinResult, null);
 });
 
+test("a refresh behind the list carries the master outage and the skipped map files", () => {
+  const next = behind([row("a:1")], "a:1");
+  store.adoptBackgroundSweep(
+    next,
+    {
+      servers: [row("a:1")],
+      summary: {},
+      non_results: [],
+      master_unavailable: "network request failed",
+      skipped_packages: [{ path: "main/zz_broken.pk3", reason: "could not read pk3 archive" }],
+    },
+    "14:10",
+    "now",
+  );
+  assert.equal(next.masterUnavailable, "network request failed");
+  assert.deepEqual(next.skippedPackages.map((item) => item.path), ["main/zz_broken.pk3"]);
+
+  // The next healthy refresh clears both, including from a shell that predates the fields.
+  store.adoptBackgroundSweep(next, { servers: [row("a:1")], summary: {}, non_results: [] }, "14:20", "now");
+  assert.equal(next.masterUnavailable, null);
+  assert.deepEqual(next.skippedPackages, []);
+});
+
 test("a stopped refresh behind the list leaves the old list as it was", () => {
   const next = behind([row("a:1"), row("b:1")], "a:1");
   store.adoptBackgroundSweep(

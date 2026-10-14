@@ -3,6 +3,7 @@
 pub mod browse;
 pub mod check;
 pub mod failure;
+pub mod remembered;
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddrV4;
@@ -15,6 +16,9 @@ use reveille_core::mapindex::MapIndex;
 use serde::Serialize;
 use tauri::Manager;
 use tokio::sync::Notify;
+use tracing::warn;
+
+use remembered::Remembered;
 
 /// Deadline for one per-server UDP probe.
 ///
@@ -230,6 +234,13 @@ pub fn classified(server: &Server, index: &MapIndex) -> BrowserServer {
 
 pub fn register(app: &mut tauri::App) {
     app.manage(Listing::default());
+    app.manage(match app.path().app_data_dir() {
+        Ok(directory) => Remembered::new(&directory),
+        Err(error) => {
+            warn!(%error, "no app data directory; the server list will not survive a master outage");
+            Remembered::default()
+        }
+    });
 }
 
 #[cfg(test)]

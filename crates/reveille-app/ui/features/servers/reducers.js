@@ -50,6 +50,8 @@ export function adoptBackgroundSweep(next, payload, at, finishedAt) {
   next.servers = servers;
   next.summary = payload.summary;
   next.nonResults = payload.non_results;
+  next.masterUnavailable = payload.master_unavailable ?? null;
+  next.skippedPackages = payload.skipped_packages ?? [];
   next.browse.completedAt = at;
   next.browse.finishedAt = finishedAt;
   next.staleAt = null;

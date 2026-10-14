@@ -149,6 +149,8 @@ export function browsePayload() {
     },
     non_results: [],
     cancelled: false,
+    master_unavailable: null,
+    skipped_packages: [],
   };
 }
 

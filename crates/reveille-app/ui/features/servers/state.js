@@ -15,6 +15,10 @@ export function initial() {
     servers: [],
     summary: null,
     nonResults: [],
+    /** Why the master was not asked for the last list, which then came from the servers it last listed. */
+    masterUnavailable: null,
+    /** Map packages the last sweep's index had to leave out. */
+    skippedPackages: [],
     /** Sweep progress. `running` drives the toolbar; `probed`/`inspected` the meter. */
     browse: {
       running: false,
