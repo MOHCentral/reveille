@@ -344,6 +344,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     concurrency,
                     master_timeout: Duration::from_millis(master_timeout_ms),
                     probe_timeout: Duration::from_millis(timeout_ms),
+                    master: discovery::MasterAddress::PUBLIC,
+                    master_retry: reveille_core::retry::RetryPolicy::MASTER,
                 },
                 path.as_deref(),
                 format,
@@ -726,6 +728,8 @@ async fn browse_journey_target(
         concurrency: 16,
         master_timeout: Duration::from_secs(15),
         probe_timeout: Duration::from_millis(2_500),
+        master: discovery::MasterAddress::PUBLIC,
+        master_retry: reveille_core::retry::RetryPolicy::MASTER,
     })
     .await?;
     let servers = report
@@ -1325,6 +1329,10 @@ fn scan(path: &Path, target: TargetGame, format: Format) -> Result<(), Box<dyn E
                 stats.multi_provider_maps
             );
             println!("Skipped BSP entries: {}", stats.skipped_entries);
+            println!("Skipped packages: {}", stats.skipped_packages);
+            for package in index.skipped_packages() {
+                println!("  {}: {}", package.path.display(), package.message);
+            }
             println!();
             println!("Effective maps:");
             for map in index.maps() {

@@ -156,6 +156,8 @@ pub struct ScanStats {
     pub multi_provider_maps: usize,
     /// Number of BSP-looking entries excluded as malformed or engine-incompatible.
     pub skipped_entries: usize,
+    /// Number of `.pk3` archives or `.pk3dir` trees left out because they could not be read.
+    pub skipped_packages: usize,
 }
 
 /// A BSP-looking entry excluded from the usable map index.
@@ -167,6 +169,18 @@ pub struct SkippedEntry {
     pub entry: String,
     /// Why the entry cannot be loaded by the engine or inspected by Reveille.
     pub reason: SkippedReason,
+}
+
+/// A package left out of the index because it could not be opened or read at all.
+///
+/// The engine passes over a package it cannot open and loads the rest, so one damaged download
+/// must not hide every other map from Reveille either.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SkippedPackage {
+    /// The `.pk3` archive or `.pk3dir` tree.
+    pub path: PathBuf,
+    /// What went wrong, for logs and the player.
+    pub message: String,
 }
 
 /// Structured reason for excluding one BSP-looking entry.
@@ -201,6 +215,7 @@ impl From<bsp::Error> for SkippedReason {
 pub struct MapIndex {
     maps: BTreeMap<MapKey, Map>,
     skipped: Vec<SkippedEntry>,
+    skipped_packages: Vec<SkippedPackage>,
     stats: ScanStats,
 }
 
@@ -209,8 +224,9 @@ impl MapIndex {
     ///
     /// # Errors
     ///
-    /// Returns an error when the directory or one of its packages cannot be read. Malformed and
-    /// engine-incompatible BSP entries are recorded in [`Self::skipped`] and do not abort a scan.
+    /// Returns an error when the directory cannot be read. Unreadable packages are recorded in
+    /// [`Self::skipped_packages`], and malformed or engine-incompatible BSP entries in
+    /// [`Self::skipped`]; neither aborts a scan.
     pub fn scan(game_directory: impl AsRef<Path>) -> Result<Self, Error> {
         Self::scan_chain(&[game_directory])
     }
@@ -226,8 +242,9 @@ impl MapIndex {
     ///
     /// # Errors
     ///
-    /// Returns an error when a directory or one of its packages cannot be read. Malformed and
-    /// engine-incompatible BSP entries are recorded in [`Self::skipped`] and do not abort a scan.
+    /// Returns an error when a game directory cannot be read. Unreadable packages are recorded in
+    /// [`Self::skipped_packages`], and malformed or engine-incompatible BSP entries in
+    /// [`Self::skipped`]; neither aborts a scan.
     pub fn scan_chain<P: AsRef<Path>>(directories: &[P]) -> Result<Self, Error> {
         let mut index = Self::default();
         for directory in directories {
@@ -272,12 +289,17 @@ impl MapIndex {
 
         for package in packages {
             let path = package.path();
-            if path.is_dir() {
-                self.scan_pk3dir(&path)?;
-                self.stats.package_directories += 1;
+            let scanned = if path.is_dir() {
+                self.scan_pk3dir(&path)
+                    .map(|()| self.stats.package_directories += 1)
             } else {
-                self.scan_pk3(&path)?;
-                self.stats.archives += 1;
+                self.scan_pk3(&path).map(|()| self.stats.archives += 1)
+            };
+            if let Err(error) = scanned {
+                self.skipped_packages.push(SkippedPackage {
+                    message: error_chain(&error),
+                    path,
+                });
             }
         }
 
@@ -307,6 +329,12 @@ impl MapIndex {
     #[must_use]
     pub fn skipped(&self) -> &[SkippedEntry] {
         &self.skipped
+    }
+
+    /// Return packages left out because they could not be opened or read.
+    #[must_use]
+    pub fn skipped_packages(&self) -> &[SkippedPackage] {
+        &self.skipped_packages
     }
 
     fn scan_pk3(&mut self, path: &Path) -> Result<(), Error> {
@@ -482,7 +510,19 @@ impl MapIndex {
             .filter(|map| map.providers.len() > 1)
             .count();
         self.stats.skipped_entries = self.skipped.len();
+        self.stats.skipped_packages = self.skipped_packages.len();
     }
+}
+
+fn error_chain(error: &Error) -> String {
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 /// An error encountered while indexing a game directory.
@@ -723,6 +763,39 @@ mod tests {
             base_loose.providers.as_slice(),
             [Provider::Loose { .. }]
         ));
+    }
+
+    #[test]
+    fn a_damaged_package_is_left_out_and_every_other_map_still_indexed() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let main = temporary.path().join("main");
+        fs::create_dir_all(&main).expect("main");
+        write_pk3(&main.join("pak0.pk3"), "maps/dm/before.bsp", 1);
+        // A download cut short leaves a .pk3 whose ZIP directory never arrived.
+        fs::write(main.join("pak5_broken.pk3"), b"PK\x03\x04 truncated").expect("broken pk3");
+        write_pk3(&main.join("zz_after.pk3"), "maps/dm/after.bsp", 2);
+
+        let index = MapIndex::scan(&main).expect("one bad package does not fail the scan");
+
+        assert!(index.get("dm/before").is_some());
+        assert!(index.get("dm/after").is_some());
+        assert_eq!(index.stats().archives, 2);
+        assert_eq!(index.stats().skipped_packages, 1);
+        let [skipped] = index.skipped_packages() else {
+            panic!("one skipped package: {:?}", index.skipped_packages());
+        };
+        assert_eq!(skipped.path, main.join("pak5_broken.pk3"));
+        assert!(
+            skipped.message.contains("pak5_broken.pk3"),
+            "{}",
+            skipped.message
+        );
+    }
+
+    #[test]
+    fn a_game_directory_that_is_missing_still_fails_the_scan() {
+        let temporary = TempDir::new().expect("temporary directory");
+        assert!(MapIndex::scan(temporary.path().join("main")).is_err());
     }
 
     #[test]

@@ -9,6 +9,7 @@ use reveille_core::mapindex::MapIndex;
 use reveille_platform as platform;
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::warn;
 
 /// What every server-facing command needs before it can say anything: which game folder, which
 /// engine program, and which of the three games.
@@ -29,7 +30,11 @@ pub struct Session {
 /// The index still covers every directory the engine reads, including `main` beneath an expansion.
 pub fn installed_maps(session: &Session) -> Result<MapIndex, SessionError> {
     let search = session_search_path(session)?;
-    MapIndex::scan_chain(&search).map_err(SessionError::Maps)
+    let index = MapIndex::scan_chain(&search).map_err(SessionError::Maps)?;
+    for package in index.skipped_packages() {
+        warn!(path = %package.path.display(), reason = %package.message, "left out an unreadable package");
+    }
+    Ok(index)
 }
 
 pub fn session_search_path(session: &Session) -> Result<Vec<PathBuf>, SessionError> {
