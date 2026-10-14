@@ -297,7 +297,7 @@ impl MapIndex {
             };
             if let Err(error) = scanned {
                 self.skipped_packages.push(SkippedPackage {
-                    message: error_chain(&error),
+                    message: failure_reason(&error, &path),
                     path,
                 });
             }
@@ -514,15 +514,27 @@ impl MapIndex {
     }
 }
 
-fn error_chain(error: &Error) -> String {
-    let mut message = error.to_string();
+/// Why `package` was left out, without naming `package` again: every place that shows the reason
+/// already shows the path beside it.
+fn failure_reason(error: &Error, package: &Path) -> String {
+    let names_package = matches!(
+        error,
+        Error::ReadDirectory { path, .. }
+            | Error::Open { path, .. }
+            | Error::Archive { path, .. }
+            | Error::Walk { path, .. }
+            if path == package
+    );
+    let mut causes = Vec::new();
+    if !names_package {
+        causes.push(error.to_string());
+    }
     let mut source = std::error::Error::source(error);
     while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
+        causes.push(cause.to_string());
         source = cause.source();
     }
-    message
+    causes.join(": ")
 }
 
 /// An error encountered while indexing a game directory.
@@ -786,8 +798,13 @@ mod tests {
         };
         assert_eq!(skipped.path, main.join("pak5_broken.pk3"));
         assert!(
-            skipped.message.contains("pak5_broken.pk3"),
+            skipped.message.contains("invalid Zip archive"),
             "{}",
+            skipped.message
+        );
+        assert!(
+            !skipped.message.contains("pak5_broken.pk3"),
+            "the reason repeats the path shown beside it: {}",
             skipped.message
         );
     }
