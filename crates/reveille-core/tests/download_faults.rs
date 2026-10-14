@@ -91,8 +91,7 @@ fn mohdb_client() -> MohDbClient {
 }
 
 fn pakradar_entry(url: String) -> PakRadarEntry {
-    let digest = Md5::digest(BODY);
-    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let hex = format!("{:x}", Md5::digest(BODY));
     PakRadarEntry {
         alias: "obj_test".to_owned(),
         md5: Md5Digest::parse(&hex).expect("digest"),

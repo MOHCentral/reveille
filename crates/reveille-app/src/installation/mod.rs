@@ -2,7 +2,10 @@
 
 pub mod copy;
 
+use std::path::PathBuf;
+
 use reveille_core::install::{self, Installation};
+use reveille_core::platform::folders;
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 use tracing::info;
@@ -49,24 +52,35 @@ fn find_install(chosen: Option<String>) -> Result<Option<Installation>, String> 
             .map(Some)
             .map_err(|error| error.to_string());
     }
+    let mut roots = Vec::new();
     #[cfg(windows)]
     {
-        let keys = reveille_core::platform::registry::read_live_hives()
-            .map_err(|error| error.to_string())?;
-        let mut roots = reveille_core::platform::registry::discover_ea_install_roots(&keys)
-            .into_iter()
-            .map(|candidate| candidate.root)
-            .collect::<Vec<_>>();
-        if let Some(root) = reveille_core::platform::registry::discover_gog_install_root(&keys) {
-            roots.push(root);
-        }
-        for root in roots {
-            if let Ok(installation) = install::identify(root) {
-                return Ok(Some(installation));
+        match reveille_core::platform::registry::read_live_hives() {
+            Ok(keys) => {
+                roots.extend(
+                    reveille_core::platform::registry::discover_ea_install_roots(&keys)
+                        .into_iter()
+                        .map(|candidate| candidate.root),
+                );
+                roots.extend(reveille_core::platform::registry::discover_gog_install_root(&keys));
             }
+            // The usual folders can still find the game, so an unreadable registry is not the end.
+            Err(error) => tracing::warn!(%error, "could not read the registry for store installs"),
         }
     }
-    Ok(None)
+    // After the stores: a game the registry does not mention, such as a copied disc install.
+    roots.extend(folders::common_install_roots(&folders::common_bases(
+        |name| std::env::var_os(name),
+    )));
+    Ok(first_installation(roots))
+}
+
+/// The first of `roots` that holds a game, read in order.
+fn first_installation(roots: impl IntoIterator<Item = PathBuf>) -> Option<Installation> {
+    roots
+        .into_iter()
+        .filter(|root| root.is_dir())
+        .find_map(|root| install::identify(root).ok())
 }
 
 /// Open the platform folder picker. `None` means the player dismissed it.
