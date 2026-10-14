@@ -15,6 +15,7 @@ use tokio::fs::{self, File};
 use tokio::io::AsyncReadExt;
 
 use super::archive::{DownloadedArchive, PakRadarIntegrity, validate_package_filename};
+use crate::retry::{RetryPolicy, transient_status};
 
 // PakRadar manifests are third-party HTTP resources; identify the launcher explicitly.
 const USER_AGENT: &str = "Reveille/0.1 (MOHAA content resolver)";
@@ -209,11 +210,56 @@ pub async fn download_pakradar_archive(
 /// # Errors
 ///
 /// Returns an error for an unsafe URL filename, HTTP/I/O failure, or digest mismatch.
+///
+/// A dropped connection, a timeout or a status the host may clear by itself is retried under
+/// [`RetryPolicy::DOWNLOAD`]; progress starts again from zero on each attempt.
 pub async fn download_pakradar_archive_reporting(
     client: &Client,
     entry: &PakRadarEntry,
     staging_directory: &Path,
+    report: impl FnMut(PakRadarDownloadProgress),
+) -> Result<DownloadedArchive<PakRadarIntegrity>, PakRadarError> {
+    download_pakradar_archive_retrying(
+        client,
+        entry,
+        staging_directory,
+        report,
+        RetryPolicy::DOWNLOAD,
+    )
+    .await
+}
+
+/// [`download_pakradar_archive_reporting`] under an explicit retry policy.
+///
+/// # Errors
+///
+/// The last attempt's error.
+pub async fn download_pakradar_archive_retrying(
+    client: &Client,
+    entry: &PakRadarEntry,
+    staging_directory: &Path,
     mut report: impl FnMut(PakRadarDownloadProgress),
+    retry: RetryPolicy,
+) -> Result<DownloadedArchive<PakRadarIntegrity>, PakRadarError> {
+    let mut attempt = 0;
+    loop {
+        match download_pakradar_archive_once(client, entry, staging_directory, &mut report).await {
+            Ok(archive) => return Ok(archive),
+            Err(error) => {
+                if !retry.wait_before_retry(attempt, error.is_transient()).await {
+                    return Err(error);
+                }
+                attempt += 1;
+            }
+        }
+    }
+}
+
+async fn download_pakradar_archive_once(
+    client: &Client,
+    entry: &PakRadarEntry,
+    staging_directory: &Path,
+    report: &mut impl FnMut(PakRadarDownloadProgress),
 ) -> Result<DownloadedArchive<PakRadarIntegrity>, PakRadarError> {
     let filename = entry.filename()?;
     let response = client
@@ -506,6 +552,18 @@ pub enum PakRadarError {
         #[source]
         source: std::io::Error,
     },
+}
+
+impl PakRadarError {
+    /// Whether the same request may succeed if it is simply made again shortly.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Self::Network(source) => !source.is_builder(),
+            Self::HttpStatus(status) => transient_status(*status),
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]

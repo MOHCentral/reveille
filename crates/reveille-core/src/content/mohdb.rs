@@ -17,6 +17,7 @@ use tokio::io::AsyncWriteExt;
 use super::WantedMap;
 use super::archive::{DownloadedArchive, MohDbIntegrity, validate_package_filename};
 use crate::mapindex::MapKey;
+use crate::retry::{RetryPolicy, transient_status};
 
 // Public endpoint documented by moh-db; gameType is intentionally not sent because it is ignored.
 // The current public MapDto also omits gameType, so no reliable pre-download local filter exists.
@@ -173,6 +174,7 @@ pub struct CatalogueProgress<'a> {
 #[derive(Clone, Debug)]
 pub struct MohDbClient {
     client: Client,
+    retry: RetryPolicy,
 }
 
 impl MohDbClient {
@@ -187,7 +189,17 @@ impl MohDbClient {
             .timeout(timeout)
             .build()
             .map_err(MohDbError::Client)?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            retry: RetryPolicy::DOWNLOAD,
+        })
+    }
+
+    /// Use `retry` for lookups and downloads instead of [`RetryPolicy::DOWNLOAD`].
+    #[must_use]
+    pub const fn with_retry(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
     }
 
     pub(super) const fn http(&self) -> &Client {
@@ -204,25 +216,12 @@ impl MohDbClient {
         let mut records = Vec::new();
         let mut records_seen = 0_usize;
         let total_elements = loop {
-            let response = self
-                .client
-                .get(MAPS_ENDPOINT)
-                .query(&[
-                    ("size", PAGE_SIZE.to_string()),
-                    ("page", page_number.to_string()),
-                    ("mapName", map_name.to_owned()),
-                ])
-                .send()
-                .await
-                .map_err(classify_request_error)?;
-            let status = response.status();
-            if !status.is_success() {
-                return Err(MohDbError::Status(status));
-            }
-            let page = response
-                .json::<PageWire>()
-                .await
-                .map_err(MohDbError::Malformed)?;
+            let page = self
+                .retry
+                .run(MohDbError::is_transient, |_| {
+                    self.lookup_page(map_name, page_number)
+                })
+                .await?;
             let total = page.total_elements;
             records_seen += page.content.len();
             records.extend(
@@ -239,6 +238,32 @@ impl MohDbClient {
             content: records,
             total_elements,
         })
+    }
+
+    async fn lookup_page(
+        &self,
+        map_name: &str,
+        page_number: usize,
+    ) -> Result<PageWire, MohDbError> {
+        let response = self
+            .client
+            .get(MAPS_ENDPOINT)
+            .query(&[
+                ("size", PAGE_SIZE.to_string()),
+                ("page", page_number.to_string()),
+                ("mapName", map_name.to_owned()),
+            ])
+            .send()
+            .await
+            .map_err(classify_request_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(MohDbError::Status(status));
+        }
+        response
+            .json::<PageWire>()
+            .await
+            .map_err(MohDbError::Malformed)
     }
 
     /// Resolve every wanted map independently, preserving timeouts, 403s, and malformed replies.
@@ -403,11 +428,38 @@ pub struct MohDbFile {
 /// # Errors
 ///
 /// Same as [`download_mohdb_archive`].
+///
+/// A dropped connection, a timeout, a truncated body or a status the host may clear by itself is
+/// retried under the client's [`RetryPolicy`]; progress starts again from zero on each attempt.
 pub async fn download_mohdb_file_reporting(
     client: &MohDbClient,
     candidate: &MohDbFile,
     staging_directory: &Path,
     mut report: impl FnMut(DownloadProgress),
+) -> Result<DownloadedArchive<MohDbIntegrity>, MohDbError> {
+    let mut attempt = 0;
+    loop {
+        match download_mohdb_file_once(client, candidate, staging_directory, &mut report).await {
+            Ok(archive) => return Ok(archive),
+            Err(error) => {
+                if !client
+                    .retry
+                    .wait_before_retry(attempt, error.is_transient())
+                    .await
+                {
+                    return Err(error);
+                }
+                attempt += 1;
+            }
+        }
+    }
+}
+
+async fn download_mohdb_file_once(
+    client: &MohDbClient,
+    candidate: &MohDbFile,
+    staging_directory: &Path,
+    report: &mut impl FnMut(DownloadProgress),
 ) -> Result<DownloadedArchive<MohDbIntegrity>, MohDbError> {
     validate_package_filename(&candidate.filename).map_err(MohDbError::Archive)?;
     fs::create_dir_all(staging_directory)
@@ -530,6 +582,19 @@ pub enum MohDbError {
         #[source]
         source: std::io::Error,
     },
+}
+
+impl MohDbError {
+    /// Whether the same request may succeed if it is simply made again shortly.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Self::Timeout | Self::Network(_) => true,
+            Self::Status(status) => transient_status(status.as_u16()),
+            Self::SizeMismatch { published, actual } => actual.get() < published.get(),
+            _ => false,
+        }
+    }
 }
 
 impl From<MohDbError> for CatalogueNonResultReason {

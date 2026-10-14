@@ -28,8 +28,9 @@ pub use mohdb::{
 };
 pub use pakradar::{
     Md5Digest, PakRadarDownloadProgress, PakRadarEntry, PakRadarError, PakRadarPackageStatus,
-    download_pakradar_archive, download_pakradar_archive_reporting, fetch_filelist,
-    pakradar_client, pakradar_entry_is_current, pakradar_entry_status, parse_filelist,
+    download_pakradar_archive, download_pakradar_archive_reporting,
+    download_pakradar_archive_retrying, fetch_filelist, pakradar_client, pakradar_entry_is_current,
+    pakradar_entry_status, parse_filelist,
 };
 
 /// A server map name paired with the exact normalised key used everywhere in the pipeline.
