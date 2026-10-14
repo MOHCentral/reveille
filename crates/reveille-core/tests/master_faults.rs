@@ -61,15 +61,10 @@ async fn master(greetings: Vec<Greeting>) -> (MasterAddress, Arc<AtomicUsize>) {
     )
 }
 
-/// A port where nothing listens, so connecting is refused at once.
-async fn refused() -> MasterAddress {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("probe");
-    let port = listener.local_addr().expect("address").port();
-    drop(listener);
-    MasterAddress {
-        host: "127.0.0.1",
-        port,
-    }
+/// A master that hangs up on every attempt the policy allows. Not a closed port: Windows takes
+/// about two seconds to report a refused loopback connection, which races the master deadline.
+async fn down() -> (MasterAddress, Arc<AtomicUsize>) {
+    master(vec![Greeting::HangUp; INSTANT.attempts()]).await
 }
 
 /// A UDP port that is bound but never answers, standing in for a server that went offline.
@@ -121,11 +116,13 @@ async fn an_unreachable_master_falls_back_to_the_remembered_registrations() {
     let (sink, mut events) = mpsc::channel(8);
     let drain = tokio::spawn(async move { while events.recv().await.is_some() {} });
 
-    let report = browse_streaming_remembering(config(refused().await), &[endpoint], sink)
+    let (address, connections) = down().await;
+    let report = browse_streaming_remembering(config(address), &[endpoint], sink)
         .await
         .expect("remembered servers are probed");
     drain.await.expect("drained");
 
+    assert_eq!(connections.load(Ordering::SeqCst), INSTANT.attempts());
     assert!(report.master_unavailable.is_some());
     assert_eq!(report.registered, 1);
     assert_eq!(report.outcomes.len(), 1);
@@ -137,14 +134,17 @@ async fn an_unreachable_master_falls_back_to_the_remembered_registrations() {
 #[tokio::test]
 async fn an_unreachable_master_with_nothing_remembered_still_fails() {
     let (sink, _events) = mpsc::channel(8);
-    let error = browse_streaming_remembering(config(refused().await), &[], sink)
+    let (address, connections) = down().await;
+    let error = browse_streaming_remembering(config(address), &[], sink)
         .await
         .expect_err("nothing to fall back on");
 
+    assert_eq!(connections.load(Ordering::SeqCst), INSTANT.attempts());
+    // A hang-up reads as an empty greeting, or as a reset where the platform sends one.
     assert!(matches!(
         error,
         DiscoveryError::Master {
-            source: RequestError::Network(_),
+            source: RequestError::EmptyMasterGreeting | RequestError::Network(_),
             ..
         }
     ));
