@@ -1650,3 +1650,87 @@ code {
   }
 
 }
+
+/* Privacy page: a plain reading column under the same header and footer. */
+
+.header-inner--simple {
+  grid-template-columns: auto 1fr;
+}
+
+.header-inner--simple .primary-nav {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.header-inner--simple .primary-nav a {
+  padding: 0;
+  border: 0;
+}
+
+.legal {
+  padding: 132px 0 96px;
+}
+
+.legal__body {
+  max-width: 720px;
+}
+
+.legal h1 {
+  margin-top: 14px;
+  font-family: var(--display);
+  font-size: clamp(32px, 5vw, 48px);
+  line-height: 1.1;
+}
+
+.legal h2 {
+  margin-top: 44px;
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+
+.legal p,
+.legal ul {
+  margin-top: 16px;
+  color: var(--dim);
+}
+
+.legal ul {
+  padding-left: 22px;
+}
+
+.legal li + li {
+  margin-top: 6px;
+}
+
+.legal strong {
+  color: var(--ink);
+}
+
+.legal a {
+  color: var(--brass-light);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.legal code {
+  font-family: var(--data);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.legal .legal__updated {
+  margin-top: 10px;
+  color: var(--faint);
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .legal {
+    padding-top: 104px;
+  }
+}

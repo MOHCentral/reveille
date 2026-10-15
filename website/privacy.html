@@ -1,0 +1,146 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="What Reveille sends, where it goes, and how to turn it off."
+    />
+    <meta name="theme-color" content="#090b0e" />
+    <title>Privacy — Reveille</title>
+    <link rel="icon" href="assets/icon.ico" sizes="any" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-header>
+      <div class="shell header-inner header-inner--simple">
+        <a class="brand" href="./" aria-label="Reveille home">
+          <img class="brand-mark" src="assets/first-light.png" width="38" height="38" alt="" />
+          <span>Reveille</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary">
+          <a href="./">Home</a>
+          <a href="https://github.com/MOHCentral/reveille" rel="noreferrer">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="legal">
+      <article class="shell legal__body">
+        <p class="kicker">Privacy</p>
+        <h1>What Reveille sends, and where.</h1>
+        <p class="legal__updated">Last updated 15 October 2026</p>
+
+        <p>
+          Reveille is a free, open-source launcher maintained by volunteers. It has no accounts and
+          no ads, and it does not sell or share data. This page covers the Reveille desktop app and
+          this website. The command-line tool never sends usage statistics.
+        </p>
+
+        <h2>Usage statistics and crash reports</h2>
+        <p>
+          The desktop app sends anonymous usage statistics and crash reports so we can see where new
+          players get stuck. They are <strong>on by default</strong>. Turn them off in
+          <strong>Settings › Privacy</strong>; from then on nothing more is sent, and the random
+          installation ID described below is deleted.
+        </p>
+        <p>The app records events such as:</p>
+        <ul>
+          <li>the app started, the previous run crashed, or Reveille was updated;</li>
+          <li>a game folder was found, and first-time setup finished;</li>
+          <li>installing OpenMoHAA or Reborn started, finished or failed;</li>
+          <li>the server list loaded or failed, and a server was selected;</li>
+          <li>a map or mod download started, finished or failed;</li>
+          <li>Join was pressed, the game started or failed to start, and how long it ran (under a minute, up to ten minutes, or longer);</li>
+          <li>server admin tools were used (the kind of command only);</li>
+          <li>a server alert was set, shown or used.</li>
+        </ul>
+        <p>
+          Each event carries a random installation ID, a random session ID, the Reveille version,
+          the operating system (Windows or macOS) and a timestamp. The installation ID is created at
+          random on first launch. It is not derived from your hardware, account or files. Failures
+          are reported as short codes such as <code>download_failed</code>; crash reports carry a
+          source file and line, never the error text.
+        </p>
+        <p>
+          Reveille <strong>never</strong> sends player names, server names or addresses, server
+          passwords, CD keys, your Windows username or computer name, folder paths, error messages or
+          your server history.
+        </p>
+        <p>
+          Events go to <a href="https://posthog.com/privacy" rel="noreferrer">PostHog</a>, in its EU
+          region. IP-based location lookup is turned off for every event, and the PostHog project
+          discards client IP addresses. Every event the app can send is defined in one source file,
+          <a href="https://github.com/MOHCentral/reveille/blob/main/crates/reveille-app/src/telemetry/mod.rs" rel="noreferrer"><code>telemetry/mod.rs</code></a>,
+          so anyone can check this list against the code.
+        </p>
+
+        <h2>Services the app talks to</h2>
+        <p>
+          To do its job, Reveille connects to these services. Like any internet connection, each one
+          sees your IP address. Reveille sends them only what the request needs.
+        </p>
+        <ul>
+          <li><strong>333networks master server</strong> (<code>master.333networks.com</code>), for the list of public game servers.</li>
+          <li><strong>Game servers</strong> in that list, which Reveille asks for their status, players and map.</li>
+          <li><strong>moh-db.com</strong>, to find and download maps and mods.</li>
+          <li><strong>A game server's own download list</strong>, when that server publishes one.</li>
+          <li><strong>GitHub</strong>, to check for Reveille updates and to download Reveille, OpenMoHAA and Reborn.</li>
+        </ul>
+
+        <h2>Discord status</h2>
+        <p>
+          If you choose to share it, Reveille tells the Discord app on your computer which game you
+          are playing and the server's name, so your Discord friends can see it. This is off until
+          you turn it on, and it goes only to your local Discord app, which shares it under
+          <a href="https://discord.com/privacy" rel="noreferrer">Discord's privacy policy</a>.
+        </p>
+
+        <h2>On your computer</h2>
+        <p>
+          Your settings, favourite servers and alerts are stored on your computer and are not sent
+          anywhere. Server-admin passwords are kept in your operating system's credential store, not
+          in Reveille's own files.
+        </p>
+
+        <h2>This website</h2>
+        <p>
+          This site is hosted on GitHub Pages, which may log visitors' IP addresses under
+          <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement" rel="noreferrer">GitHub's privacy statement</a>.
+          The page asks the GitHub API for the latest release so it can show the current version.
+          It sets no cookies and has no analytics.
+        </p>
+
+        <h2>Questions and requests</h2>
+        <p>
+          Because the data is anonymous, we cannot link an event to you. To ask a question or make a
+          request about your data, <a href="https://github.com/MOHCentral/reveille/issues">open an issue on GitHub</a>.
+          If this policy changes, the new version will appear on this page with a new date, and the
+          full history is in the
+          <a href="https://github.com/MOHCentral/reveille/commits/main/website/privacy.html" rel="noreferrer">repository</a>.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <a class="brand brand--small" href="./" aria-label="Reveille home">
+          <img class="brand-mark" src="assets/first-light.png" width="30" height="30" alt="" />
+          <span>Reveille</span>
+        </a>
+        <p>Independent community software. Not affiliated with or endorsed by Electronic Arts.</p>
+        <nav aria-label="Footer">
+          <a href="https://github.com/MOHCentral/reveille">Source</a>
+          <a href="https://github.com/MOHCentral/reveille/issues">Issues</a>
+          <a href="https://github.com/MOHCentral/reveille/blob/main/LICENSE">GPL-3.0</a>
+          <a href="privacy.html">Privacy</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
