@@ -37,6 +37,14 @@ unused-allowed-license = "deny"
 [advisories]
 yanked = "deny"
 unmaintained = "workspace"
+# zip 4.6.1 reaches the graph only through tauri-plugin-updater, which extracts on Windows only
+# after the minisign check against our release key, so the archive is never attacker-controlled.
+# Reveille's own archive code is on zip 9. Drop these once the updater moves to zip 9.
+ignore = [
+    { id = "RUSTSEC-2026-0367", reason = "zip 4.6.1 via tauri-plugin-updater; signed input only" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 4.6.1 via tauri-plugin-updater; signed input only" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 4.6.1 via tauri-plugin-updater; signed input only" },
+]
 
 [bans]
 multiple-versions = "deny"
@@ -97,7 +105,7 @@ skip = [
     "winnow@=0.5.40",
     "winnow@=0.7.15",
     "winreg@=0.55.0",
-    "zip@=2.4.2",
+    "zip@=4.6.1",
 ]
 
 [sources]
