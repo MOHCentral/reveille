@@ -95,7 +95,13 @@ pub fn inspect_archive(path: impl AsRef<Path>) -> Result<ArchiveInspection, Arch
                 path: path.to_path_buf(),
                 source,
             })?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|source| ArchiveError::InvalidZip {
+                path: path.to_path_buf(),
+                source,
+            })?
+            .into_owned();
         validate_entry_path(&name)?;
         if entry.is_dir() {
             continue;

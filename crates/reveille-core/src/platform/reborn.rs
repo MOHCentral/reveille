@@ -225,21 +225,22 @@ pub fn inspect_package(
         if entry.is_dir() {
             continue;
         }
+        let entry_name = entry.name().map_err(RebornError::InvalidZip)?.into_owned();
         if entry
             .unix_mode()
             .is_some_and(|mode| mode & 0o170_000 == 0o120_000)
         {
-            return Err(RebornError::UnsafeEntry(entry.name().to_owned()));
+            return Err(RebornError::UnsafeEntry(entry_name));
         }
-        let path = safe_path(entry.name())?;
+        let path = safe_path(&entry_name)?;
         let normalized = path.to_string_lossy().replace('\\', "/");
         let filename = normalized
             .strip_prefix(&prefix)
             .filter(|name| !name.contains('/'))
-            .ok_or_else(|| RebornError::UnexpectedEntry(entry.name().to_owned()))?;
+            .ok_or_else(|| RebornError::UnexpectedEntry(entry_name.clone()))?;
         let key = filename.to_ascii_lowercase();
         if !expected.contains(&key) {
-            return Err(RebornError::UnexpectedEntry(entry.name().to_owned()));
+            return Err(RebornError::UnexpectedEntry(entry_name));
         }
         let mut contents = Vec::new();
         entry

@@ -36,7 +36,7 @@ uuid = { version = "1.24", features = ["serde", "v4", "v7"] }
 walkdir = "2.5"
 zeroize = "1.8"
 winreg = "0.56"
-zip = { version = "2.4", default-features = false, features = ["deflate"] }
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

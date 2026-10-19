@@ -721,18 +721,17 @@ fn inspect_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, OpenMohaaError> {
         if entry.is_dir() {
             continue;
         }
+        let name = entry.name().map_err(OpenMohaaError::InvalidZip)?;
         if entry
             .unix_mode()
             .is_some_and(|mode| mode & 0o170_000 == 0o120_000)
         {
-            return Err(OpenMohaaError::UnsafeArchiveEntry(entry.name().to_owned()));
+            return Err(OpenMohaaError::UnsafeArchiveEntry(name.into_owned()));
         }
-        let path = safe_archive_path(entry.name())?;
+        let path = safe_archive_path(&name)?;
         let key = path.to_string_lossy().to_ascii_lowercase();
         if !seen.insert(key) {
-            return Err(OpenMohaaError::DuplicateArchiveEntry(
-                entry.name().to_owned(),
-            ));
+            return Err(OpenMohaaError::DuplicateArchiveEntry(name.into_owned()));
         }
         #[cfg(unix)]
         let executable = is_known_unix_executable(&path);
@@ -774,7 +773,7 @@ fn extract_archive(bytes: &[u8], staging: &Path) -> Result<(), OpenMohaaError> {
         if entry.is_dir() {
             continue;
         }
-        let relative = safe_archive_path(entry.name())?;
+        let relative = safe_archive_path(&entry.name().map_err(OpenMohaaError::InvalidZip)?)?;
         let target = staging.join(relative);
         let parent = target
             .parent()
