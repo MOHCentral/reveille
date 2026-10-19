@@ -353,7 +353,13 @@ impl MapIndex {
                 path: path.to_path_buf(),
                 source,
             })?;
-            let original = entry.name().to_owned();
+            let original = entry
+                .name()
+                .map_err(|source| Error::Archive {
+                    path: path.to_path_buf(),
+                    source,
+                })?
+                .into_owned();
             let Some((name, display_name)) = normalized_bsp_path(&original) else {
                 continue;
             };
