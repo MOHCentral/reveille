@@ -48,9 +48,7 @@ fn chosen_folder(selected_path: Option<String>) -> Option<String> {
 
 fn find_install(chosen: Option<String>) -> Result<Option<Installation>, String> {
     if let Some(path) = chosen {
-        return install::identify(path)
-            .map(Some)
-            .map_err(|error| error.to_string());
+        return install::identify_selected(path).map_err(|error| error.to_string());
     }
     let mut roots = Vec::new();
     #[cfg(windows)]

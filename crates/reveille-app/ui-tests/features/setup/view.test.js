@@ -241,3 +241,25 @@ test("a saved folder that lost the session's game offers to apply the game it st
 
   assert.deepEqual(applied, [{ install: shrunk, engine: "original", game: "allied_assault" }]);
 });
+
+test("a typed folder with no game says so instead of calling it unreadable", async () => {
+  answer();
+  bridge.results.detect_install = () => null;
+  store.state.install = null;
+  store.state.rememberedInstall = null;
+  const root = document.createElement("div");
+  setupView(root, fakeDialog(), { onReady() {}, onApply() {}, onUpdate() {}, onReportBug() {} }).detect();
+  await settle();
+  bridge.calls.length = 0;
+
+  const input = nodes(root).find((node) => node.tagName === "INPUT" && node.id === "install-path");
+  input.dispatch("input", { target: { value: "C:\\Users\\Player\\Desktop" } });
+  button(root, /^Use$/u).dispatch("click");
+  await settle();
+
+  const text = textOf(root);
+  assert.match(text, /That folder holds no Medal of Honor game files/u);
+  assert.doesNotMatch(text, /could not be read|data directory/u);
+  const tracked = bridge.calls.filter((call) => call.command === "track_event").map((call) => call.args.event);
+  assert.deepEqual(tracked, [{ event: "setup_folder_rejected", method: "typed", reason: "not_a_game" }]);
+});
