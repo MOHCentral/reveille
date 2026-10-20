@@ -236,6 +236,49 @@ pub fn identify(path: impl AsRef<Path>) -> Result<Installation, Error> {
     })
 }
 
+/// Identify the folder a player picked, allowing for a pick one level off the game root.
+///
+/// Players often pick `main` itself, or the folder that holds the game folder. A data directory
+/// resolves to the folder above it; otherwise a single child holding a data directory is taken.
+/// Two such children are ambiguous, so neither is guessed.
+///
+/// `Ok(None)` means no game is there, which is the player's answer to correct, not a failure.
+///
+/// # Errors
+///
+/// Returns an error when the path is not a directory, a folder cannot be read, or the game found
+/// is an incomplete copy.
+pub fn identify_selected(path: impl AsRef<Path>) -> Result<Option<Installation>, Error> {
+    let root = match identify(path) {
+        Err(Error::NoDataDirectories(root)) => root,
+        found => return found.map(Some),
+    };
+    let is_data_directory = root.file_name().is_some_and(|name| {
+        Product::ALL
+            .iter()
+            .any(|product| name.eq_ignore_ascii_case(product.data_directory()))
+    });
+    if is_data_directory && let Some(parent) = root.parent() {
+        return identify(parent).map(Some);
+    }
+    let entries = std::fs::read_dir(&root).map_err(|source| Error::Io {
+        path: root.clone(),
+        source,
+    })?;
+    let mut candidates = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|child| {
+            Product::ALL
+                .iter()
+                .any(|product| child.join(product.data_directory()).is_dir())
+        });
+    match (candidates.next(), candidates.next()) {
+        (Some(child), None) => identify(child).map(Some),
+        _ => Ok(None),
+    }
+}
+
 fn known_version(hash: &str) -> Option<&'static str> {
     KNOWN_BINARY_VERSIONS
         .iter()
@@ -269,7 +312,10 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{Error, IdentificationMethod, Product, TargetGame, identify, known_version};
+    use super::{
+        Error, IdentificationMethod, Product, TargetGame, identify, identify_selected,
+        known_version,
+    };
 
     #[test]
     fn identifies_products_and_exposes_an_unknown_binary_hash() {
@@ -351,6 +397,88 @@ mod tests {
         assert!(matches!(
             identify(temporary.path()),
             Err(Error::NoDataDirectories(_))
+        ));
+    }
+
+    #[test]
+    fn a_picked_folder_without_a_game_is_no_game_rather_than_an_error() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir(temporary.path().join("Screenshots")).expect("unrelated directory");
+
+        assert!(
+            identify_selected(temporary.path())
+                .expect("readable folder")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn picking_a_data_directory_selects_the_game_folder_above_it() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir(temporary.path().join("main")).expect("main directory");
+        fs::create_dir(temporary.path().join("mainta")).expect("mainta directory");
+
+        for picked in ["main", "mainta"] {
+            let install = identify_selected(temporary.path().join(picked))
+                .expect("identify install")
+                .expect("game found above the pick");
+            assert_eq!(
+                install.root,
+                temporary.path().canonicalize().expect("canonical root")
+            );
+        }
+    }
+
+    #[test]
+    fn picking_the_folder_that_holds_the_game_selects_the_game_inside() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let game = temporary.path().join("MOHAA");
+        fs::create_dir_all(game.join("main")).expect("main directory");
+        fs::create_dir(temporary.path().join("Other game")).expect("unrelated directory");
+
+        let install = identify_selected(temporary.path())
+            .expect("identify install")
+            .expect("game found below the pick");
+        assert_eq!(install.root, game.canonicalize().expect("canonical root"));
+    }
+
+    #[test]
+    fn two_games_below_the_pick_are_not_guessed_between() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir_all(temporary.path().join("MOHAA/main")).expect("first game");
+        fs::create_dir_all(temporary.path().join("MOHAA copy/main")).expect("second game");
+
+        assert!(
+            identify_selected(temporary.path())
+                .expect("readable folder")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_picked_game_folder_is_identified_where_it_is() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir(temporary.path().join("main")).expect("main directory");
+        fs::create_dir_all(temporary.path().join("backup/main")).expect("nested copy");
+
+        let install = identify_selected(temporary.path())
+            .expect("identify install")
+            .expect("game found at the pick");
+        assert_eq!(
+            install.root,
+            temporary.path().canonicalize().expect("canonical root")
+        );
+    }
+
+    #[test]
+    fn a_picked_incomplete_copy_stays_an_error() {
+        let temporary = TempDir::new().expect("temporary directory");
+        fs::create_dir(temporary.path().join("main")).expect("main directory");
+        fs::write(temporary.path().join(super::INCOMPLETE_COPY_MARKER), b"").expect("marker");
+
+        assert!(matches!(
+            identify_selected(temporary.path()),
+            Err(Error::IncompleteCopy(_))
         ));
     }
 
