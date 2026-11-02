@@ -60,7 +60,7 @@ jobs:
       # means the log says which toolchain the run used, and it is why no workflow here names a
       # Rust version of its own.
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: just ci-portable
 
   # Repository-wide source policy: SPDX headers (rule L2), the no-elevation scan (rule S3), the
@@ -108,7 +108,7 @@ jobs:
         with:
           node-version-file: .node-version
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: just ci-windows
 
   # The supported Mac host. GitHub's standard macos-14 image is an Apple Silicon M1 runner. The
@@ -128,7 +128,7 @@ jobs:
         with:
           node-version-file: .node-version
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: just ci-macos
 
   # Compile and run the same workspace on the other half of the universal binary.
@@ -143,5 +143,5 @@ jobs:
         with:
           just-version: 1.58.0
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: just ci-macos-intel
