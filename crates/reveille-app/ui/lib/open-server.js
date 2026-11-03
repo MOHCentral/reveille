@@ -20,6 +20,11 @@ export function openServerUnavailableReason(game) {
   return null;
 }
 
+/** A server found by its address alone may not have said its name. */
+function named(hostname, address) {
+  return hostname ? `${hostname} (${address})` : address;
+}
+
 /**
  * `resume()` retries a request that had to wait for a sweep or a join to end; the shell calls it on
  * every render.
@@ -59,7 +64,7 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
     try {
       if (!state.install || !playableGames(state.install).includes(game)) {
         openDialog("Server unavailable", el("p", null,
-          `${hostname} (${address}) requires ${GAME_LABELS[game]}.`));
+          `${named(hostname, address)} requires ${GAME_LABELS[game]}.`));
         return;
       }
       if (state.game !== game) await selectGame(game);
@@ -75,7 +80,7 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
         select(address, source);
         if (pending.join && occupancy(checked.server).clients === 0) {
           openDialog("No players right now", el("p", null,
-            `${hostname} has no players right now. It is selected in the list if you still want to join.`));
+            `${hostname || address} has no players right now. It is selected in the list if you still want to join.`));
         } else if (pending.join) {
           // Join goes through the same path as a double-click, so a server that needs downloads
           // stops on its priced button rather than fetching anything.
@@ -83,7 +88,7 @@ export function openServerWorkflow({ selectGame, browseFinished, check, reveal, 
         }
       } else {
         openDialog("Server unavailable", el("p", null,
-          `${hostname} (${address}) is no longer answering.`));
+          `${named(hostname, address)} is no longer answering.`));
       }
     } finally {
       opening = false;

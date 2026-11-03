@@ -38,6 +38,7 @@ import { aboutSettingsSection } from "./features/self-update/settings-section.js
 import { initial as serversState } from "./features/servers/index.js";
 import { browse } from "./features/servers/browse.js";
 import { checks } from "./features/servers/check.js";
+import { openFindByAddress } from "./features/servers/address-dialog.js";
 import { serverListSettingsSection } from "./features/servers/settings-section.js";
 import {
   setStartAtLogin,
@@ -134,6 +135,7 @@ const servers = serversView({
   onToggleDetail: toggleDetail,
   onRunServer: runServer,
   runsServer: (address) => state.admin.servers.some((server) => server.address === address),
+  onFindByAddress: () => findByAddress(),
 });
 const join = joinView($("#detail-slot"), {
   onInstallServerFiles: getServerFiles,
@@ -411,6 +413,21 @@ function joinServer(row) {
   });
 }
 
+/** Find a server by an address the player typed or pasted, then select it as an alert's Show does. */
+function findByAddress(text = "") {
+  openFindByAddress({
+    text,
+    onFound: (server) =>
+      intents.openServer({
+        game: server.game ?? state.game,
+        address: server.address,
+        queryPort: server.query_port,
+        hostname: server.hostname,
+        source: "address",
+      }),
+  });
+}
+
 function toggleDetail() {
   update((next) => (next.detailCollapsed = !next.detailCollapsed));
   saveFilters();
@@ -660,6 +677,22 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     recheck(row);
   }
+});
+
+// Pasting onto the list is asking for that server. Only the paste event carries the clipboard
+// without a permission prompt, and only a paste the player made reaches it.
+document.addEventListener("paste", (event) => {
+  if (!state.install || activeSection().id !== "servers") return;
+  const target = event.target;
+  const typing =
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target?.isContentEditable === true ||
+    Boolean(target?.closest?.("dialog[open], .popover"));
+  const text = event.clipboardData?.getData("text/plain")?.trim();
+  if (typing || !text) return;
+  event.preventDefault();
+  findByAddress(text);
 });
 
 /* Boot ---------------------------------------------------------------------- */

@@ -2,9 +2,10 @@
 
 [[set]]
 identifier = "servers"
-description = "Browse the master list and check single servers."
+description = "Browse the master list, check single servers and find one by its address."
 permissions = [
   "allow-browse-servers",
   "allow-cancel-browse",
   "allow-check-server",
+  "allow-locate-server",
 ]

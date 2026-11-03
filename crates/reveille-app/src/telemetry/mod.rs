@@ -355,6 +355,8 @@ pub enum JoinSource {
     /// A notification, a pop-up or the bell.
     Alert,
     MapsAndMods,
+    /// Found by an address the player typed or pasted.
+    Address,
 }
 
 /// What a finished engine install did to the game folder.

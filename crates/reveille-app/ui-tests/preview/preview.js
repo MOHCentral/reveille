@@ -53,6 +53,14 @@ const RESULTS = {
     row: browsePayload().servers.find((row) => row.address === address) ?? null,
     non_result: { stage: "status", reason: "timeout" },
   }),
+  // Any address finds the first listed server; "nowhere" finds nothing.
+  locate_server: ({ address }) => {
+    if (address.includes("nowhere")) {
+      return Promise.reject(`Nothing answered at ${address}. The server may be off or restarting, or the address may be wrong.`);
+    }
+    const row = browsePayload().servers[0];
+    return { address: row.address, query_port: row.server.endpoint.query_port, game: "allied_assault", hostname: row.server.hostname };
+  },
   // ?downloading=4301 leaves that map's install running at 62%, so its progress shows.
   browse_catalogue: ({ kind }) => cataloguePage(kind),
   catalogue_played_now: ({ maps }) => playedNow(maps),

@@ -134,6 +134,25 @@ export const checkServer = (session, address, queryPort) =>
   invoke("check_server", { session, address, queryPort });
 
 /**
+ * `LocatedServer` from src/servers/locate.rs.
+ *
+ * @typedef {object} LocatedServer
+ * @property {string} address The game address, the one a join connects to.
+ * @property {number} query_port
+ * @property {GameId | null} game Null when the server does not say.
+ * @property {string | null} hostname
+ */
+
+/**
+ * Read an address the player typed or pasted and find the server behind it. Rejects with a
+ * sentence the player can read: why the text is not an address, or why nothing answered there.
+ *
+ * @param {string} address
+ * @returns {Promise<LocatedServer>}
+ */
+export const locateServer = (address) => invoke("locate_server", { address });
+
+/**
  * `browse_servers` is the one command that rejects with a classified failure rather than a string.
  *
  * `{ kind, detail }`, where `kind` is decided in Rust beside the errors it names — the shell must

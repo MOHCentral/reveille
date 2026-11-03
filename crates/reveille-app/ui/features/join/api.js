@@ -36,7 +36,7 @@ import { invoke, invokeWithChannel, listen } from "../../lib/bridge.js";
 
 /**
  * Where a join started, matching `JoinSource` in src/telemetry/mod.rs.
- * @typedef {"server_list" | "favorites" | "watching" | "history" | "alert" | "maps_and_mods"} JoinSource
+ * @typedef {"server_list" | "favorites" | "watching" | "history" | "alert" | "maps_and_mods" | "address"} JoinSource
  */
 
 /**

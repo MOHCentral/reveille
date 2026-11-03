@@ -233,3 +233,12 @@ test("a server that stops answering is reported rather than selected", async () 
   assert.equal(title.textContent, "Server unavailable");
   assert.equal(dialog.open, true);
 });
+
+test("a server found by its address alone is named by that address", async () => {
+  ready();
+  const { flow } = workflow();
+  flow.openServer(target("c:1", { game: "breakthrough", hostname: null }));
+  await settle();
+  assert.equal(title.textContent, "Server unavailable");
+  assert.equal(body.children[0].text, "c:1 requires Breakthrough.");
+});

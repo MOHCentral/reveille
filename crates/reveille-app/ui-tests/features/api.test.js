@@ -92,6 +92,11 @@ test("check_server carries the query port the master published, not the game por
   assert.equal(bridge.calls[0].args.queryPort, 12300);
 });
 
+test("locate_server sends the player's text as typed, for Rust to read", async () => {
+  await api.locateServer("  connect 203.0.113.4  ");
+  assert.deepEqual(bridge.calls[0].args, { address: "  connect 203.0.113.4  " });
+});
+
 /* Command names -------------------------------------------------------------*/
 
 test("each wrapper invokes the command it is named for", async () => {
@@ -109,6 +114,7 @@ test("each wrapper invokes the command it is named for", async () => {
     [() => api.pickInstallFolder(), "pick_install_folder"],
     [() => api.checkReveilleUpdate(), "check_reveille_update"],
     [() => api.appLogFiles(), "app_log_files"],
+    [() => api.locateServer("connect 203.0.113.4"), "locate_server"],
     [() => api.adminServers(), "admin_servers"],
     [() => api.addAdminServer("203.0.113.4", "pw"), "add_admin_server"],
     [() => api.removeAdminServer("203.0.113.4:12203"), "remove_admin_server"],

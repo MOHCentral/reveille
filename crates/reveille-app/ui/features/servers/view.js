@@ -169,6 +169,7 @@ export function serversView({
   onToggleDetail,
   onRunServer,
   runsServer,
+  onFindByAddress,
 }) {
   const search = el("input", {
     id: "server-search",
@@ -299,7 +300,19 @@ export function serversView({
     },
     el("span", { className: "toolbar__pane-glyph", "aria-hidden": "true" }),
   );
-  const actionSlot = el("div", { className: "toolbar__action" }, refreshSlot, detailToggle);
+  const findByAddress = el(
+    "button",
+    {
+      type: "button",
+      className: "btn btn--icon",
+      dataset: { focusKey: "find-by-address" },
+      title: "Find a server by its address (or paste the address onto the list)",
+      "aria-label": "Find a server by its address",
+      onclick: () => onFindByAddress(),
+    },
+    icon("link", { outline: true }),
+  );
+  const actionSlot = el("div", { className: "toolbar__action" }, findByAddress, refreshSlot, detailToggle);
   const toolbar = el(
     "div",
     { className: "toolbar" },

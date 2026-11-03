@@ -3,6 +3,7 @@
 pub mod browse;
 pub mod check;
 pub mod failure;
+pub mod locate;
 pub mod remembered;
 
 use std::collections::{HashMap, HashSet};

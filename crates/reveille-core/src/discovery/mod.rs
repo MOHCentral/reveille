@@ -2,13 +2,15 @@
 
 //! Public-server discovery over the `GameSpy` and MOHAA protocols.
 
+mod address;
 mod client;
 mod model;
 mod protocol;
 
+pub use address::{AddressError, DEFAULT_GAME_PORT, Host, ServerReference};
 pub use client::{
-    BrowseConfig, BrowseEvent, DiscoveryError, MasterAddress, RequestError, browse,
-    browse_streaming, browse_streaming_remembering, inspect_endpoint, query_getinfo,
+    BrowseConfig, BrowseEvent, DiscoveryError, Located, MasterAddress, RequestError, browse,
+    browse_streaming, browse_streaming_remembering, inspect_endpoint, locate, query_getinfo,
     query_getstatus,
 };
 pub use model::{

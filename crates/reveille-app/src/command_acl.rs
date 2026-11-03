@@ -34,6 +34,7 @@ const MATRIX: &[(&str, Granted)] = &[
     ("browse_servers", Main),
     ("cancel_browse", Main),
     ("check_server", Main),
+    ("locate_server", Main),
     ("preview_join", Main),
     ("install_server_files", Main),
     ("install_and_launch", Main),

@@ -166,8 +166,8 @@ While it is on, Reveille sends these events to PostHog's EU region:
 - a map or mod download started, finished or failed (which kind of download, map or mod, how
   many, and for a failure the step that failed, such as `download` or `install`), and a package
   was removed (map or mod);
-- Join was pressed (and where from: a server list tab such as Favorites, an alert, or Maps &
-  mods), the game started, or the join failed (with a short reason code such as
+- Join was pressed (and where from: a server list tab such as Favorites, an alert, Maps &
+  mods, or an address you typed — never the address itself), the game started, or the join failed (with a short reason code such as
   `engine_missing` or `download_failed`), and the game closed (whether it ran under a minute, up
   to ten minutes, or longer);
 - in Admin, a server was added or could not be (with the kind of failure, such as

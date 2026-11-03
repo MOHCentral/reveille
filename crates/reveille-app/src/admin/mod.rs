@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::net::SocketAddrV4;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use reveille_core::discovery::{GamePort, query_getstatus};
+use reveille_core::discovery::{AddressError, GamePort, ServerReference, query_getstatus};
 use reveille_core::rcon::{
     ChatText, ClientSlot, CvarName, InvalidValue, MapName, RawCommand, RconAction, RconClient,
     RconEngine, RconError, RconPassword, RconPlayer, ReplyError, Rotation,
@@ -27,9 +27,6 @@ use crate::servers::PROBE_TIMEOUT;
 use crate::telemetry::{AdminActionKind, Event, Telemetry};
 use list::{AdminList, AdminServer};
 use vault::VaultKind;
-
-/// The port a MOHAA server listens on when none is given (`net_ip.c`'s `PORT_SERVER`).
-const DEFAULT_PORT: u16 = 12203;
 
 /// The servers added, and a console for each one whose password this run has.
 pub struct Admin {
@@ -453,40 +450,15 @@ impl Admin {
     }
 }
 
-/// `ip`, `ip:port`, `host` or `host:port`, as the player would type it, to one IPv4 address.
+/// An address as the player would type or paste it, to one IPv4 address.
 async fn resolve(input: &str) -> Result<SocketAddrV4, AdminFailure> {
-    let input = input.trim();
-    let unknown = || {
-        AdminFailure::new(
-            FailureReason::UnknownServer,
-            format!("Reveille could not find a server at {input}."),
-        )
-    };
-    if input.is_empty() {
-        return Err(AdminFailure::new(
-            FailureReason::UnknownServer,
-            "Enter the server's address.",
-        ));
-    }
-    let with_port = if input
-        .rsplit_once(':')
-        .is_some_and(|(_, port)| port.parse::<u16>().is_ok())
-    {
-        input.to_owned()
-    } else {
-        format!("{input}:{DEFAULT_PORT}")
-    };
-    if let Ok(address) = with_port.parse::<SocketAddrV4>() {
-        return Ok(address);
-    }
-    tokio::net::lookup_host(&with_port)
+    let failure =
+        |error: AddressError| AdminFailure::new(FailureReason::UnknownServer, error.to_string());
+    ServerReference::parse(input)
+        .map_err(failure)?
+        .resolve()
         .await
-        .map_err(|_| unknown())?
-        .find_map(|address| match address {
-            std::net::SocketAddr::V4(address) => Some(address),
-            std::net::SocketAddr::V6(_) => None,
-        })
-        .ok_or_else(unknown)
+        .map_err(failure)
 }
 
 #[cfg(test)]

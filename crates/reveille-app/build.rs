@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "browse_servers",
     "cancel_browse",
     "check_server",
+    "locate_server",
     // join
     "preview_join",
     "install_server_files",

@@ -64,9 +64,7 @@ fn main() {
         // First, so a second launch hands over before any other plugin starts. Clicking a Windows
         // toast launches Reveille again, which is how a hidden window comes back.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if !args.iter().any(|arg| arg == autostart::BACKGROUND_ARG) {
-                tray::show_main(app);
-            }
+            on_second_launch(app, &args);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -120,6 +118,7 @@ fn main() {
             servers::browse::browse_servers,
             servers::browse::cancel_browse,
             servers::check::check_server,
+            servers::locate::locate_server,
             // join
             join::preview_join,
             join::content::install_server_files,
@@ -168,6 +167,13 @@ fn main() {
         ])
         .run(context())
         .expect("error while running Reveille");
+}
+
+/// A second launch hands its arguments to this instance and exits.
+fn on_second_launch(app: &tauri::AppHandle, args: &[String]) {
+    if !args.iter().any(|arg| arg == autostart::BACKGROUND_ARG) {
+        tray::show_main(app);
+    }
 }
 
 /// The one expansion of `generate_context!`: on macOS each one defines the same Info.plist

@@ -21,3 +21,8 @@ export function closeDialog() {
   const dialog = $("#info-dialog");
   if (dialog.open) dialog.close();
 }
+
+/** Whether the dialog is open and still showing `node`, which another caller may have replaced. */
+export function dialogShows(node) {
+  return $("#info-dialog").open && $("#info-dialog-body").contains(node);
+}

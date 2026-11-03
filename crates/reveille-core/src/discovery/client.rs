@@ -18,7 +18,7 @@ use tokio::time::timeout;
 use super::model::{
     BotsReported, BrowseReport, ClientCapacity, ClientsReported, DownloadFlags, GamePort,
     JoinWindowSeconds, MasterEndpoint, NonResult, NonResultReason, PingMillis, Player,
-    ProbeOutcome, ProbeStage, ReportedOccupancy, ReservedSlots, RoundTripMillis, Server,
+    ProbeOutcome, ProbeStage, QueryPort, ReportedOccupancy, ReservedSlots, RoundTripMillis, Server,
     TargetGame,
 };
 use super::protocol::{
@@ -292,6 +292,100 @@ fn record_duplicate_game_endpoints(outcomes: &mut [ProbeOutcome]) {
 /// endpoint failing is information about that endpoint.
 pub async fn inspect_endpoint(endpoint: MasterEndpoint, deadline: Duration) -> ProbeOutcome {
     probe_server(endpoint, deadline).await
+}
+
+// sv_gamespy.c:66 starts the query port at 12300 whatever the game port is, and
+// sv_gqueryreporting.c:243 walks up from it past ports already taken, up to
+// sv_gqueryreporting.h:63's 100. Eight covers a host running eight servers on the defaults.
+const DEFAULT_QUERY_PORT: u16 = 12_300;
+const QUERY_PORT_SPAN: u16 = 8;
+// 12300 − 12203. Admins who set `net_gamespy_port` by hand mostly keep the default pair's distance.
+const QUERY_PORT_OFFSET: u16 = 97;
+
+/// What asking a game address directly found.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Located {
+    /// A query port answered and named this game port as its own.
+    Found {
+        endpoint: MasterEndpoint,
+        game: Option<TargetGame>,
+        hostname: Option<String>,
+    },
+    /// The game port answers `getstatus`, but no query port Reveille tried claims it.
+    NoQueryPort,
+    /// Nothing answered.
+    Silent,
+}
+
+/// Find the `GameSpy` query port behind a game address a player typed.
+///
+/// A master hands over the query port; a pasted address has only the game port, and every check
+/// and join after this one starts from a [`MasterEndpoint`]. The likely ports are asked at once,
+/// and the game port is asked `getstatus` alongside them so a server that answers there but hides
+/// its query port is told apart from one that is down.
+pub async fn locate(address: SocketAddrV4, deadline: Duration) -> Located {
+    locate_among(address, &query_port_candidates(address.port()), deadline).await
+}
+
+fn query_port_candidates(game_port: u16) -> Vec<u16> {
+    let mut ports = Vec::new();
+    ports.extend(game_port.checked_add(QUERY_PORT_OFFSET));
+    ports.extend(DEFAULT_QUERY_PORT..DEFAULT_QUERY_PORT + QUERY_PORT_SPAN);
+    let mut seen = HashSet::new();
+    ports.retain(|port| *port != game_port && seen.insert(*port));
+    ports
+}
+
+enum LocateReply {
+    Query(MasterEndpoint, FieldMap),
+    Status,
+}
+
+async fn locate_among(address: SocketAddrV4, ports: &[u16], deadline: Duration) -> Located {
+    let mut tasks = JoinSet::new();
+    for port in ports {
+        let endpoint = MasterEndpoint {
+            address: *address.ip(),
+            query_port: QueryPort::new(*port),
+        };
+        tasks.spawn(async move {
+            query_gamespy_status(endpoint, deadline)
+                .await
+                .ok()
+                .map(|fields| LocateReply::Query(endpoint, fields))
+        });
+    }
+    let game_port = GamePort::new(address.port());
+    tasks.spawn(async move {
+        query_getstatus(*address.ip(), game_port, deadline)
+            .await
+            .ok()
+            .map(|_| LocateReply::Status)
+    });
+
+    let mut answers_status = false;
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Some(LocateReply::Query(endpoint, fields)))
+                if game_port_from_gamespy(&fields) == Ok(game_port) =>
+            {
+                return Located::Found {
+                    endpoint,
+                    game: fields
+                        .get("gamename")
+                        .and_then(|name| TargetGame::from_game_name(name)),
+                    hostname: nonempty(&fields, "hostname"),
+                };
+            }
+            Ok(Some(LocateReply::Status)) => answers_status = true,
+            _ => {}
+        }
+    }
+    if answers_status {
+        Located::NoQueryPort
+    } else {
+        Located::Silent
+    }
 }
 
 /// Send MOHAA `getstatus` with the required five-byte directional header.
@@ -1033,5 +1127,118 @@ mod tests {
             round_trip_millis(std::time::Duration::from_hours(2400)),
             RoundTripMillis::new(u32::MAX)
         );
+    }
+}
+
+#[cfg(test)]
+mod locate_tests {
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    use std::time::Duration;
+
+    use tokio::net::UdpSocket;
+
+    use super::{Located, locate_among, query_port_candidates};
+    use crate::discovery::{MasterEndpoint, OOB_RECV_HEADER, QueryPort, TargetGame};
+
+    const DEADLINE: Duration = Duration::from_millis(400);
+
+    async fn bind() -> (UdpSocket, u16) {
+        let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
+            .await
+            .expect("loopback socket");
+        let port = socket.local_addr().expect("local address").port();
+        (socket, port)
+    }
+
+    async fn reply(socket: UdpSocket, body: Vec<u8>) {
+        let mut request = [0_u8; 512];
+        if let Ok((_, from)) = socket.recv_from(&mut request).await {
+            socket.send_to(&body, from).await.expect("reply");
+        }
+    }
+
+    fn gamespy(hostport: u16) -> Vec<u8> {
+        format!("\\gamename\\mohaas\\hostname\\Friday Night\\hostport\\{hostport}\\final\\")
+            .into_bytes()
+    }
+
+    fn status() -> Vec<u8> {
+        let mut body = OOB_RECV_HEADER.to_vec();
+        body.extend_from_slice(b"statusResponse\n\\sv_hostname\\Friday Night\n");
+        body
+    }
+
+    #[test]
+    fn asks_the_default_query_ports_and_the_one_that_keeps_the_default_distance() {
+        assert_eq!(
+            query_port_candidates(12_204),
+            [
+                12_301, 12_300, 12_302, 12_303, 12_304, 12_305, 12_306, 12_307
+            ]
+        );
+        // The default pair is asked once.
+        assert_eq!(query_port_candidates(12_203).len(), 8);
+        assert!(
+            query_port_candidates(u16::MAX)
+                .iter()
+                .all(|port| *port >= 12_300)
+        );
+    }
+
+    #[tokio::test]
+    async fn finds_the_query_port_that_claims_this_game_port() {
+        let (game, game_port) = bind().await;
+        let (neighbour, neighbour_port) = bind().await;
+        let (own, own_port) = bind().await;
+        // Another server on the same host answers too; only the one naming this game port counts.
+        tokio::spawn(reply(neighbour, gamespy(game_port.wrapping_add(1))));
+        tokio::spawn(reply(own, gamespy(game_port)));
+        tokio::spawn(reply(game, status()));
+
+        let located = locate_among(
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, game_port),
+            &[neighbour_port, own_port],
+            DEADLINE,
+        )
+        .await;
+
+        assert_eq!(
+            located,
+            Located::Found {
+                endpoint: MasterEndpoint {
+                    address: Ipv4Addr::LOCALHOST,
+                    query_port: QueryPort::new(own_port),
+                },
+                game: Some(TargetGame::Spearhead),
+                hostname: Some("Friday Night".to_owned()),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_that_answers_only_on_its_game_port_is_told_apart_from_a_silent_one() {
+        let (game, game_port) = bind().await;
+        let (quiet, quiet_port) = bind().await;
+        tokio::spawn(reply(game, status()));
+
+        let located = locate_among(
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, game_port),
+            &[quiet_port],
+            DEADLINE,
+        )
+        .await;
+        assert_eq!(located, Located::NoQueryPort);
+        drop(quiet);
+
+        let (silent, silent_port) = bind().await;
+        let (also_silent, also_silent_port) = bind().await;
+        let located = locate_among(
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, silent_port),
+            &[also_silent_port],
+            DEADLINE,
+        )
+        .await;
+        assert_eq!(located, Located::Silent);
+        drop((silent, also_silent));
     }
 }

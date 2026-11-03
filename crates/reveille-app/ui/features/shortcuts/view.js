@@ -26,6 +26,7 @@ export const SHORTCUTS = [
       [["Ctrl", "F"], "Search (or /)"],
       [["Esc"], "Clear the search"],
       [["F5"], "Refresh the list (or Ctrl+R)"],
+      [["Ctrl", "V"], "Find a server by a pasted address"],
     ],
   },
   {
