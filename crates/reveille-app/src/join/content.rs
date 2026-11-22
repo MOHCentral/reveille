@@ -537,7 +537,7 @@ mod tests {
         CatalogueNonResultReason, ContentHost, InstallPhase, InstallProgress, PreviewHost,
         apply_server_files, build_preview, catalogue_reason, shopping_list_will_write,
     };
-    use crate::telemetry::Telemetry;
+    use crate::telemetry::{MapDownloadError, Telemetry};
 
     fn catalogue_candidate(id: u64) -> CatalogueCandidate {
         CatalogueCandidate {
@@ -693,13 +693,14 @@ mod tests {
 
     /// Serve a `pr_downloads` manifest and its one package on loopback, so the `PakRadar` stage runs
     /// its real HTTP path without leaving the machine.
-    async fn serve_server_files(package: Vec<u8>) -> String {
+    async fn serve_server_files(filename: &str, package: Vec<u8>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let base = format!("http://{}", listener.local_addr().expect("address"));
         let manifest = format!(
-            "map {{\n  alias \"Custom pack\"\n  md5 \"{:x}\"\n  url \"{base}/custom.pk3\"\n}}\n",
+            "map {{\n  alias \"Custom pack\"\n  md5 \"{:x}\"\n  url \"{base}/{filename}\"\n}}\n",
             Md5::digest(&package)
         );
+        let package_request = format!("GET /{filename} ");
         tokio::spawn(async move {
             loop {
                 let Ok((mut stream, _)) = listener.accept().await else {
@@ -708,7 +709,7 @@ mod tests {
                 let mut request = vec![0; 4096];
                 let read = stream.read(&mut request).await.expect("request");
                 let request = String::from_utf8_lossy(&request[..read]);
-                let body = if request.starts_with("GET /custom.pk3 ") {
+                let body = if request.starts_with(&package_request) {
                     package.clone()
                 } else {
                     manifest.clone().into_bytes()
@@ -757,7 +758,7 @@ mod tests {
     #[tokio::test]
     async fn server_packages_are_applied_and_rescanned_before_mohdb_is_priced() {
         let fixture = Fixture::new();
-        let server = server(serve_server_files(package("dm/custom")).await);
+        let server = server(serve_server_files("custom.pk3", package("dm/custom")).await);
 
         // While the server's own package is pending, nothing is priced: moh-db could only be asked
         // for a map the server is about to supply.
@@ -792,5 +793,31 @@ mod tests {
         // The rescan saw the installed package, so only the map the server does not supply is
         // priced, and it is priced once.
         assert_eq!(fixture.priced(), vec![vec!["dm/elsewhere".to_owned()]]);
+    }
+
+    #[tokio::test]
+    async fn a_server_package_named_like_a_retail_pak_is_refused_and_the_pak_is_untouched() {
+        let fixture = Fixture::new();
+        fs::write(fixture.main.join("Pak0.pk3"), b"retail").expect("retail package");
+        let server = server(serve_server_files("Pak0.pk3", package("dm/custom")).await);
+
+        let applied = apply_server_files(&fixture, server)
+            .await
+            .expect("server files applied");
+
+        assert_eq!(applied.failures.len(), 1);
+        assert_eq!(applied.failures[0].map, "Custom pack");
+        assert_eq!(applied.failures[0].error, MapDownloadError::UnsafeArchive);
+        assert_eq!(
+            fs::read(fixture.main.join("Pak0.pk3")).expect("retail package"),
+            b"retail"
+        );
+        assert!(
+            fixture
+                .recorded
+                .lock()
+                .expect("recorded installs")
+                .is_empty()
+        );
     }
 }

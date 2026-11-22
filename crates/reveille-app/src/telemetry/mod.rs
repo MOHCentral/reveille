@@ -175,6 +175,7 @@ impl From<&ArchiveError> for MapDownloadError {
     fn from(error: &ArchiveError) -> Self {
         match error {
             ArchiveError::UnsafeFilename(_)
+            | ArchiveError::StockPackage(_)
             | ArchiveError::InvalidEntryPath { .. }
             | ArchiveError::ForbiddenEntry { .. } => Self::UnsafeArchive,
             ArchiveError::InvalidZip {
