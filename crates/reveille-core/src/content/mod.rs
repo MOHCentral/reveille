@@ -14,7 +14,7 @@ use crate::mapindex::MapKey;
 pub use archive::{
     ArchiveError, ArchiveInspection, ArchiveMap, ConfirmedMap, DownloadedArchive, MohDbIntegrity,
     PakRadarIntegrity, confirm_map, disambiguate_by_checksum, inspect_archive, install_archive,
-    install_verified_archive,
+    install_verified_archive, is_stock_package,
 };
 pub use catalogue::{
     BROWSE_PAGE_SIZE, BrowsePage, CatalogueEntry, CatalogueImage, CatalogueKind, CatalogueQuery,

@@ -263,7 +263,6 @@ fn item_state(
     }
 }
 
-/// Whether the engine loads `map` from the game's own `pakN.pk3` archives.
 /// Whether Reveille installed this entry: from Maps & mods under its id, or by a join, which
 /// records server files under no id, under its file name.
 fn is_recorded(installed: &[InstalledItem], id: u64, filename: &str) -> bool {
@@ -271,22 +270,9 @@ fn is_recorded(installed: &[InstalledItem], id: u64, filename: &str) -> bool {
         || InstallRecord::installed_file(installed, filename).is_some()
 }
 
+/// Whether the engine loads `map` from the game's own `pakN.pk3` archives.
 fn is_stock(map: &Map) -> bool {
-    matches!(map.effective_provider(), Some(Provider::Pk3 { archive, .. }) if is_stock_archive(archive))
-}
-
-fn is_stock_archive(archive: &Path) -> bool {
-    archive
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .and_then(|stem| {
-            stem.get(..3)
-                .filter(|head| head.eq_ignore_ascii_case("pak"))
-                .and_then(|_| stem.get(3..))
-        })
-        .is_some_and(|number| {
-            !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
-        })
+    matches!(map.effective_provider(), Some(Provider::Pk3 { archive, .. }) if content::is_stock_package(archive))
 }
 
 /// moh-db's entry for each custom map in `maps`, the names servers in the list are running. With
@@ -900,7 +886,7 @@ mod tests {
     use super::record::InstalledItem;
     use super::{
         CANCELLED, InstallStep, Installable, base64, install_entry, installed_payload, is_recorded,
-        is_stock_archive, package_names, removable, remove_package, sha256_file, written_item,
+        package_names, removable, remove_package, sha256_file, written_item,
     };
 
     fn package(map: &str) -> Vec<u8> {
@@ -1197,21 +1183,6 @@ mod tests {
 
         let names = package_names(&[main.path().to_path_buf(), main.path().join("missing")]);
         assert_eq!(names, HashSet::from(["snipertown.pk3".to_owned()]));
-    }
-
-    #[test]
-    fn only_the_games_own_numbered_paks_count_as_stock() {
-        for stock in ["main/Pak0.pk3", "mainta/pak1.pk3", "maintt/PAK5.PK3"] {
-            assert!(is_stock_archive(std::path::Path::new(stock)), "{stock}");
-        }
-        for custom in [
-            "main/pak.pk3",
-            "main/pakistan.pk3",
-            "main/user-pak1.pk3",
-            "main/zzz.pk3",
-        ] {
-            assert!(!is_stock_archive(std::path::Path::new(custom)), "{custom}");
-        }
     }
 
     #[test]

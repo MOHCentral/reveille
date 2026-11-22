@@ -14,7 +14,9 @@ use thiserror::Error;
 use tokio::fs::{self, File};
 use tokio::io::AsyncReadExt;
 
-use super::archive::{DownloadedArchive, PakRadarIntegrity, validate_package_filename};
+use super::archive::{
+    ArchiveError, DownloadedArchive, PakRadarIntegrity, is_stock_package, validate_package_filename,
+};
 use crate::retry::{RetryPolicy, transient_status};
 
 // PakRadar manifests are third-party HTTP resources; identify the launcher explicitly.
@@ -78,7 +80,7 @@ impl PakRadarEntry {
     /// # Errors
     ///
     /// Returns an error when the URL is not HTTP(S), has no final path component, or names an
-    /// unsafe package filename.
+    /// unsafe package filename or one of the game's own packages.
     pub fn filename(&self) -> Result<String, PakRadarError> {
         package_filename(&self.url)
     }
@@ -431,6 +433,9 @@ fn package_filename(url: &str) -> Result<String, PakRadarError> {
         .ok_or_else(|| PakRadarError::UnsafeUrl(url.to_owned()))?
         .to_owned();
     validate_package_filename(&filename).map_err(PakRadarError::Archive)?;
+    if is_stock_package(&filename) {
+        return Err(PakRadarError::Archive(ArchiveError::StockPackage(filename)));
+    }
     Ok(filename)
 }
 
@@ -640,6 +645,11 @@ mod tests {
             "Safe.pk3"
         );
         assert!(entry("file:///C:/maps/unsafe.pk3").filename().is_err());
+        assert!(
+            entry("https://example.invalid/Pak0.pk3")
+                .filename()
+                .is_err()
+        );
         assert!(
             entry("https://example.invalid/maps/not-a-package.zip")
                 .filename()

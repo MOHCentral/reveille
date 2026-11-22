@@ -296,13 +296,17 @@ fn existing_package_path(
 ///
 /// # Errors
 ///
-/// Returns an error for unsafe archives, invalid filenames, or destination I/O.
+/// Returns an error for unsafe archives, invalid filenames, one of the game's own packages, or
+/// destination I/O.
 pub fn install_verified_archive(
     archive: &DownloadedArchive<PakRadarIntegrity>,
     game_directory: impl AsRef<Path>,
 ) -> Result<PathBuf, ArchiveError> {
-    inspect_archive(&archive.path)?;
     validate_package_filename(&archive.filename)?;
+    if is_stock_package(&archive.filename) {
+        return Err(ArchiveError::StockPackage(archive.filename.clone()));
+    }
+    inspect_archive(&archive.path)?;
     let game_directory = game_directory.as_ref();
     fs::create_dir_all(game_directory).map_err(|source| ArchiveError::Install {
         path: game_directory.to_path_buf(),
@@ -334,6 +338,26 @@ pub fn install_verified_archive(
             source: error.error,
         })?;
     Ok(target)
+}
+
+/// Whether `path` names one of the game's own numbered packages, such as `main/Pak0.pk3` or
+/// `maintt/pak5.pk3`, whatever its case.
+///
+/// The server that publishes a package also publishes its MD5, so that checksum cannot vouch for
+/// a replacement of the retail game; any package with this name is refused.
+#[must_use]
+pub fn is_stock_package(path: impl AsRef<Path>) -> bool {
+    path.as_ref()
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| {
+            stem.get(..3)
+                .filter(|head| head.eq_ignore_ascii_case("pak"))
+                .and_then(|_| stem.get(3..))
+        })
+        .is_some_and(|number| {
+            !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 pub(super) fn validate_package_filename(filename: &str) -> Result<(), ArchiveError> {
@@ -386,6 +410,9 @@ pub enum ArchiveError {
     /// The outer package filename is not a single `.pk3` basename.
     #[error("unsafe package filename {0:?}")]
     UnsafeFilename(String),
+    /// The package has the name of one of the game's own numbered packages.
+    #[error("{0} has the name of one of the game's own files, so it was not installed")]
+    StockPackage(String),
     /// The ZIP could not be opened.
     #[error("could not open archive {path}")]
     Open {
@@ -482,7 +509,7 @@ mod tests {
     use super::{
         ArchiveError, ArchiveInspection, ArchiveMap, DownloadedArchive, MohDbIntegrity,
         confirm_map, disambiguate_by_checksum, inspect_archive, install_archive,
-        install_verified_archive, validate_package_filename,
+        install_verified_archive, is_stock_package, validate_package_filename,
     };
     use crate::bsp::Checksum;
 
@@ -623,6 +650,52 @@ mod tests {
         assert_eq!(installed, main.join("SERVER-MAP.PK3"));
         let inspection = inspect_archive(installed).expect("replacement is the staged archive");
         assert_eq!(inspection.maps[0].checksum, Checksum::new(42));
+    }
+
+    #[test]
+    fn only_the_games_own_numbered_paks_count_as_stock() {
+        for stock in [
+            "main/Pak0.pk3",
+            "mainta/pak1.pk3",
+            "maintt/PAK5.PK3",
+            "pak0.pk3",
+        ] {
+            assert!(is_stock_package(stock), "{stock}");
+        }
+        for custom in [
+            "main/pak.pk3",
+            "main/pakistan.pk3",
+            "main/user-pak1.pk3",
+            "main/zzz.pk3",
+        ] {
+            assert!(!is_stock_package(custom), "{custom}");
+        }
+    }
+
+    #[test]
+    fn a_verified_server_package_never_replaces_a_stock_pak() {
+        let temporary = TempDir::new().expect("temporary directory");
+        let staged = temporary.path().join("staging");
+        let main = temporary.path().join("main");
+        std::fs::create_dir_all(&staged).expect("staging directory");
+        std::fs::create_dir_all(&main).expect("game directory");
+        let path = staged.join("Pak0.pk3");
+        write_archive(&path, &[("maps/obj/example.bsp", &bsp(42))]);
+        std::fs::write(main.join("Pak0.pk3"), b"retail").expect("retail package");
+        let download = DownloadedArchive {
+            path,
+            filename: "Pak0.pk3".to_owned(),
+            integrity: super::PakRadarIntegrity::VerifiedMd5("published".to_owned()),
+        };
+
+        assert!(matches!(
+            install_verified_archive(&download, &main),
+            Err(ArchiveError::StockPackage(name)) if name == "Pak0.pk3"
+        ));
+        assert_eq!(
+            std::fs::read(main.join("Pak0.pk3")).expect("retail package"),
+            b"retail"
+        );
     }
 
     #[test]
